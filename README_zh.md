@@ -54,7 +54,7 @@
 
 | 类别 | 风格 | 数量 |
 |------|------|:---:|
-| **vcube2.0（钟成）** | sob-art, ao-shiny, ao-chalky, white-green, white-red, morandi-blue, morandi-green, morandi-orange, morandi-red, vmwfn0, vmwfn1, IQmol | 12 |
+| **vcube2.0（钟成老师）** | sob-art, ao-shiny, ao-chalky, white-green, white-red, morandi-blue, morandi-green, morandi-orange, morandi-red, vmwfn0, vmwfn1, IQmol | 12 |
 | **IboView 风格** | iboview-crystal, iboview-dark, iboview-green-pink, iboview-purple-blue, iboview-cyan-yellow, iboview-orange-teal, iboview-rainbow | 7 |
 | **原创精选** | aurora-teal, midnight-gold, lavender-mint, sunset-fire, ocean-depth, rose-quartz, forest-emerald, neon-cyber, cherry-blossom, graphite-ink, lakers, blood-orange, Gaussview | 13+ |
 
@@ -209,10 +209,10 @@ pyinstaller OrbitalViewer.spec --clean
 OrbitalViewer 站在巨人的肩膀上：
 
 - **[Multiwfn](http://sobereva.com/multiwfn/)** — 卢天老师开发的量子化学波函数分析程序，引用超 4 万篇论文。OrbitalViewer 使用其从 fchk 生成 cube 文件。
-- **[vcube2.0](https://github.com/Zhong-Cheng-2020/vcube2.0)** — 钟成提供的 11 套精美 VMD 轨道渲染配置，大部分内置风格来自 vcube2.0。
+- **[vcube2.0](https://github.com/Zhong-Cheng-2020/vcube2.0)** — 钟成老师提供的 11 套精美 VMD 轨道渲染配置，大部分内置风格来自 vcube2.0。
 - **[VMD](https://www.ks.uiuc.edu/Research/vmd/)** — Humphrey, W., Dalke, A. and Schulten, K., "VMD: Visual Molecular Dynamics", J. Molec. Graphics, 1996, 14, 33–38.
 - **[Tachyon](http://jedi.ks.uiuc.edu/~johns/raytracer/)** — Stone, J. E., "An Efficient Library for Parallel Ray Tracing and Animation", M.Sc. Thesis, 1998.
-- **虚线绘制** — 来自 KeinSci 论坛 Eming 的 `draw_bond` Tcl 脚本。
+- **虚线绘制** — 来自 KeinSci 论坛 Eming 老师的 `draw_bond` Tcl 脚本。
 - **[IboView](https://www.iboview.org)** — Gerald Knizia 开发的量子化学可视化程序。本项目的 OpenGL 渲染引擎（深度剥离透明合成、三向 Phong 光照、球棍模型几何与原子半径/颜色表）参考并部分移植自 IboView（Copyright (c) 2015 Gerald Knizia, GPLv3），特此致谢。
 
 ---
