@@ -19,8 +19,8 @@ def tr(key, **fmt):
 TR = {
     # ── Window title ──
     "win_title": {
-        "zh": "轨道等值面可视化 v5.3 — Multiwfn + VMD/Tachyon [PyQt 中文版]",
-        "en": "Orbital Isosurface Visualization v5.3 — Multiwfn + VMD/Tachyon [PyQt]"
+        "zh": "轨道等值面可视化 v6.0 — Multiwfn + VMD/Tachyon [PyQt 中文版]",
+        "en": "Orbital Isosurface Visualization v6.0 — Multiwfn + VMD/Tachyon [PyQt]"
     },
     # ── Header ──
     "title_label": {
@@ -28,8 +28,8 @@ TR = {
         "en": "◆  ORBITAL ISOSURFACE VISUALIZATION  ◆"
     },
     "subtitle_label": {
-        "zh": "Multiwfn + VMD + Tachyon  |  v5.3 PyQt 中文版",
-        "en": "Multiwfn + VMD + Tachyon  |  v5.3 PyQt Edition"
+        "zh": "Multiwfn + VMD + Tachyon  |  v6.0 PyQt 中文版",
+        "en": "Multiwfn + VMD + Tachyon  |  v6.0 PyQt Edition"
     },
     # ── Language button ──
     "lang_btn": {"zh": "EN", "en": "中"},
@@ -54,7 +54,7 @@ TR = {
     "btn_reset_view": {"zh": "重置视角", "en": "Reset View"},
     # ── Tab titles ──
     "tab_setup": {"zh": "📁  轨道绘制", "en": "📁  Orbital Draw"},
-    "tab_style": {"zh": "🎨  样式设置", "en": "🎨  Style Settings"},
+    "tab_style": {"zh": "VMD 渲染", "en": "VMD Render"},
     "tab_paths": {"zh": "⚙️  路径设置", "en": "⚙️  Path Settings"},
     "tab_preview": {"zh": "▶️  预览运行", "en": "▶️  Preview"},
     "tab_tools": {"zh": "🛠️  工具", "en": "🛠️  Tools"},
@@ -106,7 +106,8 @@ TR = {
     },
     "orbital_rules_btn": {"zh": "轨道编号规则", "en": "Orbital Naming Rules"},
     "btn_browse_orbital": {"zh": "浏览轨道", "en": "Browse MOs"},
-    "tab_orbit_hint": {"zh": "双击行启动VMD预览", "en": "Double-click row for VMD preview"},
+    "btn_preview_both": {"zh": "预览", "en": "Preview"},
+    "tab_orbit_hint": {"zh": "双击行在画布中渲染", "en": "Double-click row to render in canvas"},
     "lbl_orbit_hint": {"zh": "双击行可视化", "en": "Double-click row to visualize"},
     # ── Orbital browser dialog ──
     "dlg_orbital_browser": {"zh": "轨道浏览器", "en": "Orbital Browser"},

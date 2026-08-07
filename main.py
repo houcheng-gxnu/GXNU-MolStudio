@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-轨道等值面可视化工具 v5.3 — 入口模块
+轨道等值面可视化工具 v6.0 — 入口模块
 用法:
     python main.py                        # 启动 GUI
     python main.py input.fchk --mo h     # 命令行批处理模式
@@ -22,7 +22,7 @@ def main():
         import fchk_orbital as backend
 
         p = argparse.ArgumentParser(
-            description="Multiwfn + VMD/Tachyon Orbital Isosurface Visualization v5.3")
+            description="Multiwfn + VMD/Tachyon Orbital Isosurface Visualization v6.0")
         p.add_argument("input", help="fchk file or folder")
         p.add_argument("--mo", default="h", help="Orbital (h/l/h-1/number)")
         p.add_argument("--iso", type=float, default=0.05, help="Isosurface threshold")
@@ -57,8 +57,17 @@ def main():
             else:
                 print(f"  Failed")
     else:
-        from PyQt5.QtWidgets import QApplication
-        from PyQt5.QtGui import QColor, QPalette
+        from PyQt5.QtWidgets import QApplication, QSplashScreen
+        from PyQt5.QtGui import QColor, QPalette, QSurfaceFormat
+
+        # 内嵌 QOpenGLWidget 必须在 QApplication 创建前设置默认 GL 格式，
+        # 否则画布拿不到 3.3 Core Profile 上下文。
+        _fmt = QSurfaceFormat()
+        _fmt.setSamples(0)
+        _fmt.setDepthBufferSize(24)
+        _fmt.setVersion(3, 3)
+        _fmt.setProfile(QSurfaceFormat.CoreProfile)
+        QSurfaceFormat.setDefaultFormat(_fmt)
 
         app = QApplication(sys.argv)
         app.setStyle("Fusion")
@@ -67,10 +76,25 @@ def main():
         tip_pal.setColor(QPalette.ToolTipBase, QColor("#FFFFFF"))
         tip_pal.setColor(QPalette.ToolTipText, QColor("#2C3E50"))
         app.setPalette(tip_pal)
+
+        # Splash screen: covers the brief blank/empty window that appears while
+        # the bootloader + Qt layout + GL context are initialising, so the user
+        # never sees the small-to-large window flash.
+        from PyQt5.QtCore import Qt
+        from PyQt5.QtGui import QPixmap
+        splash_pix = QPixmap(480, 300)
+        splash_pix.fill(QColor("#1B2A3A"))
+        splash = QSplashScreen(splash_pix, Qt.WindowStaysOnTopHint)
+        splash.show()
+        app.processEvents()
+
         window = OrbitalVisApp()
+        # Fix the final geometry before the first paint so no tiny placeholder
+        # frame is ever shown.
+        window.resize(1400, 820)
+        window.ensurePolished()
         window.show()
-        # 强制立即渲染窗口框架，然后 QTimer 会触发 _deferred_init
-        QApplication.processEvents()
+        splash.finish(window)
         sys.exit(app.exec_())
 
 

@@ -4,6 +4,17 @@ All notable changes to OrbitalViewer will be documented in this file.
 
 ---
 
+## [6.0] — 2026-08
+
+### Added
+- 全新内置 OpenGL 渲染引擎（深度剥离透明排序），接入 IboView 风格 Phong 光照着色器，轨道等值面与球棍模型实时高质量渲染，无需依赖 VMD/Tachyon 即可预览
+- 画布参数面板：可调等值面正/负相颜色、透明度、键收腰、原子/键缩放等
+- 塑料/亮面（plastic-bright）等新增材质样式
+- 高清图片导出，支持透明背景
+
+### Changed
+- 版本号升级至 6.0，标志 IboView 风格引擎正式并入
+
 ## [5.3] — 2026-07
 
 ### Added

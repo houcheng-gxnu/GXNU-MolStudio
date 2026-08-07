@@ -36,6 +36,20 @@ from molcanvas import (
     get_atoms_from_cube, get_bonds_from_cube,
 )
 
+# ── OpenGL 渲染器（替代 VMD 预览） ──
+try:
+    from orbital_gl_viewer import OrbitalGLViewer
+    _HAS_GL_VIEWER = True
+except ImportError:
+    _HAS_GL_VIEWER = False
+
+# ── 内嵌 OpenGL cube 画布（左侧面板） ──
+try:
+    from cub_canvas import CubCanvasPanel
+    _HAS_CUB_CANVAS = True
+except Exception:
+    _HAS_CUB_CANVAS = False
+
 # ── 拆分后的模块 ──
 import i18n
 from theme import LIGHT_QSS
@@ -46,23 +60,33 @@ from dialogs import OrbitalBrowserDialog
 
 
 class _PopupLimitedComboBox(QComboBox):
-    """QComboBox 子类，固定下拉弹出窗口高度"""
-    def __init__(self, max_popup_height=180, parent=None):
+    """QComboBox 子类：限制下拉弹出窗口高度，超出部分用滚动条。
+
+    通过 setMaxVisibleItems 控制一次可见的最大条目数，配合始终显示的
+    垂直滚动条，使很长的风格列表也能在固定高度的弹出框里滚动浏览。
+    """
+    def __init__(self, max_popup_height=200, max_visible_items=6, parent=None):
         super().__init__(parent)
         self._popup_height = max_popup_height
 
         view = QListView(self)
         view.setUniformItemSizes(True)
+        # 始终显示垂直滚动条，长列表可滚动；水平方向不出现滚动条
         view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        view.setMinimumHeight(160)
-        view.setMaximumHeight(160)
+        # 直接限制下拉视图本身的最大高度（含图标项也适用），
+        # 这是跨 Qt 版本都可靠的高度限制手段（setMaxVisibleItems 对
+        # 自定义 view 未必生效，故此处显式约束 view 高度）。
+        view.setMaximumHeight(max_popup_height)
         self.setView(view)
 
-        self.setMaxVisibleItems(5)
+        # 一次最多可见的条目数（超出自动滚动）；对自定义 view 不一定
+        # 生效，但作为提示保留。
+        self.setMaxVisibleItems(max_visible_items)
 
     def showPopup(self):
         super().showPopup()
+        # 固定弹出窗口高度，确保超出 max_visible_items 的内容靠滚动条浏览
         popup = self.view().window()
         popup.setFixedHeight(self._popup_height)
 
@@ -251,6 +275,8 @@ class OrbitalVisApp(QMainWindow):
             "50%Transparent": "HalfTransparent"}
 
         self._current_cubes = []
+        # 轨道预览目标: "canvas" = 左侧内嵌 OpenGL 画布, "vmd" = 外部 VMD
+        self._preview_target = "canvas"
         # 拖放支持
         self.setAcceptDrops(True)
         self._current_orbitals = []
@@ -275,13 +301,20 @@ class OrbitalVisApp(QMainWindow):
         main_layout.setContentsMargins(12, 8, 12, 10)
         main_layout.setSpacing(6)
 
-        # ── 水平分割: 左侧(画布+日志) | 右侧参数面板 ──
+        # ── 主体：左栏(画布+参数设置) | 右栏(设置面板+运行日志) ──
         body = QWidget()
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(4)
 
-        # 左侧: 仅保留运行日志（画布移至独立的虚线模式弹窗）
+        # 主水平分割：左栏 | 右栏
+        main_splitter = QSplitter(Qt.Horizontal)
+        main_splitter.setStretchFactor(0, 1)
+        main_splitter.setStretchFactor(1, 1)
+        main_splitter.setSizes([620, 620])
+        self._body_splitter = main_splitter
+
+        # ===== 左栏：画布(上) + 参数设置(画布下方) =====
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -290,7 +323,32 @@ class OrbitalVisApp(QMainWindow):
         # 创建 MolCanvas 实例但不加到主窗口布局中（由弹窗复用）
         self.mol_canvas = MolCanvas(None)
 
-        # 左侧画布区与右侧参数区的分隔
+        # ── 内嵌 OpenGL 轨道画布（cub_canvas.CubCanvasPanel） ──
+        # 画布自带参数区，默认展开并显示在画布下方
+        self.cub_canvas = None
+        if _HAS_CUB_CANVAS:
+            try:
+                self.cub_canvas = CubCanvasPanel(self)
+                self.cub_canvas.setMinimumWidth(360)
+                self.cub_canvas.show_params_panel(True)
+                self.cub_canvas.statusChanged.connect(self._on_canvas_status)
+                left_layout.addWidget(self.cub_canvas, stretch=1)
+            except Exception as e:
+                self.cub_canvas = None
+                print(f"[cub_canvas] 初始化失败: {e}")
+
+        if self.cub_canvas is None:
+            _tip = QLabel("OpenGL 画布不可用\n请安装: pip install PyOpenGL PyOpenGL-accelerate")
+            _tip.setAlignment(Qt.AlignCenter)
+            _tip.setStyleSheet("color:#94A3B8; background:#F5F6FA; font-size:10pt;")
+            left_layout.addWidget(_tip, stretch=1)
+
+        # ===== 右栏：设置面板(上) + 运行日志(下) =====
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(4)
+
         scroll_right = QScrollArea()
         scroll_right.setWidgetResizable(True)
         self.tabs = QTabWidget()
@@ -300,16 +358,17 @@ class OrbitalVisApp(QMainWindow):
         tab_setup_layout.setContentsMargins(4, 4, 4, 4)
         tab_setup_layout.setSpacing(6)
         tab_setup_layout.addWidget(self._build_input_panel())
-        tab_setup_layout.addWidget(self._build_orbital_panel())
+        # 轨道面板（轨道选择/浏览轨道/编号规则）已按需求隐藏，不再加入布局
+        self._build_orbital_panel()
         # 轨道表格 — 嵌入第一个选项卡，载入 fchk 后自动填充
         self.orbital_tabs = QTabWidget()
         self.orbital_table_alpha = self._make_orbital_table()
         self.orbital_tabs.addTab(self.orbital_table_alpha, "")
         self.orbital_table_beta = None
-        # 提示 tab（固定在最左边）
+        # 提示 tab（假标签，固定在最右端）
         self.tab_hint = QWidget()
-        self.orbital_tabs.insertTab(0, self.tab_hint, "")
-        self.orbital_tabs.setTabEnabled(0, False)
+        self.orbital_tabs.addTab(self.tab_hint, "")
+        self.orbital_tabs.setTabEnabled(self.orbital_tabs.indexOf(self.tab_hint), False)
         self.tab_hint.setStyleSheet("background:#3498DB; color:white;")
         idx = self.orbital_tabs.indexOf(self.tab_hint)
         self.orbital_tabs.setTabText(idx, self._tr("tab_orbit_hint"))
@@ -334,34 +393,15 @@ class OrbitalVisApp(QMainWindow):
         tab_preview_layout = QVBoxLayout(tab_preview)
         tab_preview_layout.setContentsMargins(4, 4, 4, 4)
         tab_preview_layout.setSpacing(6)
-
         tab_preview_layout.addWidget(self._build_paths_panel())
         tab_preview_layout.addWidget(self._build_acknowledgments_box())
         tab_preview_layout.addStretch()
         self.tabs.addTab(tab_preview, "")
 
-        # 日志选项卡
-        tab_log = QWidget()
-        tab_log_layout = QVBoxLayout(tab_log)
-        tab_log_layout.setContentsMargins(4, 4, 4, 4)
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
-        self.log_text.setStyleSheet("font-family: Consolas, 'Courier New', monospace; font-size: 12px;")
-        tab_log_layout.addWidget(self.log_text)
-        # 不再作为选项卡，放到下方
-        # self.tabs.addTab(tab_log, "")
-
         scroll_right.setWidget(self.tabs)
+        right_layout.addWidget(scroll_right, stretch=1)
 
-        # 左侧画布区与右侧参数区的分隔
-        body_splitter = QSplitter(Qt.Horizontal)
-        body_splitter.addWidget(left_widget)
-        body_splitter.addWidget(scroll_right)
-        body_splitter.setStretchFactor(0, 1)
-        body_splitter.setStretchFactor(1, 2)
-        body_layout.addWidget(body_splitter, stretch=1)
-
-        # ── 日志区（QTextCursor + QTextCharFormat，不使用 HTML） ──
+        # ── 运行日志（右侧设置面板下方） ──
         self.grp_log = SciFiGroupBox("")
         log_layout = QVBoxLayout(self.grp_log)
         log_layout.setContentsMargins(4, 8, 4, 4)
@@ -381,12 +421,17 @@ class OrbitalVisApp(QMainWindow):
             }
         """)
         log_layout.addWidget(self.log_text)
-        body_layout.addWidget(self.grp_log)
+        right_layout.addWidget(self.grp_log)
+
+        main_splitter.addWidget(left_widget)
+        main_splitter.addWidget(right_widget)
+        body_layout.addWidget(main_splitter, stretch=1)
 
         main_layout.addWidget(body, stretch=5)
 
         self.progress_label = QLabel()
         self.progress_label.setObjectName("ProgressLabel")
+        self.progress_label.hide()
         main_layout.addWidget(self.progress_label)
 
     def _build_input_panel(self):
@@ -425,33 +470,27 @@ class OrbitalVisApp(QMainWindow):
         layout.setVerticalSpacing(4)
         layout.setHorizontalSpacing(6)
 
-        # Row 0: 轨道 | 网格
+        # 轨道选择区域（输入框保留供代码使用，UI 上隐藏）
         self.lbl_orbital_main = QLabel("")
-        layout.addWidget(self.lbl_orbital_main, 0, 0)
+        self.lbl_orbital_main.hide()
         self.var_orbital = QLineEdit("h")
         self.var_orbital.setMaximumWidth(160)
+        self.var_orbital.hide()
+        layout.addWidget(self.lbl_orbital_main, 0, 0)
         layout.addWidget(self.var_orbital, 0, 1)
 
-        self.lbl_orbital_grid = QLabel("")
-        layout.addWidget(self.lbl_orbital_grid, 0, 2)
-        self.var_grid = QComboBox()
-        self.var_grid.addItems(["1", "2", "3"])
-        self.var_grid.setCurrentIndex(1)
-        self.var_grid.setMaximumWidth(60)
-        layout.addWidget(self.var_grid, 0, 3)
-        self.hint_grid = QLabel("")
-        self.hint_grid.setObjectName("HintLabel")
-        layout.addWidget(self.hint_grid, 0, 4)
+        # 网格精度控件已移至左侧画布面板的"等值面"区域（cub_canvas）
 
-        # Browse orbitals button
+        # Browse orbitals button（已隐藏：轨道浏览器由双击轨道表格触发）
         self.btn_browse_orbital = QPushButton(self._tr("btn_browse_orbital"))
         self.btn_browse_orbital.setToolTip(self._tr("btn_browse_orbital"))
         self.btn_browse_orbital.setFixedHeight(48)
         self.btn_browse_orbital.setCursor(Qt.PointingHandCursor)
         self.btn_browse_orbital.clicked.connect(self._open_orbital_browser)
+        self.btn_browse_orbital.hide()
         layout.addWidget(self.btn_browse_orbital, 0, 5)
 
-        # Rules button
+        # Rules button（已隐藏：轨道编号规则说明）
         self.btn_rules = QPushButton(self._tr("orbital_rules_btn"))
         self.btn_rules.setToolTip(self._tr("orbital_rules_btn"))
         self.btn_rules.setText(self._tr("orbital_rules_btn"))
@@ -460,6 +499,7 @@ class OrbitalVisApp(QMainWindow):
         self.btn_rules.setFixedHeight(48)
         self.btn_rules.setCursor(Qt.PointingHandCursor)
         self.btn_rules.clicked.connect(self._show_rules_dialog)
+        self.btn_rules.hide()
         layout.addWidget(self.btn_rules, 0, 6)
 
         for c in range(7):
@@ -475,7 +515,7 @@ class OrbitalVisApp(QMainWindow):
 
         # 风格下拉框（占满可用宽度）
         self.lbl_render_style = QLabel("")
-        self.var_style = _PopupLimitedComboBox(max_popup_height=200)
+        self.var_style = _PopupLimitedComboBox(max_popup_height=210, max_visible_items=6)
         self.var_style.setIconSize(QtCore.QSize(30, 13))
         self.var_style.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.var_style.setMaximumWidth(480)
@@ -592,6 +632,7 @@ class OrbitalVisApp(QMainWindow):
         self.btn_preview.setObjectName("ActionBtn")
         self.btn_preview.setEnabled(False)
         self.btn_preview.clicked.connect(self._preview)
+        self.btn_preview.hide()
         layout.addWidget(self.btn_preview)
 
         self.btn_render = QPushButton("")
@@ -624,6 +665,15 @@ class OrbitalVisApp(QMainWindow):
         self.var_h_indices.setMaximumWidth(160)
         self.var_h_indices.setPlaceholderText("")
         layout.addWidget(self.var_h_indices)
+
+        # 画布+VMD 双预览按钮（原在第一个选项卡，移至此处）
+        self.btn_preview_both = QPushButton(self._tr("btn_preview_both"))
+        self.btn_preview_both.setObjectName("ActionBtn")
+        self.btn_preview_both.setFixedHeight(48)
+        self.btn_preview_both.setCursor(Qt.PointingHandCursor)
+        self.btn_preview_both.setToolTip(self._tr("btn_preview_both"))
+        self.btn_preview_both.clicked.connect(self._preview_both_selected)
+        layout.addWidget(self.btn_preview_both)
 
         layout.addStretch()
 
@@ -840,8 +890,9 @@ class OrbitalVisApp(QMainWindow):
 
         # Orbital panel
         self.lbl_orbital_main.setText(self._tr("lbl_orbital"))
-        self.lbl_orbital_grid.setText(self._tr("lbl_grid"))
-        self.hint_grid.setText(self._tr("hint_grid"))
+        if hasattr(self, 'btn_preview_both'):
+            self.btn_preview_both.setText(self._tr("btn_preview_both"))
+            self.btn_preview_both.setToolTip(self._tr("btn_preview_both"))
         self.btn_rules.setToolTip(self._tr("orbital_rules_btn"))
         self.btn_rules.setText(self._tr("orbital_rules_btn"))
         self.orbital_tabs.setTabText(self.orbital_tabs.indexOf(self.tab_hint), self._tr("tab_orbit_hint"))
@@ -912,7 +963,7 @@ class OrbitalVisApp(QMainWindow):
         self._apply_lang_ui()
         # 欢迎日志
         self._append_log("═" * 50)
-        self._append_log("OrbitalViewer 5.3 已启动 — 欢迎使用轨道可视化工具")
+        self._append_log("OrbitalViewer 6.0 已启动 — 欢迎使用轨道可视化工具")
         self._append_log("请拖放 .fchk / .log 文件到界面，或使用「浏览轨道」载入轨道数据")
         self._append_log("═" * 50)
 
@@ -1183,11 +1234,13 @@ class OrbitalVisApp(QMainWindow):
         is_open = info["is_open_shell"]
         eV = 27.211386
 
-        # ── 清理 β tab ──
+        # ── 清理 β tab（按 widget 定位，避免硬编码 index 出错）──
         if self.orbital_table_beta:
-            self.orbital_tabs.removeTab(1)
+            self.orbital_tabs.removeTab(self.orbital_tabs.indexOf(self.orbital_table_beta))
             self.orbital_table_beta.deleteLater()
             self.orbital_table_beta = None
+        # 重置当前页到 α（注意 index 0 是提示页 tab_hint，α 表在其后）
+        self.orbital_tabs.setCurrentIndex(self.orbital_tabs.indexOf(self.orbital_table_alpha))
 
         # ── 构建数据 ──
         if is_open:
@@ -1204,6 +1257,9 @@ class OrbitalVisApp(QMainWindow):
                 if i == n_b:     tag = "HOMO"
                 elif i == n_b+1: tag = "LUMO"
                 beta_rows.append((i, e, e*eV, occ, tag))
+            # 能量最高（LUMO 一侧）在上方，能量最低在底部
+            alpha_rows = alpha_rows[::-1]
+            beta_rows = beta_rows[::-1]
         else:
             alpha_rows = []
             for i, e in enumerate(alpha_e, 1):
@@ -1212,6 +1268,8 @@ class OrbitalVisApp(QMainWindow):
                 if i == homo:     tag = "HOMO"
                 elif i == lumo:   tag = "LUMO"
                 alpha_rows.append((i, e, e*eV, occ, tag))
+            # 能量最高（LUMO 一侧）在上方，能量最低在底部
+            alpha_rows = alpha_rows[::-1]
 
         # ── 填充 α 表 ──
         self._populate_table(self.orbital_table_alpha, alpha_rows, is_open, n_a, orb_sign=1)
@@ -1223,6 +1281,10 @@ class OrbitalVisApp(QMainWindow):
             self.orbital_table_beta = self._make_orbital_table()
             self.orbital_tabs.addTab(self.orbital_table_beta, "β 轨道")
             self._populate_table(self.orbital_table_beta, beta_rows, is_open, n_b, orb_sign=-1)
+
+        # 提示 tab（假标签）始终固定到最右端
+        self.orbital_tabs.tabBar().moveTab(
+            self.orbital_tabs.indexOf(self.tab_hint), self.orbital_tabs.count() - 1)
 
         self._append_log(
             f"已解析 {len(alpha_rows)}{' + '+str(len(beta_rows)) if is_open else ''}"
@@ -1263,13 +1325,13 @@ class OrbitalVisApp(QMainWindow):
                 else:
                     occ_text = "⬜"
             else:
-                # 闭壳层：2.0=⬆️⬇️ 0.0=⬜
+                # 闭壳层：2.0=⬆️⬇️ 0.0=⬜⬜（空轨道也用两个方框，对应 α/β 两个自旋轨道）
                 if occ > 1.5:
                     occ_text = "⬆️⬇️"
                 elif occ > 0.5:
                     occ_text = "⬆️"
                 else:
-                    occ_text = "⬜"
+                    occ_text = "⬜⬜"
             it2 = QTableWidgetItem(occ_text)
             it2.setTextAlignment(Qt.AlignCenter)
             if occ > 0:
@@ -1285,9 +1347,11 @@ class OrbitalVisApp(QMainWindow):
                 it3.setBackground(QColor("#E3F2FD"))
                 it3.setFont(QFont("", -1, QFont.Bold))
             table.setItem(r, 3, it3)
-        # 滚动到 HOMO
-        if homo_idx and homo_idx <= table.rowCount():
-            table.scrollToItem(table.item(homo_idx-1, 0))
+        # 滚动到 HOMO：表格按能量降序排列（最低在底部），
+        # 原升序列表中第 homo_idx 个轨道在反转后位于 len(rows)-homo_idx 行
+        if homo_idx and 1 <= homo_idx <= len(rows):
+            homo_row = len(rows) - homo_idx
+            table.scrollToItem(table.item(homo_row, 0))
 
     def _on_table_orbital_clicked(self, row, _col):
         """双击轨道表格行 → 从 UserRole 取轨道编号并预览。"""
@@ -1301,10 +1365,16 @@ class OrbitalVisApp(QMainWindow):
         orb_mw = it.data(Qt.UserRole + 1) or orb_display  # Multiwfn 写法（开壳层 β 用 hb/lb）
         self.var_orbital.setText(orb_display)
         self._append_log(f"已选择轨道: {orb_display}" + (f" ({orb_mw})" if orb_mw != orb_display else ""))
+
+        # 双击优先走左侧内嵌画布；画布不可用时才回退到 VMD
+        if self._canvas_ready():
+            self._auto_preview_orbital(orb_mw, target="canvas")
+            return
+
         # ── DEBUG: 切换轨道前的状态 ──
         self._append_log(f"  [DEBUG SWITCH] vmd_port={self.vmd_port} current_iso={self.current_iso} "
                          f"_vmd_state={self._vmd_state} vmd_cube_path={self.vmd_cube_path}")
-        self._auto_preview_orbital(orb_mw)
+        self._auto_preview_orbital(orb_mw, target="vmd")
 
     def _vmd_visualize_selected(self):
         """从表格获取选中轨道并在 VMD 中可视化。"""
@@ -1323,10 +1393,46 @@ class OrbitalVisApp(QMainWindow):
         orb_display = str(it.data(Qt.UserRole))
         self.var_orbital.setText(orb_display)
         self._append_log(f"VMD可视化: {orb_display}" + (f" ({orb_mw})" if orb_mw != orb_display else ""))
-        self._auto_preview_orbital(orb_mw)
+        # 这个按钮是显式的 VMD 入口，始终走 VMD
+        self._auto_preview_orbital(orb_mw, target="vmd")
 
-    def _auto_preview_orbital(self, orb_str):
-        """选中轨道后：删旧 cube → 生成新 cube → VMD 刷新/启动。"""
+    def _preview_both_selected(self):
+        """画布+VMD 双预览。
+
+        - 轨道表格有选中行：按该轨道重新生成 cube，同时渲染到画布与 VMD。
+        - 表格未选中，但左侧画布已可视化某轨道：直接把画布当前 cube
+          送到 VMD（画布侧已满足），即"VMD+画布"组合功能，无需重新生成。
+        """
+        table = self.orbital_tabs.currentWidget()
+        row = table.currentRow() if table else -1
+        if row >= 0:
+            it = table.item(row, 0)
+            if it:
+                orb_mw = it.data(Qt.UserRole + 1) or str(it.data(Qt.UserRole))
+                orb_display = str(it.data(Qt.UserRole))
+                self.var_orbital.setText(orb_display)
+                self._append_log(f"画布+VMD 双预览: {orb_display}"
+                                 + (f" ({orb_mw})" if orb_mw != orb_display else ""))
+                self._auto_preview_orbital(orb_mw, target="both")
+                return
+
+        # 回退：用画布当前已渲染的轨道 cube
+        cur = self.cub_canvas.current_cube() if self.cub_canvas else None
+        if cur and os.path.isfile(cur):
+            self._append_log(f"画布+VMD 双预览（沿用画布当前轨道）: {os.path.basename(cur)}")
+            # 画布已有该轨道；仅需把同一 cube 送到 VMD
+            self._launch_vmd_orbital(cur)
+            return
+
+        QMessageBox.warning(self, self._tr("msg_title_hint"),
+                            "请先选中一个轨道，或在画布中可视化轨道后再点此按钮 / "
+                            "Please select an orbital or render one in the canvas first")
+
+    def _auto_preview_orbital(self, orb_str, target="vmd"):
+        """选中轨道后：删旧 cube → 生成新 cube → 送到画布或 VMD。
+
+        target: "canvas" 在左侧内嵌 OpenGL 画布渲染；"vmd" 走原有 VMD 流程。
+        """
         path = self.var_path.text().strip()
         out = self._get_out_dir(path)
         exe_paths = self._get_paths()
@@ -1346,7 +1452,8 @@ class OrbitalVisApp(QMainWindow):
 
         # 始终生成新 cube
         self._append_log(f"正在生成轨道 {orb_str} 的 cube...")
-        grid = self.var_grid.currentText()
+        self._preview_target = target
+        grid = self.cub_canvas.grid_quality()
         self.worker = CubeWorker(
             [fchk_file], out, [orb_str], "0.05", grid, "sob-art",
             (1024, 768), "full", False, exe_paths, False)
@@ -1356,14 +1463,31 @@ class OrbitalVisApp(QMainWindow):
         self.worker.start()
 
     def _on_orbital_cube_ready(self, _auto, ok, total, cubes):
-        """cube 生成完毕 → 尝试 socket 刷新 VMD，失败则启动新实例。"""
+        """cube 生成完毕 → 送进左侧画布，或刷新/启动 VMD。"""
         if not cubes:
             self._append_log("Cube 生成失败")
             return
         # cubes[0] 在单轨道模式下是字符串路径，多轨道是 (path, label) 元组
         cube_path = cubes[0] if isinstance(cubes[0], str) else cubes[0][0]
-        self._append_log(f"  [DEBUG CUBE_READY] cube_path={cube_path} "
-                         f"vmd_port={self.vmd_port}")
+
+        target = getattr(self, "_preview_target", "vmd")
+
+        if target == "both":
+            # 画布 + VMD 同时渲染
+            if self._canvas_ready():
+                self._append_log(f"在画布中渲染: {os.path.basename(cube_path)}")
+                self._push_cubes_to_canvas([cube_path], auto_load=True)
+            else:
+                self._append_log("[画布] 不可用，仅用 VMD 渲染")
+            # 无论画布是否可用，VMD 都要渲染
+            self._launch_vmd_orbital(cube_path)
+            return
+
+        if target == "canvas" and self._canvas_ready():
+            self._append_log(f"在画布中渲染: {os.path.basename(cube_path)}")
+            self._push_cubes_to_canvas([cube_path], auto_load=True)
+            return
+
         self._launch_vmd_orbital(cube_path)
 
     def _clean_old_cubes(self, out_dir):
@@ -1528,6 +1652,10 @@ class OrbitalVisApp(QMainWindow):
                 "<p>Multiwfn 目前已被超过 <b>4 万篇</b> 论文引用，用户遍布全球 <b>90 余国</b>。</p>"
                 "<p><b>vcube2.0</b><br>"
                 "渲染样式系统源自 <b>vcube2.0</b>（钟成），提供了 11 套精美的 VMD 轨道渲染配置。</p>"
+                "<p><b>IboView</b><br>"
+                "球棍模型、键的锥形圆柱几何、双指数镜面反射光照模型及深度剥离透明渲染，"
+                "均移植自 <b>Gerald Knizia</b> 开发的 <b>IboView</b> "
+                "(<a href='https://www.iboview.org'>www.iboview.org</a>)，特此致谢。</p>"
                 "<p><b>虚线绘制</b><br>"
                 "VMD 虚线绘制功能来自 KeinSci 论坛 <b>Eming</b> 的 <b>draw_bond Tcl 脚本</b>，特此致谢。</p>"
                 "<p><b>VMD</b><br>"
@@ -1554,6 +1682,11 @@ class OrbitalVisApp(QMainWindow):
                 "<p><b>vcube2.0</b><br>"
                 "The rendering style system originates from <b>vcube2.0</b> (by Zhong Cheng), "
                 "providing 11 elegant VMD orbital rendering presets.</p>"
+                "<p><b>IboView</b><br>"
+                "The ball-and-stick model, tapered-cylinder bond geometry, dual-exponential "
+                "specular lighting model and depth-peeling transparency rendering are all "
+                "ported from <b>IboView</b> by <b>Gerald Knizia</b> "
+                "(<a href='https://www.iboview.org'>www.iboview.org</a>). Many thanks!</p>"
                 "<p><b>Draw Bond</b><br>"
                 "The VMD dashed bond feature is based on the <b>draw_bond Tcl script</b> "
                 "by <b>Eming</b> from the KeinSci forum. Many thanks!</p>"
@@ -1622,7 +1755,7 @@ class OrbitalVisApp(QMainWindow):
             iso = float(self.iso_edit.text().strip())
         except ValueError:
             iso = 0.05
-        grid = self.var_grid.currentText().strip()
+        grid = self.cub_canvas.grid_quality()
         style_name = self._get_style_name()
         try:
             res_str = self.var_res.currentText().strip()
@@ -1667,9 +1800,13 @@ class OrbitalVisApp(QMainWindow):
                 atoms, bonds = [], []
             if atoms:
                 self.mol_canvas.set_data(atoms, bonds)
+                if self.cub_canvas is not None:
+                    self.cub_canvas.set_molecule(atoms, bonds)
                 self._current_fchk = None
                 self.btn_run.setEnabled(False)
                 self.btn_preview.setEnabled(True)
+                if _HAS_GL_VIEWER:
+                    getattr(self, "btn_gl_preview", None)  # OpenGL 按钮已移除
                 self.btn_render.setEnabled(False)
                 self.btn_dash_mode.setEnabled(True)
                 self._update_color_buttons()
@@ -1687,9 +1824,13 @@ class OrbitalVisApp(QMainWindow):
             atoms, bonds = self._parse_xyz(path)
             if atoms:
                 self.mol_canvas.set_data(atoms, bonds)
+                if self.cub_canvas is not None:
+                    self.cub_canvas.set_molecule(atoms, bonds)
                 self._current_fchk = None
                 self.btn_run.setEnabled(False)
                 self.btn_preview.setEnabled(True)
+                if _HAS_GL_VIEWER:
+                    getattr(self, "btn_gl_preview", None)  # OpenGL 按钮已移除
                 self.btn_render.setEnabled(False)
                 self.btn_dash_mode.setEnabled(True)
                 self._update_color_buttons()
@@ -1708,6 +1849,8 @@ class OrbitalVisApp(QMainWindow):
             if atoms:
                 bonds = bond_parser(atoms)
                 self.mol_canvas.set_data(atoms, bonds)
+                if self.cub_canvas is not None:
+                    self.cub_canvas.set_molecule(atoms, bonds)
                 self._current_fchk = path
                 self.btn_run.setEnabled(True)  # fchk 需要生成 cub
                 self.btn_dash_mode.setEnabled(True)
@@ -1723,9 +1866,13 @@ class OrbitalVisApp(QMainWindow):
                 if ext in (".cub", ".cube"):
                     self._current_cubes = [path]
                     self.btn_preview.setEnabled(True)
+                    if _HAS_GL_VIEWER:
+                        getattr(self, "btn_gl_preview", None)  # OpenGL 按钮已移除
                     self.btn_run.setEnabled(False)
                     self._append_log(
                         self._tr("log_start_preview").format(os.path.basename(path)))
+                    # 直接在左侧画布显示这个 cube
+                    self._push_cubes_to_canvas([path], auto_load=True)
             else:
                 self._append_log(self._tr("mol_hint_no_atoms"))
         except Exception as e:
@@ -1837,6 +1984,12 @@ class OrbitalVisApp(QMainWindow):
             self._current_cubes = cubes
             self._append_log(self._tr("log_done_hint"))
             self.btn_preview.setEnabled(True)
+            if _HAS_GL_VIEWER:
+                getattr(self, "btn_gl_preview", None)  # OpenGL 按钮已移除
+
+        # cube 生成完毕 —— 自动送进左侧画布渲染
+        if cubes:
+            self._push_cubes_to_canvas(cubes, auto_load=True)
 
         if auto_render:
             self._append_log(self._tr("log_all_done", ok=ok, total=total))
@@ -2066,6 +2219,131 @@ class OrbitalVisApp(QMainWindow):
                 self._append_log(self._tr("log_vmd_failed"))
         except Exception as e:
             self._append_log(self._tr("log_vmd_error").format(e))
+
+    # ══════════════════════════════════════════════════════════
+    # 内嵌 OpenGL 画布（左侧面板）
+    # ══════════════════════════════════════════════════════════
+    def _on_canvas_status(self, msg):
+        """画布状态回调 —— 只把有意义的信息写进日志。"""
+        try:
+            if msg and not str(msg).startswith("就绪"):
+                self._append_log(f"[画布] {msg}")
+        except Exception:
+            pass
+
+    def _canvas_ready(self):
+        return getattr(self, "cub_canvas", None) is not None \
+            and self.cub_canvas.is_available()
+
+    def _canvas_iso(self):
+        try:
+            return float(self.iso_edit.text().strip())
+        except (ValueError, AttributeError):
+            return 0.05
+
+    def _push_cubes_to_canvas(self, cubes, auto_load=True):
+        """生成/载入 cube 后，把列表送进左侧画布并自动渲染第一个。"""
+        if not self._canvas_ready() or not cubes:
+            return
+        paths = []
+        for c in cubes:
+            # _current_cubes 里可能是 (path, orbital) 元组
+            p = c[0] if isinstance(c, (tuple, list)) and c else c
+            if isinstance(p, str) and os.path.isfile(p):
+                paths.append(p)
+        if not paths:
+            return
+        try:
+            self.cub_canvas.set_cube_list(paths, auto_load=False)
+            if auto_load:
+                self.cub_canvas.load_cube(
+                    paths[0], iso=self._canvas_iso(),
+                    style_name=self._get_style_name())
+        except Exception as e:
+            self._append_log(f"[画布] 加载失败: {e}")
+
+    def _gl_preview(self):
+        """在左侧内嵌画布中预览轨道；画布不可用时回退到独立 OpenGL 窗口。"""
+        # 优先使用左侧内嵌画布
+        if self._canvas_ready():
+            path0 = self.var_path.text().strip()
+            out0 = self._get_out_dir(path0)
+            ext0 = os.path.splitext(path0)[1].lower() if os.path.isfile(path0) else ""
+            if ext0 in (".cub", ".cube") and self._current_cubes:
+                cubes = list(self._current_cubes)
+            else:
+                cubes = sorted(glob.glob(os.path.join(out0, "*.cub")))
+            if not cubes:
+                QMessageBox.warning(self, self._tr("msg_title_hint"),
+                                    self._tr("msg_no_cube"))
+                return
+            self._push_cubes_to_canvas(cubes, auto_load=True)
+            return
+
+        if not _HAS_GL_VIEWER:
+            QMessageBox.warning(self, "提示", "需要安装 PyOpenGL: pip install PyOpenGL")
+            return
+
+        path = self.var_path.text().strip()
+        out = self._get_out_dir(path)
+        ext = os.path.splitext(path)[1].lower() if os.path.isfile(path) else ""
+
+        # 获取 cube 文件
+        if ext in (".cub", ".cube") and self._current_cubes:
+            all_cubes = list(self._current_cubes)
+        else:
+            all_cubes = sorted(glob.glob(os.path.join(out, "*.cub")))
+
+        if not all_cubes:
+            QMessageBox.warning(self, self._tr("msg_title_hint"),
+                                self._tr("msg_no_cube"))
+            return
+
+        # 取第一个 cube
+        cube_path = all_cubes[0]
+        if len(all_cubes) > 1:
+            # 如果有多个，用对话框选择
+            from PyQt5.QtWidgets import QListWidget
+            dlg = QDialog(self)
+            dlg.setWindowTitle("选择轨道")
+            dlg.resize(500, 400)
+            dlg_layout = QVBoxLayout(dlg)
+            dlg_layout.addWidget(QLabel("选择要在 OpenGL 中预览的轨道："))
+            list_widget = QListWidget()
+            for i, c in enumerate(all_cubes):
+                list_widget.addItem(os.path.basename(c))
+                list_widget.item(i).setSelected(i == 0)
+            dlg_layout.addWidget(list_widget)
+            btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+            btn_box.accepted.connect(dlg.accept)
+            btn_box.rejected.connect(dlg.reject)
+            dlg_layout.addWidget(btn_box)
+            if dlg.exec_() != QDialog.Accepted:
+                return
+            selected = [all_cubes[i.row()] for i in list_widget.selectedIndexes()]
+            if not selected:
+                return
+            cube_path = selected[0]
+
+        try:
+            iso = float(self.iso_edit.text().strip())
+        except ValueError:
+            iso = 0.05
+
+        style_name = self._get_style_name()
+
+        # 创建或复用 OpenGL 窗口
+        if not hasattr(self, '_gl_viewer') or self._gl_viewer is None:
+            self._gl_viewer = OrbitalGLViewer(self)
+            self._gl_viewer.setAttribute(Qt.WA_DeleteOnClose, True)
+            self._gl_viewer.destroyed.connect(lambda: setattr(self, '_gl_viewer', None))
+
+        self._gl_viewer.load_cube_file(cube_path, iso, style_name)
+        self._gl_viewer.show()
+        self._gl_viewer.raise_()
+        self._gl_viewer.activateWindow()
+
+        self._append_log(f"OpenGL 预览: {os.path.basename(cube_path)} | 风格: {style_name}")
 
     def _do_preview_multi(self, cubes):
         self._close_persist_sock()
@@ -2828,6 +3106,8 @@ class OrbitalVisApp(QMainWindow):
         if state == "running":
             self.btn_run.setEnabled(False)
             self.btn_preview.setEnabled(False)
+            if _HAS_GL_VIEWER:
+                getattr(self, "btn_gl_preview", None)  # OpenGL 按钮已移除
             self.btn_render.setEnabled(False)
             self.btn_h_filter.setEnabled(False)
             self.btn_dash_mode.setEnabled(False)

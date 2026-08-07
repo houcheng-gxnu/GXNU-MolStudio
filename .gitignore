@@ -41,3 +41,11 @@ fchk_orbital.ini
 
 # PyInstaller
 *.spec.bak
+
+# Local / temp artifacts (not for the repo)
+*.png
+build_log*.txt
+_repro_*.py
+_repro_out.txt
+$null
+.codebuddy/

@@ -127,7 +127,7 @@ def save_config(multiwfn, vmd, tachyon):
 STYLES = {
     "sob-art": {
         "desc": "Green-Blue, Highlight, Classic (sobereva recommended)",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -142,7 +142,7 @@ STYLES = {
     },
     "ao-shiny": {
         "desc": "Orange-Cyan, Jewel-like, AO(slow)",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
         "shadows": "on", "ao": "on",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -156,7 +156,7 @@ STYLES = {
     },
     "ao-chalky": {
         "desc": "Blue-Green, Chalk-like, AO(slow)",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "off"},
         "shadows": "on", "ao": "on",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -170,7 +170,7 @@ STYLES = {
     },
     "white-green": {
         "desc": "White-Green, Plastic, Translucent",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "off"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -184,7 +184,7 @@ STYLES = {
     },
     "white-red": {
         "desc": "White-Red, Soft Chalk, Translucent",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "off"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -198,7 +198,7 @@ STYLES = {
     },
     "morandi-blue": {
         "desc": "Morandi Blue-White, Frosted Glass",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -212,7 +212,7 @@ STYLES = {
     },
     "morandi-green": {
         "desc": "Morandi Green-White, Frosted Glass, Opaque",
-        "tachyon_options": "-trans_raster3d -shadow_filter_off",
+        "tachyon_options": "-trans_vmd -shadow_filter_off",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -226,7 +226,7 @@ STYLES = {
     },
     "morandi-orange": {
         "desc": "Morandi Orange-Blue, Frosted Glass",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -240,7 +240,7 @@ STYLES = {
     },
     "morandi-red": {
         "desc": "Morandi Red-White, Frosted Glass",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -268,7 +268,7 @@ STYLES = {
     },
     "vmwfn1": {
         "desc": "Red-White, Smooth Paint, Opaque",
-        "tachyon_options": "-trans_raster3d -shadow_filter_off",
+        "tachyon_options": "-trans_vmd -shadow_filter_off",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "off"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -284,7 +284,7 @@ STYLES = {
     # Based on IboView's dual-exponential specular reflection model
     "IQmol": {
         "desc": "IboView High-Glossy, Blue-Red",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -299,7 +299,7 @@ STYLES = {
     },
     "iboview-crystal": {
         "desc": "IboView Crystal, Cyan-Pink",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -314,7 +314,7 @@ STYLES = {
     },
     "iboview-dark": {
         "desc": "IboView Dark, Purple-Orange",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "off"},
         "shadows": "on", "ao": "off",
         "aoambient": "0.85", "aodirect": "0.25",
@@ -329,7 +329,7 @@ STYLES = {
     },
     "lakers": {
         "desc": "Lakers Purple / Gold, Championship Noir",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "off"},
         "shadows": "on", "ao": "off",
         "aoambient": "0.85", "aodirect": "0.25",
@@ -345,7 +345,7 @@ STYLES = {
     # ── IboView Multi-Orbital Color Styles ─────────────────────
     "iboview-green-pink": {
         "desc": "IboView Green-Pink, Classic Dual",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -360,7 +360,7 @@ STYLES = {
     },
     "iboview-purple-blue": {
         "desc": "IboView Purple-Blue, Mystic Texture",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -375,7 +375,7 @@ STYLES = {
     },
     "iboview-cyan-yellow": {
         "desc": "IboView Cyan-Yellow, Bright Contrast",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -390,7 +390,7 @@ STYLES = {
     },
     "iboview-orange-teal": {
         "desc": "IboView Orange-Teal, Warm Contrast",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "off"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -405,7 +405,7 @@ STYLES = {
     },
     "Gaussview": {
         "desc": "IboView Red-Green, Classic Complementary",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -420,7 +420,7 @@ STYLES = {
     },
     "iboview-rainbow": {
         "desc": "IboView Rainbow, Colorful Effect",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -436,7 +436,7 @@ STYLES = {
     # ── Curated Palette Collection ───────────────────────────
     "aurora-teal": {
         "desc": "Aurora Teal / Coral Pink, Nordic Glass",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.8", "aodirect": "0.3",
@@ -451,7 +451,7 @@ STYLES = {
     },
     "midnight-gold": {
         "desc": "Midnight Indigo / Amber Gold, Journal Quality",
-        "tachyon_options": "-trans_raster3d -shadow_filter_off",
+        "tachyon_options": "-trans_vmd -shadow_filter_off",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "off"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.78", "aodirect": "0.32",
@@ -471,7 +471,7 @@ STYLES = {
     },
     "lavender-mint": {
         "desc": "Lavender Purple / Mint Green, Soft Elegance",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.82", "aodirect": "0.28",
@@ -486,7 +486,7 @@ STYLES = {
     },
     "sunset-fire": {
         "desc": "Warm Orange / Deep Blue-Violet, Dramatic Sky",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "off"},
         "shadows": "on", "ao": "off",
         "aoambient": "0.85", "aodirect": "0.22",
@@ -501,7 +501,7 @@ STYLES = {
     },
     "ocean-depth": {
         "desc": "Deep Ocean Blue / Seafoam Green, Calm Depth",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.80", "aodirect": "0.30",
@@ -516,7 +516,7 @@ STYLES = {
     },
     "rose-quartz": {
         "desc": "Rose Quartz Pink / Slate Blue, Pantone Duo",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.82", "aodirect": "0.28",
@@ -531,7 +531,7 @@ STYLES = {
     },
     "forest-emerald": {
         "desc": "Emerald Green / Copper Brown, Forest Metal",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "off"},
         "shadows": "on", "ao": "off",
         "aoambient": "0.78", "aodirect": "0.32",
@@ -546,7 +546,7 @@ STYLES = {
     },
     "neon-cyber": {
         "desc": "Electric Violet / Neon Cyan, Cyberpunk Glow",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.85", "aodirect": "0.25",
@@ -561,7 +561,7 @@ STYLES = {
     },
     "cherry-blossom": {
         "desc": "Sakura Pink / Baby Blue, Japanese Airy",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.85", "aodirect": "0.20",
@@ -576,7 +576,7 @@ STYLES = {
     },
     "graphite-ink": {
         "desc": "Graphite Black / Vermillion Red, Ink Wash Minimal",
-        "tachyon_options": "-trans_raster3d -shadow_filter_off",
+        "tachyon_options": "-trans_vmd -shadow_filter_off",
         "lights": {"0": "on", "1": "off", "2": "on", "3": "off"},
         "shadows": "on", "ao": "off",
         "aoambient": "0.75", "aodirect": "0.35",
@@ -595,7 +595,7 @@ STYLES = {
     },
     "blood-orange": {
         "desc": "Crimson Red-Orange / Deep Teal, Visceral Contrast",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "off"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.78", "aodirect": "0.32",
@@ -610,7 +610,7 @@ STYLES = {
     },
     "starlight": {
         "desc": "Pale Champagne / Deep Cosmos Purple, Celestial",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.85", "aodirect": "0.22",
@@ -625,7 +625,7 @@ STYLES = {
     },
     "arctic-ice": {
         "desc": "Ice Crystal Blue / Midnight Navy, Cryogenic Cold",
-        "tachyon_options": "-trans_raster3d -shadow_filter_off",
+        "tachyon_options": "-trans_vmd -shadow_filter_off",
         "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.88", "aodirect": "0.18",
@@ -640,7 +640,7 @@ STYLES = {
     },
     "mango-lime": {
         "desc": "Tropical Mango / Lime Green, Summer Vibrant",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "on"},
         "shadows": "off", "ao": "off",
         "aoambient": "0.82", "aodirect": "0.28",
@@ -655,7 +655,7 @@ STYLES = {
     },
     "plum-wine": {
         "desc": "Deep Plum Purple / Golden Champagne, Luxury Wine",
-        "tachyon_options": "-trans_raster3d",
+        "tachyon_options": "-trans_vmd",
         "lights": {"0": "on", "1": "on", "2": "off", "3": "off"},
         "shadows": "on", "ao": "off",
         "aoambient": "0.76", "aodirect": "0.34",
@@ -671,6 +671,24 @@ STYLES = {
             "material change mirror Opaque 0.20",
             "material change outline Opaque 3.5",
         ],
+    },
+    "plastic-bright": {
+        "desc": "Plastic / Glossy Bright Surface (亮面塑料)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.85", "aodirect": "0.25",
+        # 塑料亮面: 高 diffuse + 高 specular + 中高 shininess + 偏实心
+        # surface_mat: [ambient, diffuse, specular, shininess, mirror, opacity, outline, outlinewidth, transmode]
+        "surface_mat": [0.12, 0.90, 0.95, 0.75, 0.0, 0.90, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.12, 0.90, 0.95, 0.75, 0.0, 0.90, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.100, 0.800, 0.900],
+        "neg_color": [32, 0.950, 0.200, 0.450],
+        # 球棍模型同样塑料亮面材质
+        "atom_cpk": "0.650000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.0, 0.85, 0.95, 0.75, 0.10, 1.0, 2.0, 0.3, 0.0],
+        "c_color": "gray", "c_rgb": "0.650000 0.650000 0.650000",
+        "display_distance": "-7.5",
     },
 }
 
@@ -2185,7 +2203,7 @@ def render_current_view(port, render_dir, output_png=None,
         return resp.decode("utf-8", errors="replace").strip()
 
     # Clean up old files
-    for fn in ["vmdscene.dat", "_render.bmp"]:
+    for fn in ["vmdscene.dat", "_render.tga"]:
         fp = os.path.join(render_dir, fn)
         if os.path.exists(fp):
             os.remove(fp)
@@ -2208,14 +2226,18 @@ def render_current_view(port, render_dir, output_png=None,
         shade_flag = None
     else:
         shade_flag = "-fullshade" if shade_mode == "full" else "-mediumshade"
-    bmp_name = "_render.bmp"
+    tga_name = "_render.tga"
     args = [tachyon_exe, "vmdscene.dat",
-        "-format", "BMP", "-o", bmp_name,
+        "-format", "TARGA", "-o", tga_name,
         "-res", str(resolution[0]), str(resolution[1]),
         "-numthreads", str(threads), "-aasamples", "24"]
     if shade_flag:
         args.append(shade_flag)
-    # Add -trans_xxx based on user selection
+    # Apply style's tachyon_options (e.g. -trans_vmd for transparent background)
+    if s["tachyon_options"]:
+        extra = s["tachyon_options"].split()
+        args.extend(extra)
+    # Add -trans_xxx based on user selection (overrides style default if set)
     if trans_mode:
         args.append(f"-trans_{trans_mode}")
 
@@ -2236,9 +2258,9 @@ def render_current_view(port, render_dir, output_png=None,
         _log(f"  Tachyon 执行异常: {e}")
         return None
 
-    bmp = os.path.join(render_dir, bmp_name)
-    if not os.path.exists(bmp):
-        _log(f"  BMP 文件不存在: {bmp}")
+    tga = os.path.join(render_dir, tga_name)
+    if not os.path.exists(tga):
+        _log(f"  TGA 文件不存在: {tga}")
         return None
 
     if output_png is None:
@@ -2246,10 +2268,13 @@ def render_current_view(port, render_dir, output_png=None,
 
     try:
         from PIL import Image
-        img = Image.open(bmp)
-        img.save(output_png)
+        img = Image.open(tga)
+        if img.mode == 'RGBA':
+            img.save(output_png, 'PNG')
+        else:
+            img.save(output_png)
     except ImportError:
-        output_png = bmp
+        output_png = tga
 
     return output_png
 
@@ -2317,9 +2342,9 @@ def render_cube_auto(cube_path, output_png=None, isovalue=0.05,
         shade_flag = None
     else:
         shade_flag = "-fullshade" if shade_mode == "full" else "-mediumshade"
-    bmp_name = "_render.bmp"
+    tga_name = "_render.tga"
     args = [tachyon_exe, "vmdscene.dat",
-        "-format", "BMP", "-o", bmp_name,
+        "-format", "TARGA", "-o", tga_name,
         "-res", str(resolution[0]), str(resolution[1]),
         "-numthreads", "4", "-aasamples", "24"]
     if shade_flag:
@@ -2338,24 +2363,27 @@ def render_cube_auto(cube_path, output_png=None, isovalue=0.05,
             shutil.rmtree(tmp_dir, ignore_errors=True)
         return None
 
-    bmp = os.path.join(render_dir, bmp_name)
-    if not os.path.exists(bmp):
+    tga = os.path.join(render_dir, tga_name)
+    if not os.path.exists(tga):
         if has_nonascii:
             shutil.rmtree(tmp_dir, ignore_errors=True)
         return None
 
     try:
         from PIL import Image
-        img = Image.open(bmp)
-        img.save(output_png)
+        img = Image.open(tga)
+        if img.mode == 'RGBA':
+            img.save(output_png, 'PNG')
+        else:
+            img.save(output_png)
     except ImportError:
-        output_png = bmp
+        output_png = tga
         if has_nonascii:
-            dst = os.path.splitext(cube_path)[0] + ".bmp"
-            shutil.copy2(bmp, dst)
+            dst = os.path.splitext(cube_path)[0] + ".tga"
+            shutil.copy2(tga, dst)
             output_png = dst
 
-    for fn in ["vmdscene.dat", "_auto_render.tcl", bmp_name]:
+    for fn in ["vmdscene.dat", "_auto_render.tcl", tga_name]:
         fp = os.path.join(render_dir, fn)
         if os.path.exists(fp):
             os.remove(fp)
@@ -2495,7 +2523,7 @@ def launch_gui():
             # Tachyon parameters
             r4 = ttk.Frame(frm2); r4.pack(fill="x", padx=5, pady=2)
             self.var_trans_raster = tk.BooleanVar(value=True)
-            ttk.Checkbutton(r4, text="-trans_raster3d",
+            ttk.Checkbutton(r4, text="-trans_vmd",
                             variable=self.var_trans_raster).pack(side="left")
             ttk.Label(r4, text="Threads:").pack(side="left", padx=(15, 0))
             self.var_threads = tk.StringVar(value="4")

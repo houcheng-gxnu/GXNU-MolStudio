@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-fchk 轨道等值面可视化工具 v5.3 (PyQt 中文版)
+fchk 轨道等值面可视化工具 v6.0 (PyQt 中文版)
 Multiwfn (fchk → cube) + VMD (预览 + Tachyon 渲染) + Tachyon (scene → BMP/PNG)
 
 PyQt5 重写，清爽浅色科技风界面，微软雅黑字体。
@@ -57,8 +57,8 @@ def tr(key, **fmt):
 TR = {
     # ── Window title ──
     "win_title": {
-        "zh": "轨道等值面可视化 v5.3 — Multiwfn + VMD/Tachyon [PyQt 中文版]",
-        "en": "Orbital Isosurface Visualization v5.3 — Multiwfn + VMD/Tachyon [PyQt]"
+        "zh": "轨道等值面可视化 v6.0 — Multiwfn + VMD/Tachyon [PyQt 中文版]",
+        "en": "Orbital Isosurface Visualization v6.0 — Multiwfn + VMD/Tachyon [PyQt]"
     },
     # ── Header ──
     "title_label": {
@@ -66,8 +66,8 @@ TR = {
         "en": "◆  ORBITAL ISOSURFACE VISUALIZATION  ◆"
     },
     "subtitle_label": {
-        "zh": "Multiwfn + VMD + Tachyon  |  v5.3 PyQt 中文版",
-        "en": "Multiwfn + VMD + Tachyon  |  v5.3 PyQt Edition"
+        "zh": "Multiwfn + VMD + Tachyon  |  v6.0 PyQt 中文版",
+        "en": "Multiwfn + VMD + Tachyon  |  v6.0 PyQt Edition"
     },
     # ── Language button ──
     "lang_btn": {"zh": "EN", "en": "中"},
@@ -3681,7 +3681,7 @@ def main():
     if len(sys.argv) > 1:
         import argparse
         p = argparse.ArgumentParser(
-            description="Multiwfn + VMD/Tachyon Orbital Isosurface Visualization v5.3")
+            description="Multiwfn + VMD/Tachyon Orbital Isosurface Visualization v6.0")
         p.add_argument("input", help="fchk file or folder")
         p.add_argument("--mo", default="h", help="Orbital (h/l/h-1/number)")
         p.add_argument("--iso", type=float, default=0.05, help="Isosurface threshold")
