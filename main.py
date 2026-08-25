@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-轨道等值面可视化工具 v6.0 — 入口模块
+GXNU MolStudio 分子可视化与量子化学分析工具 v1.0 — 入口模块
 用法:
     python main.py                        # 启动 GUI
     python main.py input.fchk --mo h     # 命令行批处理模式
 """
 
 import os
+import re
 import sys
 import glob
 
@@ -22,7 +23,7 @@ def main():
         import fchk_orbital as backend
 
         p = argparse.ArgumentParser(
-            description="Multiwfn + VMD/Tachyon Orbital Isosurface Visualization v6.0")
+            description="GXNU MolStudio v1.0 — Molecular Visualization & Quantum Chemical Analysis")
         p.add_argument("input", help="fchk file or folder")
         p.add_argument("--mo", default="h", help="Orbital (h/l/h-1/number)")
         p.add_argument("--iso", type=float, default=0.05, help="Isosurface threshold")
@@ -36,22 +37,34 @@ def main():
 
         files = (sorted(glob.glob(os.path.join(a.input, "*.fchk")))
                  if os.path.isdir(a.input) else [a.input])
+        if not files:
+            print("未找到任何 .fchk 文件")
+            sys.exit(1)
         out = a.out or (os.path.dirname(a.input)
                         if os.path.isfile(a.input) else a.input)
+        if not out:
+            out = os.getcwd()
         os.makedirs(out, exist_ok=True)
 
-        w, h = [int(x) for x in a.res.split(",")]
+        # 批处理同样读取用户在 GUI ⚙️ 里配置的 exe 路径，而不是硬编码默认值
+        paths = backend.load_config()
+        multiwfn_exe = paths["multiwfn"]
+        vmd_exe = paths["vmd"]
+        tachyon_exe = paths["tachyon"]
+
+        w, h = [int(x) for x in re.split(r"[x,]", a.res)]
 
         for i, f in enumerate(files):
             print(f"[{i+1}/{len(files)}] {os.path.basename(f)}")
             cube = backend.gen_cube(f, orbital=a.mo, grid_quality=int(a.grid),
-                                    work_dir=out)
+                                    work_dir=out, multiwfn_exe=multiwfn_exe)
             if cube:
                 print(f"  cube: {os.path.basename(cube)}")
                 if not a.no_render:
                     png = backend.render_cube_auto(
                         cube, isovalue=a.iso, style_name=a.style,
-                        resolution=(w, h))
+                        resolution=(w, h), vmd_exe=vmd_exe,
+                        tachyon_exe=tachyon_exe)
                     if png:
                         print(f"  png:  {os.path.basename(png)}")
             else:

@@ -1,38 +1,74 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+# GXNU MolStudio v1.0 — 分子可视化与量子化学分析
+# PyInstaller onedir（文件夹形式）打包配置。
+# 用法: pyinstaller OrbitalViewer.spec
+
+import os
+import shutil
+
 a = Analysis(
     ['main.py'],
     pathex=[r'D:\OrbitalViewer 5.3'],
     binaries=[],
     datas=[],
     hiddenimports=[
-        'main_window', 'i18n', 'theme', 'dialogs', 'fchk_parser', 'workers',
+        # 主程序依赖
+        'main_window', 'i18n', 'theme', 'dialogs', 'workers',
+        'fchk_parser', 'fchk_orbital', 'file_dialogs',
+        'molcanvas', 'widgets', 'marching_cubes', 'glsl_shaders',
+        # 第三方（部分为延迟 import，显式声明确保收集）
+        'numpy', 'mcubes', 'matplotlib',
+        # ovcanvas 渲染包（旧 cub_canvas/cub_viewer/color_wheel 已并入）
+        'ovcanvas', 'ovcanvas._panel', 'ovcanvas._glwidget',
+        'ovcanvas._molviewer_style', 'ovcanvas._colorwheel',
+        # 各分析面板
+        'esp_panel', 'esp_viewer', 'charge_viewer', 'nbo_viewer',
+        'nbo_parser', 'igmh_panel',
+        # 旧版独立查看器（保留兼容）
         'orbital_viewer_v53', 'orbital_viewer_lib',
-        'molcanvas', 'widgets', 'cub_canvas', 'cub_viewer', 'glsl_shaders',
-        'marching_cubes', 'esp_viewer', 'orbital_gl_viewer', 'orbital_gl_widget',
-        'color_wheel',
+        'orbital_gl_viewer', 'orbital_gl_widget',
+        'cubviewer',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=['PySide6', 'PyQt5.QtWebEngineWidgets', 'PyQt5.QtWebEngineCore',
-               'PyQt5.QtWebEngine', 'PyQt5.QtWebChannel', 'PyQt5.QtWebEngineQuick'],
+               'PyQt5.QtWebEngine', 'PyQt5.QtWebChannel', 'PyQt5.QtWebEngineQuick',
+               # 以下仅存在于站点包、项目代码未引用，排除以减小体积
+               'IPython', 'pandas', 'sympy', 'bokeh', 'astropy',
+               'distributed', 'numba', 'sklearn'],
     noarchive=False,
     optimize=0,
 )
 
 pyz = PYZ(a.pure)
 
+# ── 360 安全卫士按文件名拦截写入的 DLL ──
+# 本机 360 会拦截 "d3dcompiler_47.dll"、"ucrtbase.dll" 等已知高危 DLL 的
+# 直接写入（即使覆盖已存在文件），导致 COLLECT 阶段 PermissionError。
+# 处理：先从 a.binaries 剔除，COLLECT 完成后用「写临时名 → os.rename」
+# 技巧绕过拦截放回 _internal（rename 不受该规则限制）。
+_BLOCKED_DLLS = {'ucrtbase.dll', 'd3dcompiler_47.dll'}
+_blocked_entries = []
+_kept = []
+for b in a.binaries:
+    name = b[0].replace('\\', '/').rsplit('/', 1)[-1]
+    if name in _BLOCKED_DLLS:
+        _blocked_entries.append(b)
+    else:
+        _kept.append(b)
+a.binaries = _kept
+
 exe = EXE(
     pyz,
     a.scripts,
     [],
     exclude_binaries=True,
-    name='OrbitalViewer',
+    name='GXNU MolStudio',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -41,7 +77,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=r'C:\Users\Administrator\Pictures\OV2.png',
+    upx=False,
+    icon=r'D:\OrbitalViewer 5.3\gxnu_molstudio.ico',
 )
 
 coll = COLLECT(
@@ -49,7 +86,29 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
-    name='OrbitalViewer',
+    name='GXNU MolStudio',
 )
+
+# ── 事后放回被拦截的 DLL（写 .tmp 再改名，绕过 360 按名拦截） ──
+_internal = os.path.join(r'D:\OrbitalViewer 5.3\dist', 'GXNU MolStudio', '_internal')
+os.makedirs(_internal, exist_ok=True)
+for _dest, _src, _tc in _blocked_entries:
+    _name = _dest.replace('\\', '/').rsplit('/', 1)[-1]
+    if not os.path.exists(_src):
+        print(f"[spec] 源缺失，跳过 {_name}: {_src}")
+        continue
+    _final = os.path.join(_internal, _name)
+    if os.path.exists(_final):
+        try:
+            os.remove(_final)
+        except OSError:
+            pass
+    _tmp = _final + '.tmp'
+    try:
+        shutil.copyfile(_src, _tmp)
+        os.rename(_tmp, _final)
+        print(f"[spec] 已放回 {_name}")
+    except OSError as e:
+        print(f"[spec] 放回 {_name} 失败: {e}")

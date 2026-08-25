@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5 import QtCore
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QPropertyAnimation, QEasingCurve
+from file_dialogs import open_file, existing_directory
 from PyQt5.QtGui import (
     QFont, QColor, QPalette, QFontDatabase, QTextCursor, QKeySequence,
     QLinearGradient, QRadialGradient, QBrush, QPainter, QPen,
@@ -2507,7 +2508,7 @@ class OrbitalVisApp(QMainWindow):
 
     @staticmethod
     def _browse_file_dialog(target_widget, which):
-        path, _ = QFileDialog.getOpenFileName(
+        path, _ = open_file(
             None, f"Select {which}", "",
             "Executables (*.exe);;All Files (*)")
         if path:
@@ -2552,9 +2553,9 @@ class OrbitalVisApp(QMainWindow):
 
     def _browse_input(self):
         if self.mode_group.checkedId() == 0:
-            path = QFileDialog.getExistingDirectory(self, self._tr("dlg_select_input_folder"))
+            path = existing_directory(self, self._tr("dlg_select_input_folder"))
         else:
-            path, _ = QFileDialog.getOpenFileName(
+            path, _ = open_file(
                 self, self._tr("dlg_select_input_file"), "",
                 self._tr("dlg_input_filter"))
         if path:

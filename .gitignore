@@ -49,3 +49,10 @@ _repro_*.py
 _repro_out.txt
 $null
 .codebuddy/
+
+# 测试/示例数据与临时脚本（不入库）
+*.chg
+*.cub
+_*.py
+_*.cub
+layout_sketch.html

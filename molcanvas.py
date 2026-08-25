@@ -457,6 +457,8 @@ class MolCanvas(QWidget):
         self.selected_atom = None
         self.selected_atom2 = None
         self.on_atom_click = None
+        # 按原子索引(1-based)覆盖着色，供电荷/ESP 等分析视图使用
+        self.atom_color_overrides = {}
 
         # 风格属性（默认 HoukMol — gau_xtb_viewer 默认风格）
         self._current_style = "HoukMol"
@@ -504,6 +506,15 @@ class MolCanvas(QWidget):
         self.selected_atom = None
         self.selected_atom2 = None
         self.auto_fit()
+        self.repaint()
+
+    def set_atom_colors(self, overrides):
+        """按原子索引(1-based)覆盖原子颜色。
+
+        overrides: dict {atom_idx: '#rrggbb'}；传 None 或空 dict 清除覆盖，
+        恢复到按元素配色。
+        """
+        self.atom_color_overrides = dict(overrides) if overrides else {}
         self.repaint()
 
     def set_style(self, style_key):
@@ -1108,7 +1119,7 @@ class MolCanvas(QWidget):
                 d = data
                 i, sx, sy, r = d['i'], d['sx'], d['sy'], d['r']
                 idx, sym, an, (ax, ay, az) = self.atoms[i]
-                color = self._get_atom_color(sym)
+                color = self.atom_color_overrides.get(idx, self._get_atom_color(sym))
                 df = self._depth_factor(z_val)
                 cx, cy = int(sx), int(sy)
                 ir = int(r)

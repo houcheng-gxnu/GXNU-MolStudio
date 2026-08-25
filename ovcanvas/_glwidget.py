@@ -1,7 +1,7 @@
 """
 cub_viewer.py — 独立 .cub 文件可视化工具
 ==========================================
-直接运行: python cub_viewer.py
+独立运行: python cubviewer.py（项目根目录）
 或拖放 .cub 文件到窗口。
 
 基于 IboView 渲染管线: depth peeling 透明度 + 三向 Phong 光照
@@ -12,6 +12,7 @@ cub_viewer.py — 独立 .cub 文件可视化工具
 """
 
 import ctypes
+import math
 import os
 import sys
 import numpy as np
@@ -22,8 +23,12 @@ from PyQt5.QtWidgets import (
     QLabel, QLineEdit, QComboBox, QPushButton, QSlider,
     QGroupBox, QFileDialog, QMessageBox, QGridLayout, QCheckBox, QListView,
 )
-from PyQt5.QtCore import Qt, QPoint, QTimer
-from PyQt5.QtGui import QDoubleValidator, QSurfaceFormat, QImage
+from PyQt5.QtCore import Qt, QPoint, QTimer, QRectF, QPointF
+from PyQt5.QtGui import (
+    QDoubleValidator, QSurfaceFormat, QImage,
+    QPainter, QColor, QPen, QBrush, QLinearGradient,
+    QRadialGradient, QFont, QPainterPath,
+)
 
 # ── OpenGL imports ──
 try:
@@ -34,6 +39,8 @@ except ImportError:
     _HAS_GL = False
 
 from PyQt5.QtWidgets import QOpenGLWidget
+
+from file_dialogs import open_file, save_file
 
 # ── Cube file + marching cubes ──
 from marching_cubes import (
@@ -56,7 +63,7 @@ STYLE_DISPLAY = [f"{k}  — {STYLES[k]['desc']}" for k in STYLES.keys()]
 # FadeWidth/FadeBias are the IboView defaults (FadeType=1).
 # ═══════════════════════════════════════════════════════════════
 IBO_DEFAULT_A = [0.8, 0.7, 0.4, -0.5]   # default opaque (atoms)
-IBO_DEFAULT_O = [0.8, 0.7, 0.7, -0.5]   # default orbital
+IBO_DEFAULT_O = [0.8, 0.7, 0.7, -0.5]   # default orbital (used by style_params)
 
 # IboView "shiny" presets — each sets the three-light Phong ShaderReg0..3 for
 # the opaque (a*) and orbital (o*) render paths. Transcribed from the preset_*.js
@@ -115,6 +122,25 @@ def _atom_base_radius(anum):
     if anum in _METAL_SET:
         base *= _METAL_RADIUS_FACTOR
     return base
+
+
+def _ring_normal(az_deg, tilt_deg):
+    """由 MolCanvas 的环定义（azimuth/tilt）算环面单位法线（世界系）。
+
+    u = (-sin az, cos az, 0); v = (-cos az·sin tilt, -sin az·sin tilt, cos tilt)
+    n = u × v
+    """
+    az = math.radians(az_deg)
+    ti = math.radians(tilt_deg)
+    ux = -math.sin(az); uy = math.cos(az); uz = 0.0
+    vx = -math.cos(az) * math.sin(ti)
+    vy = -math.sin(az) * math.sin(ti)
+    vz = math.cos(ti)
+    n = np.array([uy * vz - uz * vy,
+                  uz * vx - ux * vz,
+                  ux * vy - uy * vx], dtype=np.float64)
+    n = n / (np.linalg.norm(n) + 1e-12)
+    return n
 
 
 # Element colours — IboView's "ElementColors" table (length 110, Rasmol CPK-new
@@ -195,75 +221,10 @@ IBOVIEW_DEFAULTS = {
     'OrbitalOpacity': 0.8,      # IboView orbitals are semi-transparent
 }
 
-# Each entry mirrors one IboView preset_*.js, with the orbital (o*) registers.
-IBO_SHINY = {
-    "sooooo_shiny": [0.2, 0.5, 2.92, 2.9],   # preset_sooooo_shiny.js
-    "shiny_chic_21": [0.0, 1.0, 2.5, 0.0],    # preset_shiny_chic_21.js
-    "extra_shiny":   [0.5, 0.5, 2.0, 0.0],    # preset_extra_shiny.js
-    "medium_shiny":  [0.6, 0.5, 1.0, 0.0],    # preset_medium_shiny.js
-    "not_very_shiny":[0.8, 0.5, 0.5, 0.0],    # preset_not_very_shiny.js
-}
-
-# Extra selectable IboView styles merged into the style combo box.
-# (desc, pos_color[rgb], neg_color[rgb], o-registers)
-# Color palettes for the positive / negative lobe (RGB 0..1).  Each glowing
-# style below reuses one of these palettes so the user gets several distinct
-# color combinations to pick from instead of a single green/red look.
-_POS_NEG_PALETTES = {
-    "green-red":    ((0.20, 0.85, 0.20), (0.85, 0.25, 0.25)),   # IboView classic
-    "blue-orange":  ((0.20, 0.55, 0.95), (0.95, 0.55, 0.15)),   # blue+ / orange-
-    "purple-yellow":((0.60, 0.35, 0.90), (0.95, 0.85, 0.20)),   # purple+ / yellow-
-    "cyan-magenta": ((0.15, 0.85, 0.85), (0.90, 0.25, 0.75)),   # cyan+ / magenta-
-    "orange-blue":  ((0.95, 0.55, 0.15), (0.20, 0.55, 0.95)),   # orange+ / blue-
-    "red-green":    ((0.90, 0.25, 0.30), (0.25, 0.80, 0.35)),   # red+ / green-
-    "teal-rose":    ((0.20, 0.80, 0.70), (0.95, 0.45, 0.55)),   # teal+ / rose-
-    "mono-cyan":    ((0.30, 0.85, 0.95), (0.10, 0.45, 0.55)),   # two-tone cyan
-}
-
-IBO_STYLES = {
-    # IboView's own out-of-the-box look (prop_FView3d.cpp.inl defaults).
-    "IboView default":       ("IboView 默认外观 (o* = 0.8/0.7/0.7/-0.5)",
-                              *_POS_NEG_PALETTES["green-red"], IBO_DEFAULT_O),
-    "IboView sooooo shiny":  ("柔和 (绿/红)",
-                              *_POS_NEG_PALETTES["green-red"], IBO_SHINY["not_very_shiny"]),
-    "IboView shiny chic":    ("柔和 (绿/红)",
-                              *_POS_NEG_PALETTES["green-red"], IBO_SHINY["not_very_shiny"]),
-    "IboView extra shiny":   ("柔和 (绿/红)",
-                              *_POS_NEG_PALETTES["green-red"], IBO_SHINY["not_very_shiny"]),
-    "IboView medium shiny":  ("柔和 (绿/红)",
-                              *_POS_NEG_PALETTES["green-red"], IBO_SHINY["not_very_shiny"]),
-    "IboView not very shiny":("柔和 (绿/红)",
-                              *_POS_NEG_PALETTES["green-red"], IBO_SHINY["not_very_shiny"]),
-    # Additional color combinations (soft, not very shiny).
-    "Blue/Orange shiny":     ("柔和 (蓝/橙)",
-                              *_POS_NEG_PALETTES["blue-orange"], IBO_SHINY["not_very_shiny"]),
-    "Purple/Yellow shiny":   ("柔和 (紫/黄)",
-                              *_POS_NEG_PALETTES["purple-yellow"], IBO_SHINY["not_very_shiny"]),
-    "Cyan/Magenta shiny":    ("柔和 (青/品红)",
-                              *_POS_NEG_PALETTES["cyan-magenta"], IBO_SHINY["not_very_shiny"]),
-    "Orange/Blue shiny":     ("柔和 (橙/蓝)",
-                              *_POS_NEG_PALETTES["orange-blue"], IBO_SHINY["not_very_shiny"]),
-    "Red/Green shiny":       ("柔和 (红/绿)",
-                              *_POS_NEG_PALETTES["red-green"], IBO_SHINY["not_very_shiny"]),
-    "Teal/Rose shiny":       ("柔和 (青绿/玫红)",
-                              *_POS_NEG_PALETTES["teal-rose"], IBO_SHINY["not_very_shiny"]),
-    "Mono Cyan shiny":       ("柔和 (单色青)",
-                              *_POS_NEG_PALETTES["mono-cyan"], IBO_SHINY["not_very_shiny"]),
-}
-# Put the glowing styles first so they are easy to pick; default = sooooo shiny.
-MERGED_STYLES = {}
-for _k, _v in IBO_STYLES.items():
-    MERGED_STYLES[_k] = _v
-for _k in STYLE_NAMES:
-    MERGED_STYLES[_k] = STYLES[_k]
-STYLE_NAMES = list(MERGED_STYLES.keys())
-STYLE_DISPLAY = []
-for _k in STYLE_NAMES:
-    _v = MERGED_STYLES[_k]
-    if isinstance(_v, tuple):   # IboView style
-        STYLE_DISPLAY.append(f"{_k}  — {_v[0]}")
-    else:
-        STYLE_DISPLAY.append(f"{_k}  — {_v['desc']}")
+# ── Style catalogue ──
+# All style definitions now live in fchk_orbital.STYLES (single source of truth).
+STYLE_NAMES = list(STYLES.keys())
+STYLE_DISPLAY = [f"{k}  — {v['desc']}" for k, v in STYLES.items()]
 
 # ── Molecule (ball-and-stick) style ──
 # Two independent style systems: the isosurface style (above) controls the
@@ -277,8 +238,8 @@ for _k in STYLE_NAMES:
 #   "Neon"       : saturated per-element neon palette for high contrast
 #   "GaussView"  : Tian Lu's GaussView colour scheme (gview_color.tcl); bonds light grey
 #   "HoukMol"    : same GaussView atoms, but bonds drawn pure black
-MOL_STYLE_NAMES = ["CPK", "VMD single", "Mono white", "Jmol", "Gray pub", "Neon", "GaussView", "HoukMol"]
-MOL_STYLE_DISPLAY = ["CPK (按元素)", "VMD (碳金色)", "单色白", "Jmol", "灰度出版", "霓虹", "GaussView", "HoukMol"]
+MOL_STYLE_NAMES = ["CPK", "VMD single", "Mono white", "Jmol", "Gray pub", "Neon", "GaussView", "HoukMol", "SobArt", "Vcube"]
+MOL_STYLE_DISPLAY = ["CPK (按元素)", "VMD (碳金色)", "单色白", "Jmol", "灰度出版", "霓虹", "GaussView", "HoukMol", "SobArt (Chem311)", "Vcube (VMD 风格)"]
 
 # GaussView element colour palette, transcribed from gview_color.tcl
 # (color change rgb 100+Z r g b; created by Tian Lu, sobereva@sina.com).
@@ -338,6 +299,29 @@ _NEON_COLORS = {
     16: (1.00, 0.95, 0.20), 17: (0.35, 1.00, 0.45),
 }
 
+# HoukMol 原子配色：氢白色、碳浅灰（比 GaussView 碳 #8E8E8E 更浅），
+# 其余元素沿用 GaussView 配色。
+_HOUKMOL_COLORS = {
+    1: (1.000, 1.000, 1.000),    # H  #FFFFFF 白色
+    6: (0.667, 0.667, 0.667),    # C  #AAAAAA 浅灰
+}
+
+# SobArt / Chem311 palette — 逐字移植自 MolCanvas 的 SOB_ART_CPK
+# （sobereva 推荐的 Chem3D 风格：棕碳、红氧、蓝氮……）
+# 按用户要求：氢为纯白，碳调亮一档。
+_SOB_ART_COLORS = {
+    1: (1.000, 1.000, 1.000),    # H  #FFFFFF 白色
+    6: (0.878, 0.769, 0.580),    # C  #E0C494 更明亮的暖沙色碳
+    7: (0.188, 0.314, 0.973),    # N  #3050F8
+    8: (1.000, 0.125, 0.063),    # O  #FF2010
+    16: (1.000, 0.784, 0.196),   # S  #FFC832
+    15: (1.000, 0.502, 0.125),   # P  #FF8020
+    9: (0.478, 0.878, 0.376),    # F  #7AE060
+    17: (0.188, 0.753, 0.251),   # Cl #30C040
+    35: (0.502, 0.125, 0.125),   # Br #802020
+    53: (0.384, 0.000, 0.384),   # I  #620062
+}
+
 
 # ═══════════════════════════════════════════════════════════════
 # GLSL Shaders (inline)
@@ -372,18 +356,31 @@ in vec4 v_Color;
 uniform float ShaderReg0, ShaderReg1, ShaderReg2, ShaderReg3;
 uniform float FadeBias, FadeWidth;
 uniform vec4 DiffuseColor;
+uniform float u_Ambient;    // emissive / ambient term (0..~2); 0 = IboView default
+uniform vec4  u_SpecColor;  // specular tint (RGB; default white)
+uniform float u_SpecMul;    // specular strength multiplier (default 1)
+uniform int   u_Fx;         // orbital material FX: 0=none, 1=neon rim, 2=pearl, 3=metal
+uniform float u_FxStrength; // FX intensity (0..1)
+uniform vec3  u_FxColor;    // FX auxiliary colour (rim / secondary sheen)
+// 自定义光源方向（最多 4 盏；u_UseCustomLights=0 用 IboView 默认）
+uniform vec3  u_L0, u_L1, u_L2, u_L3;
+uniform float u_UseCustomLights;
+uniform int   u_LightCount;   // 生效光源数（1..4）
+uniform float u_Glow;         // 光晕大小（整体，1.0 = 默认；>1 更大更散）
+uniform vec4  u_Glows;        // 每盏灯的光晕大小（u_Glows[i] 对应第 i 盏）
 
-const vec3 L0 = vec3(0.5, 0.5, 0.70710678);
-const vec3 L1 = vec3(-0.4330127, -0.25, 0.8660254);
-const vec3 L2 = vec3(0.4330127, -0.25, 0.8660254);
+const vec3 D_L0 = vec3(0.5, 0.5, 0.70710678);
+const vec3 D_L1 = vec3(-0.4330127, -0.25, 0.8660254);
+const vec3 D_L2 = vec3(0.4330127, -0.25, 0.8660254);
 
 // IboView: cDiffuse  = ShaderReg1 * pow(cos, ShaderReg0) * DiffuseColor
 //          cSpecular = ShaderReg2 * (ShaderReg3*pow(cos,16) + 1.2*pow(cos,64))
-vec4 light_term(vec3 N, vec3 L, float I) {
+vec4 light_term(vec3 N, vec3 L, float I, float glow) {
     float d = clamp(dot(N, L), 0.0, 1.0);
     vec4 diff = ShaderReg1 * pow(d, ShaderReg0) * DiffuseColor;
-    vec4 spec = ShaderReg2 * (ShaderReg3 * pow(d, 16.0) + 1.2 * pow(d, 64.0))
-                * vec4(1.0, 1.0, 1.0, 0.0);
+    // glow 缩放高光指数：越大光晕越散
+    vec4 spec = ShaderReg2 * (ShaderReg3 * pow(d, 16.0 * glow) + 1.2 * pow(d, 64.0 * glow))
+                * u_SpecColor * u_SpecMul;
     return I * (v_Color * diff + spec);
 }
 
@@ -394,27 +391,191 @@ vec4 calc_base_color(bool FlipSides) {
     vec3 N = normalize(v_Normal);
     if (FlipSides && !gl_FrontFacing)
         N = -N;
-    vec4 color = light_term(N, L0, 1.0)
-               + light_term(N, L1, 0.6)
-               + light_term(N, L2, 0.5);
+    vec4 color = vec4(0.0);
+    for (int i = 0; i < 4; i++) {
+        if (i >= u_LightCount) break;
+        vec3 L = (i == 0) ? u_L0 : (i == 1) ? u_L1 : (i == 2) ? u_L2 : u_L3;
+        if (u_UseCustomLights < 0.5)
+            L = (i == 0) ? D_L0 : (i == 1) ? D_L1 : (i == 2) ? D_L2 : vec3(0.0, 0.0, 1.0);
+        float I = (i == 0) ? 1.0 : (i == 1) ? 0.6 : (i == 2) ? 0.5 : 0.4;
+        float glow = (i == 0) ? u_Glows.x : (i == 1) ? u_Glows.y
+                     : (i == 2) ? u_Glows.z : u_Glows.w;
+        color += light_term(N, L, I, glow);
+    }
 
     // IboView: only alpha is boosted at grazing angles.
     color[3] /= clamp(abs(N.z), 0.1, 1.0);
 
-    // IboView FadeType=1: fade towards white with window depth.
+    // IboView FadeType=1: 按窗口深度（远处）淡出到白，形成景深雾化。
     float rz = clamp(FadeWidth * (gl_FragCoord.z - 0.5) + FadeBias, 0.0, 1.0);
     color.rgb = mix(color.rgb, vec3(1.0), rz);
+
+    // Emissive glow (added after the fog so the lobe keeps its hue in depth).
+    color.rgb += u_Ambient * v_Color.rgb;
+
+    // Orbital-only material FX (rim glow / iridescent sheen / fresnel metal).
+    if (FlipSides && u_Fx > 0) {
+        // Rim = grazing-angle factor: 0 when the surface faces the camera
+        // (|N.z| ~ 1), 1 at the silhouette (|N.z| ~ 0). Using |N.z| keeps it
+        // symmetric for back faces (FlipSides already points them at the camera).
+        float facing = clamp(abs(N.z), 0.0, 1.0);
+        float rim = pow(1.0 - facing, 2.0);
+        if (u_Fx == 1) {
+            // Neon tube: a coloured glow hugging the silhouette.
+            color.rgb += u_FxColor * rim * u_FxStrength;
+        } else if (u_Fx == 2) {
+            // Pearl / holographic: base hue slides toward u_FxColor near the rim.
+            color.rgb = mix(color.rgb, u_FxColor, rim * u_FxStrength);
+        } else if (u_Fx == 3) {
+            // Metal: extra fresnel brightening of the (already tinted) specular.
+            color.rgb += u_FxColor * rim * u_FxStrength * 0.6;
+        }
+    }
+
     return color;
 }
 """
 
+# ── MolViewer (MolCanvas) 球体径向渐变停靠点 ────────────────────
+# 逐字换算自 molcanvas._make_sphere_gradient 的 QRadialGradient 停靠曲线。
+# 每项 (t, mult, add) 表示 color = clamp(base*mult + add, 0, 1)，其中
+# t = 片元到高光中心（左上偏移 0.3R）的距离 / R，与 MolCanvas 的
+# QRadialGradient(center=highlight, radius=R) 一一对应。
+_MV_GRAD_STOPS = {
+    1: [(0.00, 1.00, 0.137), (0.06, 0.25, 0.75), (0.40, 0.95, 0.05),
+        (0.65, 1.00, 0.00), (1.00, 0.75, 0.00)],                        # full (Houk)
+    2: [(0.00, 1.00, 0.216), (0.25, 1.00, 0.00), (0.82, 0.82, 0.00),
+        (1.00, 0.62, 0.00)],                                           # soft_matte
+    3: [(0.00, 1.00, 0.137), (0.12, 0.60, 0.40), (0.40, 1.00, 0.00),
+        (0.80, 0.85, 0.00), (1.00, 0.72, 0.00)],                       # subtle
+    4: [(0.00, 1.00, 0.00), (1.00, 1.00, 0.00)],                        # flat
+    5: [(0.00, 1.00, 0.373), (0.06, 0.10, 0.90), (0.14, 1.00, 0.00),
+        (0.40, 1.00, 0.00), (0.68, 0.80, 0.00), (1.00, 0.55, 0.00)],   # sob_art
+    6: [(0.00, 1.00, 0.333), (0.08, 1.00, 0.216), (0.30, 1.00, 0.00),
+        (0.70, 0.95, 0.00), (1.00, 0.75, 0.00)],                       # apple_liquid
+    7: [(0.00, 0.38, 0.62), (0.18, 0.74, 0.26), (0.56, 1.00, 0.00),
+        (0.86, 0.90, 0.00), (1.00, 0.78, 0.00)],                       # paper_matte
+    8: [(0.00, 1.00, 0.227), (0.05, 0.22, 0.78), (0.20, 0.66, 0.34),
+        (0.52, 1.00, 0.00), (0.82, 0.84, 0.00), (1.00, 0.68, 0.00)],   # premium_full
+    9: [(0.00, 0.58, 0.42), (0.20, 0.88, 0.12), (0.62, 1.00, 0.00),
+        (0.84, 0.88, 0.00), (1.00, 0.70, 0.00)],                       # clay_matte
+    10: [(0.00, 1.00, 0.431), (0.07, 0.08, 0.92), (0.24, 0.68, 0.32),
+         (0.58, 1.00, 0.00), (0.82, 1.08, 0.00), (1.00, 0.66, 0.00)],  # glass_plus
+    11: [(0.00, 1.00, 0.471), (0.10, 1.00, 0.282), (0.34, 1.00, 0.00),
+         (0.70, 0.72, 0.00), (1.00, 0.42, 0.00)],                       # neon_glow
+    12: [(0.00, 1.00, 0.00), (1.00, 1.00, 0.00)],                        # ink_flat
+    13: [(0.00, 0.50, 0.50), (0.15, 0.80, 0.20), (0.50, 1.00, 0.00),
+         (0.85, 0.714, 0.00), (1.00, 0.556, 0.00)],                     # gau_default
+}
+_MV_GRAD_IDS = {
+    "full": 1, "soft_matte": 2, "subtle": 3, "flat": 4, "sob_art": 5,
+    "apple_liquid": 6, "paper_matte": 7, "premium_full": 8, "clay_matte": 9,
+    "glass_plus": 10, "neon_glow": 11, "ink_flat": 12, "gau_default": 13,
+    "two_light": 14,   # 双光源：主光左上 + 辅光右下
+    "four_light": 15,  # 四光源：主左上 + 辅右下 + 左 + 右
+}
+_MV_GRAD_BY_ID = {v: k for k, v in _MV_GRAD_IDS.items()}
+
+
+def _gen_mv_ramp_glsl():
+    """把 _MV_GRAD_STOPS 编译成 GLSL 的 mv_ramp(g, base, t) 分段线性插值函数。
+
+    注意：各渐变分支必须用 else-if 链（不能是独立 if 块），否则末尾的兜底
+    else 会挂到最后一个 if 上，把已赋值的 m/a 覆盖回基色（所有渐变变平）。
+    """
+    lines = [
+        "uniform int u_MvGrad;   // 0 = IboView Phong; >0 = MolViewer radial-gradient id",
+        "vec3 mv_ramp(int g, vec3 base, float t) {",
+        "    vec3 m; vec3 a;",
+    ]
+    ids = sorted(_MV_GRAD_STOPS)
+    for k, gid in enumerate(ids):
+        stops = _MV_GRAD_STOPS[gid]
+        cond = "if" if k == 0 else "else if"
+        lines.append(f"    {cond} (g == {gid}) {{")
+        for i in range(len(stops) - 1):
+            t0, m0, a0 = stops[i]
+            t1, m1, a1 = stops[i + 1]
+            inner_cond = "if" if i == 0 else "else if"
+            f = f"(t - {t0:.4g}) / {t1 - t0:.4g}"
+            lines.append(
+                f"        {inner_cond} (t <= {t1:.4g}) {{ "
+                f"m = mix(vec3({m0:.4g}), vec3({m1:.4g}), {f}); "
+                f"a = mix(vec3({a0:.4g}), vec3({a1:.4g}), {f}); }}")
+        t_last, m_last, a_last = stops[-1]
+        lines.append(f"        else {{ m = vec3({m_last:.4g}); a = vec3({a_last:.4g}); }}")
+        lines.append("    }")
+    lines.append("    else { m = vec3(1.0); a = vec3(0.0); }  // 兜底：基色")
+    lines.append("    return clamp(base * m + a, 0.0, 1.0);")
+    lines.append("}")
+    return "\n".join(lines)
+
+
+_MV_RAMP_GLSL = _gen_mv_ramp_glsl()
+
+# 等值面单光点光照：固定左上光源 L，t = pow(1 - dot(N,L), 0.7)，复用 mv_ramp。
+# （等值面是任意曲面，不能像原子那样用 N.xy 屏幕空间渐变，改用光源方向。）
+# orb_outline：等值面剪影描边（与原子 u_Outline 同法，|N.z| 朝边沿处混入描边色）。
+_MV_ORB_GLSL = """
+uniform float u_OrbOutline;      // 0 = off, 1 = on
+uniform vec3  u_OrbOutlineColor; // edge stroke colour
+uniform float u_OrbOutlineWidth; // 0..1, thin silhouette band half-width
+
+vec4 mv_orb_color(vec3 baseColor, float baseAlpha) {
+    vec3 N = normalize(v_Normal);
+    if (!gl_FrontFacing) N = -N;
+    // 多光循环：方向/数量/光晕由 u_L0-3 + u_LightCount + u_Glows 控制
+    vec3 col = vec3(0.0);
+    float tot = 0.0;
+    for (int i = 0; i < 4; i++) {
+        if (i >= u_LightCount) break;
+        vec3 L = (i == 0) ? u_L0 : (i == 1) ? u_L1 : (i == 2) ? u_L2 : u_L3;
+        L = normalize(L);
+        float d = clamp(dot(N, L), 0.0, 1.0);
+        float glow = (i == 0) ? u_Glows.x : (i == 1) ? u_Glows.y : (i == 2) ? u_Glows.z : u_Glows.w;
+        float t = pow(1.0 - d, 0.7 / glow);
+        float w = (i == 0) ? 1.0 : 0.5;
+        col += w * mv_ramp((u_LightCount > 1) ? 1 : u_MvGrad, baseColor, t);
+        tot += w;
+    }
+    col /= max(tot, 1e-4);
+    // 透明度：乘 DiffuseColor.a（等值面不透明度来自 _sp['opacity']）
+    vec4 c = vec4(col, baseAlpha * DiffuseColor.a);
+    float fade = clamp(FadeWidth * (gl_FragCoord.z - 0.5) + FadeBias, 0.0, 1.0);
+    fade *= step(0.0001, FadeWidth);
+    c.rgb *= mix(1.0, 0.55, fade);
+    return c;
+}
+
+vec4 orb_outline(vec4 c) {
+    if (u_OrbOutline > 0.5) {
+        vec3 N = normalize(v_Normal);
+        if (!gl_FrontFacing) N = -N;
+        // 窄带剪影描边：只有 |N.z| 接近 0（屏幕边缘）才混入描边色，
+        // 带宽由 u_OrbOutlineWidth 控制（0.03~0.2 为清晰细描边）。
+        float facing = clamp(abs(N.z), 0.0, 1.0);
+        float rim = 1.0 - step(u_OrbOutlineWidth, facing);
+        c.rgb = mix(c.rgb, u_OrbOutlineColor, rim);
+    }
+    return c;
+}
+"""
+
 # Orbital fragment shader — direct (no depth peeling) variant.
+# 支持两种光照：u_MvGrad=0 → IboView 三灯 Phong；u_MvGrad>0 → MolViewer
+# 单光点（固定左上光源，复用球体渐变停靠曲线）。
 FRAG_ORB = """
 #version 330 core
-""" + _GLSL_COMMON + """
+""" + _GLSL_COMMON + _MV_RAMP_GLSL + _MV_ORB_GLSL + """
 layout(location=0) out vec4 out_Color;
 void main() {
-    out_Color = calc_base_color(true);
+    vec4 c;
+    if (u_MvGrad > 0) {
+        c = mv_orb_color(v_Color.rgb, v_Color.a);
+    } else {
+        c = calc_base_color(true);
+    }
+    out_Color = orb_outline(c);
 }
 """
 
@@ -422,14 +583,20 @@ void main() {
 # only keep fragments strictly in front of the previously peeled layer.
 FRAG_ORB_DP = """
 #version 330 core
-""" + _GLSL_COMMON + """
+""" + _GLSL_COMMON + _MV_RAMP_GLSL + _MV_ORB_GLSL + """
 layout(location=0) out vec4 out_Color;
 uniform sampler2D Depth1;
 void main() {
     ivec2 iCoord2d = ivec2(gl_FragCoord.xy);
     float fDepth0 = texelFetch(Depth1, iCoord2d, 0).r;
     if (gl_FragCoord.z < fDepth0) {
-        out_Color = calc_base_color(true);
+        vec4 c;
+        if (u_MvGrad > 0) {
+            c = mv_orb_color(v_Color.rgb, v_Color.a);
+        } else {
+            c = calc_base_color(true);
+        }
+        out_Color = orb_outline(c);
     } else {
         discard;
     }
@@ -437,6 +604,8 @@ void main() {
 """
 
 # Opaque (atom) fragment shader — FlipSides=false, alpha from vertex colour.
+# 支持两种光照：u_MvGrad=0 → IboView 三灯 Phong；u_MvGrad>0 → MolViewer
+# 屏幕空间径向渐变（MolCanvas 逐字停靠曲线）。
 # An optional silhouette outline (rim term) can be enabled via u_Outline so
 # atoms get a clean edge stroke without any post-processing pass.
 FRAG_ATOM = """
@@ -446,19 +615,59 @@ layout(location=0) out vec4 out_Color;
 uniform float u_Outline;       // 0 = off, 1 = on
 uniform vec3  u_OutlineColor;  // edge stroke colour
 uniform float u_OutlineWidth;  // 0..1, thickness of the silhouette band
+uniform float u_Rings;         // 0 = off, 1 = on（十字圆环）
+uniform vec3  u_RingColor;     // 圆环颜色
+uniform float u_RingWidth;     // 环带半宽（法线夹角阈值，0.03~0.15）
+uniform vec3  u_RingN1, u_RingN2;  // 两条环面法线（视图系）
+""" + _MV_RAMP_GLSL + """
 void main() {
-    vec4 c = calc_base_color(false);
+    vec4 c;
+    if (u_MvGrad > 0) {
+        // MolViewer 径向渐变（光源方向/数量/光晕由 u_L0-3 + u_LightCount + u_Glows 控制）
+        vec3 N = normalize(v_Normal);
+        vec3 col = vec3(0.0);
+        float tot = 0.0;
+        for (int i = 0; i < 4; i++) {
+            if (i >= u_LightCount) break;
+            vec3 L = (i == 0) ? u_L0 : (i == 1) ? u_L1 : (i == 2) ? u_L2 : u_L3;
+            L = normalize(L);
+            // 高光中心 = 光方向投影到视图平面的 0.3 倍偏移
+            float lm = max(length(L.xy), 1e-4);
+            vec2 off = -0.3 * L.xy / lm;
+            float glow = (i == 0) ? u_Glows.x : (i == 1) ? u_Glows.y : (i == 2) ? u_Glows.z : u_Glows.w;
+            float t = length(N.xy + off) / glow;
+            float w = (i == 0) ? 1.0 : 0.5;
+            col += w * mv_ramp((u_LightCount > 1) ? 1 : u_MvGrad, v_Color.rgb, t);
+            tot += w;
+        }
+        col /= max(tot, 1e-4);
+        c = vec4(col, v_Color.a);
+        // MolCanvas depth_factor: distant atoms darken (FadeWidth = 0 when off)
+        float fade = clamp(FadeWidth * (gl_FragCoord.z - 0.5) + FadeBias, 0.0, 1.0);
+        fade *= step(0.0001, FadeWidth);
+        c.rgb *= mix(1.0, 0.55, fade);
+    } else {
+        c = calc_base_color(false);
+    }
     if (u_Outline > 0.5) {
         // v_Normal is in view space; the camera looks along -Z, so facing
         // fragments have |N.z| ~ 1 and silhouette fragments have |N.z| ~ 0.
+        // 窄带剪影描边（与等值面 orb_outline 一致）：只有 |N.z| 接近 0
+        // （屏幕边缘）才混入描边色；u_OutlineWidth 越大描边越粗。
         float facing = abs(normalize(v_Normal).z);
-        // Thin, hard edge: u_OutlineWidth is the angular band half-width near
-        // the silhouette (smaller = thinner). The transition occupies only the
-        // outer 30% of the band so the stroke stays crisp even at minimum width.
-        float inner = 1.0 - u_OutlineWidth;
-        float outer = 1.0 - u_OutlineWidth * 0.7;
-        float rim = 1.0 - smoothstep(inner, outer, facing);
+        float rim = 1.0 - step(u_OutlineWidth, facing);
         c.rgb = mix(c.rgb, u_OutlineColor, rim);
+    }
+    // 十字圆环：两条大圆带，直接用球面法线 N 与环面法线（视图系）的夹角判定。
+    // 与原子描边同款技术——圆环就是球面几何的一部分，必然贴在球上；
+    // 背面半环被球体自身深度遮挡，随分子旋转。
+    if (u_Rings > 0.5) {
+        vec3 RN = normalize(v_Normal);
+        float r1 = abs(dot(RN, u_RingN1));
+        float r2 = abs(dot(RN, u_RingN2));
+        float r = min(r1, r2);
+        float band = 1.0 - smoothstep(u_RingWidth * 0.7, u_RingWidth, r);
+        c.rgb = mix(c.rgb, u_RingColor, band);
     }
     c.a = v_Color.a;
     out_Color = c;
@@ -472,6 +681,32 @@ VERT_QUAD = """
 const vec2 kVerts[4] = vec2[4](
     vec2(-1.0,-1.0), vec2(1.0,-1.0), vec2(-1.0, 1.0), vec2(1.0, 1.0));
 void main() { gl_Position = vec4(kVerts[gl_VertexID], 0.0, 1.0); }
+"""
+
+# Fullscreen-quad vertical 3-stop background gradient (MolViewer style).
+VERT_BG = """
+#version 330 core
+const vec2 kVerts[4] = vec2[4](
+    vec2(-1.0,-1.0), vec2(1.0,-1.0), vec2(-1.0, 1.0), vec2(1.0, 1.0));
+const vec2 kUvs[4] = vec2[4](
+    vec2(0.0,0.0), vec2(1.0,0.0), vec2(0.0,1.0), vec2(1.0,1.0));
+out vec2 vUv;
+void main() { vUv = kUvs[gl_VertexID]; gl_Position = vec4(kVerts[gl_VertexID], 0.0, 1.0); }
+"""
+
+FRAG_BG = """
+#version 330 core
+in vec2 vUv;
+uniform vec3 uTop;
+uniform vec3 uMid;
+uniform vec3 uBot;
+out vec4 out_Color;
+void main() {
+    vec3 c = (vUv.y < 0.5)
+        ? mix(uMid, uTop, vUv.y * 2.0)
+        : mix(uBot, uMid, (vUv.y - 0.5) * 2.0);
+    out_Color = vec4(c, 1.0);
+}
 """
 
 FRAG_COMBINE_DP = """
@@ -543,6 +778,116 @@ def make_sphere(radius=1.0, sub=2):
     return (verts.astype(np.float32),
             (verts / radius).astype(np.float32),
             faces.astype(np.uint32).flatten())
+
+
+# 原始正二十面体（不细分）的 12 顶点 + 20 三角面，取自 IboView IvMesh.cpp
+# 的 fIcosahedronCoordinates / iIcosahedronTriangles（MakeIcosahedron 用）。
+_ICOSA_COORDS = np.array([
+    [0.85065080835203999, 0.0, 0.52573111211913359],
+    [0.85065080835203999, 0.0, -0.52573111211913359],
+    [-0.85065080835203999, 0.0, 0.52573111211913359],
+    [-0.85065080835203999, 0.0, -0.52573111211913359],
+    [0.0, 0.52573111211913359, 0.85065080835203999],
+    [0.0, -0.52573111211913359, 0.85065080835203999],
+    [0.0, 0.52573111211913359, -0.85065080835203999],
+    [0.0, -0.52573111211913359, -0.85065080835203999],
+    [0.52573111211913359, 0.85065080835203999, 0.0],
+    [-0.52573111211913359, 0.85065080835203999, 0.0],
+    [0.52573111211913359, -0.85065080835203999, 0.0],
+    [-0.52573111211913359, -0.85065080835203999, 0.0],
+], dtype=np.float64)
+
+_ICOSA_TRIS = np.array([
+    [0, 1, 8], [0, 4, 5], [0, 5, 10], [0, 8, 4], [0, 10, 1],
+    [1, 6, 8], [1, 7, 6], [1, 10, 7], [2, 3, 11], [2, 4, 9],
+    [2, 5, 4], [2, 9, 3], [2, 11, 5], [3, 6, 7], [3, 7, 11],
+    [3, 9, 6], [4, 8, 9], [5, 11, 10], [6, 9, 8], [7, 10, 11],
+], dtype=np.int32)
+
+
+def make_icosahedron(radius=1.0):
+    """Generate a raw (unsubdivided) icosahedron with flat face normals.
+
+    Returns (positions[N,3], normals[N,3], indices[M]) with N=M=60: three
+    duplicated vertices per face for faceted (flat) shading, exactly like
+    IboView's ``MakeIcosahedron`` selection marker.
+    """
+    pos = []
+    nrm = []
+    idx = []
+    for t in _ICOSA_TRIS:
+        v0 = _ICOSA_COORDS[t[0]] * radius
+        v1 = _ICOSA_COORDS[t[1]] * radius
+        v2 = _ICOSA_COORDS[t[2]] * radius
+        fn = np.cross(v1 - v0, v2 - v0)
+        fn /= (np.linalg.norm(fn) or 1.0)
+        base = len(pos)
+        pos.extend([v0, v1, v2])
+        nrm.extend([fn, fn, fn])
+        idx.extend([base, base + 1, base + 2])
+    return (np.array(pos, dtype=np.float32),
+            np.array(nrm, dtype=np.float32),
+            np.array(idx, dtype=np.uint32))
+
+
+def make_torus(radius=1.0, tube=0.34, n_major=48, n_minor=16):
+    """参数化圆环（选中标记用）——环带半径 radius、管径 tube。
+
+    返回 (positions[N,3], normals[N,3], indices[M])，光滑法线、共享顶点。
+    """
+    a = np.linspace(0.0, 2.0 * np.pi, n_major, endpoint=False)
+    b = np.linspace(0.0, 2.0 * np.pi, n_minor, endpoint=False)
+    verts = np.empty((n_major, n_minor, 3), dtype=np.float64)
+    norms = np.empty_like(verts)
+    for i in range(n_major):
+        ca, sa = np.cos(a[i]), np.sin(a[i])
+        for j in range(n_minor):
+            cb, sb = np.cos(b[j]), np.sin(b[j])
+            verts[i, j] = ((radius + tube * cb) * ca,
+                           (radius + tube * cb) * sa,
+                           tube * sb)
+            norms[i, j] = (ca * cb, sa * cb, sb)
+    idx = []
+    for i in range(n_major):
+        i2 = (i + 1) % n_major
+        for j in range(n_minor):
+            j2 = (j + 1) % n_minor
+            v00 = i * n_minor + j
+            v10 = i2 * n_minor + j
+            v11 = i2 * n_minor + j2
+            v01 = i * n_minor + j2
+            idx.extend([v00, v10, v11, v00, v11, v01])
+    return (verts.reshape(-1, 3).astype(np.float32),
+            norms.reshape(-1, 3).astype(np.float32),
+            np.array(idx, dtype=np.uint32))
+
+
+def merge_iso_surfaces(chunks):
+    """把多个 IsoSurface 合并成一个（顶点/法线/颜色/索引拼接）。
+
+    用于多轨道叠加：每个轨道各自的等值面顶点已带各自颜色，这里按顺序拼接
+    成单张 pos / neg 网格，交给不变的渲染管线绘制。
+    """
+    chunks = [c for c in chunks if c is not None and c.vertex_count > 0]
+    if not chunks:
+        return None
+    out = IsoSurface()
+    all_v, all_n, all_c, all_i = [], [], [], []
+    voff = 0
+    for c in chunks:
+        all_v.append(c.vertices)
+        all_n.append(c.normals)
+        if c.colors is not None:
+            all_c.append(c.colors)
+        else:
+            all_c.append(np.zeros((c.vertex_count, 4), dtype=np.float32))
+        all_i.append(c.indices + voff)
+        voff += c.vertex_count
+    out.vertices = np.vstack(all_v).astype(np.float32)
+    out.normals = np.vstack(all_n).astype(np.float32)
+    out.colors = np.vstack(all_c).astype(np.float32)
+    out.indices = np.concatenate(all_i).astype(np.uint32)
+    return out
 
 
 def make_cylinder(radius=1.0, height=1.0, seg=16):
@@ -645,59 +990,63 @@ def make_dashed_bond_geometry(p, q, bond_r, n_segments=0, dash_weight=0.4,
     return (np.vstack(verts_list).astype(np.float32),
             np.vstack(norms_list).astype(np.float32),
             np.concatenate(idx_list).astype(np.uint32))
-    verts_list = []
-    norms_list = []
-    idx_list = []
-
-    for i in range(n_segments):
-        t = (i / (n_segments - 0.5)) if n_segments > 1 else 0.0
-        start_t = max(0.0, t - seg_len / length * 0.5)
-        # make_cylinder 返回三元组 (pos, nrm, idx)，必须完整解包
-        cv, cn, ci = make_cylinder(radius=1.0, height=1.0, seg=seg)
-        S = np.diag([bond_r, seg_len, bond_r])
-        T = R @ S
-        seg_start = p + seg_v * (start_t * length)
-        cv = cv @ T.T + seg_start
-        cn = cn @ R.T
-        base = len(verts_list) * 0  # 每段顶点数已由 ci 给出，下面用偏移累加
-        verts_list.append(cv)
-        norms_list.append(cn)
-        idx_list.append(ci + i * cv.shape[0])
-
-    if not verts_list:
-        return np.zeros((0, 3)), np.zeros((0, 3)), np.zeros((0,), dtype=np.uint32)
-    V = np.vstack(verts_list)
-    N = np.vstack(norms_list)
-    I = np.concatenate(idx_list).astype(np.uint32)
-    return V, N, I
 
 
-def style_params(surface_mat):
-    """Translate a vcube-style surface_mat into IboView shader registers.
-    IboView computes lighting as:
+# Orbital material FX modes selectable per-style via the ``fx`` key.
+_FX_MODES = {'neon': 1, 'pearl': 2, 'metal': 3}
+
+
+def style_params(surface_mat, style=None):
+    """Translate a vcube-style surface_mat into IboView shader registers plus
+    the extended material uniforms (emissive ambient, tinted specular, orbital
+    FX). IboView computes lighting as:
         cDiffuse = ShaderReg1 * pow(cos, ShaderReg0) * DiffuseColor
         cSpecular = ShaderReg2 * pow(cosS, ShaderReg3) * SpecularColor
     so we map diffuse->ShaderReg1, specular->ShaderReg2,
-    shininess->ShaderReg0 (exponent) and ShaderReg3 (specular balance)."""
+    shininess->ShaderReg0 (exponent) and ShaderReg3 (specular balance).
+
+    ``style`` is the optional STYLES entry; it may carry extra keys to unlock
+    the new material channels (all default to IboView's original look):
+        fx:           'neon' | 'pearl' | 'metal' | None
+        ambient:      emissive strength (0..~2)
+        spec_color:   (r, g, b) specular tint (default white)
+        spec_mul:     specular strength multiplier (default 1; 0 = matte)
+        fx_strength:  0..1 intensity of the FX
+        fx_color:     (r, g, b) rim / secondary sheen colour
+    """
     amb, diff, spec, shin, mir, opac = surface_mat[:6]
     o = [IBO_DEFAULT_O[0], diff, max(spec, 0.0), shin]
     a = [IBO_DEFAULT_A[0], 0.65, 0.4, -0.5]
-    return {
+    sp = {
         'o_reg': o, 'a_reg': a,
         'FadeBias': IBOVIEW_DEFAULTS['FadeBias'],
         'FadeWidth': IBOVIEW_DEFAULTS['FadeWidth'],
         'opacity': opac,
+        # Extended material uniforms — defaults reproduce IboView exactly.
+        'ambient': 0.0,
+        'spec_color': (1.0, 1.0, 1.0),
+        'spec_mul': 1.0,
+        'fx': 0,
+        'fx_strength': 0.0,
+        'fx_color': (1.0, 1.0, 1.0),
     }
-
-def iboview_params(o_regs):
-    """Build params directly from IboView orbital (o*) registers."""
-    return {
-        'o_reg': list(o_regs),
-        'a_reg': list(IBO_DEFAULT_A),
-        'FadeBias': IBOVIEW_DEFAULTS['FadeBias'],
-        'FadeWidth': IBOVIEW_DEFAULTS['FadeWidth'],
-        'opacity': IBOVIEW_DEFAULTS['OrbitalOpacity'],
-    }
+    if style:
+        fx = style.get('fx')
+        if fx:
+            sp['fx'] = _FX_MODES.get(fx, 0)
+        if style.get('ambient') is not None:
+            sp['ambient'] = float(style['ambient'])
+        sc = style.get('spec_color')
+        if sc and len(sc) >= 3:
+            sp['spec_color'] = (float(sc[0]), float(sc[1]), float(sc[2]))
+        if style.get('spec_mul') is not None:
+            sp['spec_mul'] = float(style['spec_mul'])
+        if style.get('fx_strength') is not None:
+            sp['fx_strength'] = float(style['fx_strength'])
+        fc = style.get('fx_color')
+        if fc and len(fc) >= 3:
+            sp['fx_color'] = (float(fc[0]), float(fc[1]), float(fc[2]))
+    return sp
 
 # VMD ColorID -> RGB fallback (used when a style only carries a ColorID and
 # no explicit RGB, e.g. sob-art's pos/neg = [12, None, None] / [22, None, None]).
@@ -795,6 +1144,7 @@ class GlMesh:
         self.vao = self.vbo_p = self.vbo_n = self.vbo_c = self.ebo = 0
         self.n_idx = self.n_vtx = 0
         self._chunks = []       # list of (first_index, index_count, centroid)
+        self._gen = 0           # 上传代际：每次 upload() 递增，供外部缓存失效
 
     @property
     def count(self):
@@ -867,6 +1217,7 @@ class GlMesh:
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
             glBufferData(GL_ELEMENT_ARRAY_BUFFER, surf.indices.nbytes, surf.indices, GL_STATIC_DRAW)
         glBindVertexArray(0)
+        self._gen += 1
 
     def draw(self):
         if self.vao == 0 or self.n_idx == 0:
@@ -884,12 +1235,70 @@ class GlMesh:
                        ctypes.c_void_p(int(first_index) * 4))
         glBindVertexArray(0)
 
+    def draw_order(self, indices):
+        """按给定的三角形索引顺序绘制（画家算法：每帧按视图深度重排）。
+
+        使用独立的临时 EBO，画完恢复原 EBO 绑定，不影响 draw()。
+        """
+        if self.vao == 0 or self.n_idx == 0 or len(indices) == 0:
+            return
+        if not getattr(self, "_scratch_ebo", 0):
+            self._scratch_ebo = glGenBuffers(1)
+        glBindVertexArray(self.vao)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._scratch_ebo)
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.nbytes, indices,
+                     GL_DYNAMIC_DRAW)
+        glDrawElements(GL_TRIANGLES, len(indices), GL_UNSIGNED_INT, None)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)   # 还原 VAO 的 EBO 绑定
+        glBindVertexArray(0)
+
+    def upload_order(self, indices):
+        """只上传重排后的索引到临时 EBO（不绘制），供 draw_order_range 分段用。"""
+        if self.vao == 0 or len(indices) == 0:
+            return
+        if not getattr(self, "_scratch_ebo", 0):
+            self._scratch_ebo = glGenBuffers(1)
+        glBindVertexArray(self.vao)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._scratch_ebo)
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.nbytes, indices,
+                     GL_DYNAMIC_DRAW)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
+        glBindVertexArray(0)
+
+    def draw_order_range(self, first_tri, tri_count):
+        """绘制临时 EBO 中第 first_tri 个三角形起的 tri_count 个三角形。"""
+        if self.vao == 0 or tri_count <= 0:
+            return
+        glBindVertexArray(self.vao)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._scratch_ebo)
+        glDrawElements(GL_TRIANGLES, tri_count * 3, GL_UNSIGNED_INT,
+                       ctypes.c_void_p(int(first_tri) * 3 * 4))
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
+        glBindVertexArray(0)
+
+    def draw_points(self, point_size=3.0):
+        """把已上传的顶点渲染成彩色点云（ESP PT 模式）。
+
+        复用同一 VAO（位置 + 逐顶点颜色），glDrawArrays(GL_POINTS)。
+        """
+        if self.vao == 0 or self.n_vtx == 0:
+            return
+        glBindVertexArray(self.vao)
+        glEnable(GL_PROGRAM_POINT_SIZE)
+        glPointSize(float(point_size))
+        glDrawArrays(GL_POINTS, 0, self.n_vtx)
+        glBindVertexArray(0)
+
     def destroy(self):
         self._chunks = []
         ids = [x for x in (self.vao, self.vbo_p, self.vbo_n, self.vbo_c, self.ebo) if x]
         if ids:
             glDeleteVertexArrays(1, [self.vao]) if self.vao else None
             glDeleteBuffers(len(ids) - (1 if self.vao else 0), ids[1:] if self.vao else ids)
+        scr = getattr(self, "_scratch_ebo", 0)
+        if scr:
+            glDeleteBuffers(1, [scr])
+            self._scratch_ebo = 0
         self.vao = self.vbo_p = self.vbo_n = self.vbo_c = self.ebo = 0
 
 
@@ -1047,6 +1456,7 @@ class CubGLWidget(QOpenGLWidget):
 
         self.cam = Camera()
         self._meshes = [GlMesh(), GlMesh(), GlMesh()]  # pos, neg, atoms
+        self._sel_mesh = GlMesh()   # selection marker (icosahedron around selected atoms)
         self._bg = (1.0, 1.0, 1.0, 1.0)
 
         # Style
@@ -1072,13 +1482,27 @@ class CubGLWidget(QOpenGLWidget):
         self._pos_surf = None
         self._neg_surf = None
         self._atom_surf = None
+        self._sel_surf = None
+        self._sel_marker_shape = "icosahedron"   # 选中标记形状
+        self._sel_pulse = 0.0        # 呼吸动画相位
+        self._sel_pulse_on = False   # 呼吸动画开关
+        self._sel_pulse_timer = None
         self._isovalue = 0.05
         self._needs_upload = False
         self._status_cb = None
+        self._atom_pick_cbs = []    # 原子点击回调列表：cb(atom_idx_1based)
+        # Shift+左键框选（IGMH 分片段等用）
+        self._box_selecting = False
+        self._box_start = None
+        self._box_current = None
+        self._box_cb = None         # cb([atom_idx_1based, ...])
         # Ball-and-stick display scales (user-adjustable via sliders)
-        self._atom_scale = 2.0   # multiplies atom sphere radius (default 2.0×)
-        self._bond_scale = 1.8   # multiplies bond cylinder radius (default 1.8×)
+        self._atom_scale = 1.68   # atom sphere radius scale (default 1.68)
+        self._bond_scale = 2.0   # bond cylinder radius scale (default 2.0)
         self._bond_thinning = BOND_THINNING_DEFAULT  # midpoint narrowing factor (1.0 = no waist)
+
+        # 景深雾化（IboView Fade：远处蒙白雾）开关，默认开启保留原貌
+        self._fade_enabled = True
         # Bond radius factor — dual-threshold for solid / dashed / no-bond
         self._bond_rf_tight = 1.0   # ≤ this → solid bond
         self._bond_rf_loose = 1.3   # ≤ this → dashed bond; > this → no bond
@@ -1092,18 +1516,116 @@ class CubGLWidget(QOpenGLWidget):
         self._atom_outline_color = (0.0, 0.0, 0.0)   # black edge
         self._atom_outline_width = 0.35              # silhouette band thickness
         self._mol_single_rgb = (0.7, 0.56, 0.36)  # VMD "tan" carbon (most styles)
+        self._vcube_c_rgb = (0.6, 0.6, 0.6)       # Vcube 风格的碳色（vcube 预设指定）
+        self._carbon_rgb = None                   # 通用碳色覆盖（任意分子风格，预设 c_color）
+        self._hydrogen_rgb = None                 # 通用氢色覆盖（预设 h_color）
+        self._light_default_dirs = [               # 当前光照模式的默认灯方向（视图空间）
+            (0.5, 0.5, 0.70710678), (-0.4330127, -0.25, 0.8660254),
+            (0.4330127, -0.25, 0.8660254), (0.0, 0.0, 1.0)]
+        self._light_dirs = [list(d) for d in self._light_default_dirs]  # 当前（含方位/俯仰）
+        self._light_az = 0.0                      # 方位角偏移（度，绕视图轴）
+        self._light_el = 0.0                      # 俯仰角偏移（度，>0 向上）
+        self._light_count = 3                     # 生效光源数（1..4）
+        self._light_glow = 1.0                    # 光晕大小（1=默认；>1 更大更散）
+        self._light_glows = [1.0, 1.0, 1.0, 1.0]  # 每盏灯独立光晕（u_Glows）
         self._style_name = None                  # last isosurface style name
         # IboView "shiny" preset (overrides a_reg/o_reg after style build)
         self._shininess = SHININESS_DEFAULT
+
+        # ── MolViewer 样式（MolCanvas 预设）扩展 ──
+        self._bg_grad = None         # None=纯色；否则 (top, mid, bot) 0..1 三段竖向渐变
+        self._bond_color = None      # None=按元素/分子风格；否则 (r,g,b) 0..1 统一键色
+        self._atom_labels = 2        # 0=元素符号 1=原子序号 2=关闭
+        self._shadows = False        # 每原子软阴影（QPainter 叠加）
+        self._crosshair = False      # 原子十字环（GL 球面大圆带）
+        # 隐藏氢原子：True=不画 H（保留编号集合中的除外）
+        self._hide_hydrogens = False
+        self._keep_h_atoms = set()   # 1-based 原子序号集合，隐藏 H 时仍显示
+        self._ring_color = (0.05, 0.05, 0.05)   # 圆环颜色（近黑）
+        self._ring_width = 0.07      # 环带半宽（法线夹角阈值）
+        self._ring_az1 = 90.0        # 环 A 方位角（度）
+        self._ring_tilt1 = 71.0      # 环 A 俯仰角（度）
+        self._ring_az2 = 205.0       # 环 B 方位角（度）
+        self._ring_tilt2 = 0.0       # 环 B 俯仰角（度）
+        self._ring_locked = False    # True=锁定：环固定在屏幕系，分子旋转时圆环不转
+        self._ring_frozen = None     # 锁定瞬间冻结的视图系环法线（锁定当前角度）
+        self._mv_grad = 0            # 0=IboView Phong；>0=MolViewer 径向渐变类型 id
+        self._orb_outline = False    # 等值面剪影描边
+        self._orb_outline_color = (0.0, 0.0, 0.0)
+        self._orb_outline_width = 0.3
+        self._prog_bg = 0
+        self._vao_bg = 0
 
         # Interactive atom/bond picking & override system (IboView context-menu)
         self._bond_overrides = {}   # {(i,j): 'solid'|'dashed'|'none'}
         self._selected_atoms = []   # indices of currently selected atoms
         self._drag_start = None     # (x, y) of mouse press for click-vs-drag
         self._was_drag = False      # True if mouse moved enough to be a drag
+        # 按原子索引(1-based)覆盖球棍模型颜色（电荷分析等视图用）
+        self._atom_color_overrides = {}
+
+        # ── ESP 扩展（整合自 ESPViewer） ──
+        self._extrema_pts = []       # [(x, y, z, kind)] 世界帧 Bohr；kind=max/min
+        self._extrema_radius = 0.25  # 极值点小球半径 (Å)
+        self._extrema_vals = []      # 与 _extrema_pts 对齐的数值（显示单位，标签用）
+        self._extrema_labels = False # 是否绘制极值点数值标签
+        self._extrema_label_font = 9
+        self._extrema_label_dist = 12
+        self._extrema_label_border = True
+        self._esp_point_mode = False  # PT 模式：把等值面顶点渲染成点云
+        self._esp_point_size = 3.0
+        # ── VMD 同步场景登记（「同步到 VMD」按钮读取） ──
+        # 由各面板在把内容画进画布时登记：surfaces = [
+        #   {"type":"orbital","vol":cube,"iso":v} |
+        #   {"type":"bgr","vol":geo_cube,"color_vol":map_cube,"iso":v,"cmin":..,"cmax":..} ]
+        self._vmd_scene = None
+        # 画布内色标条
+        self._cs_low = -0.03
+        self._cs_high = 0.03
+        self._cs_unit = "ESP (a.u.)"
+        self._cs_show = False
+        self._cs_cmap = None
+        self._cs_ticks = 5          # 色标轴刻度段数
+        self._cs_orient = "vertical"  # vertical / horizontal
+        self._cs_len = 0.55         # 色标条长度（画布高/宽的比例）
+        self._cs_geom = None        # (x0, y0, bw, bh, orient) 当前色标条几何
+        self._cs_offx = 0           # 拖动水平偏移（相对默认位置，px）
+        self._cs_offy = 0           # 拖动垂直偏移
+        self._cs_drag_mode = None   # None | "move"
+        self._cs_drag_anchor = None # (mx, my, offx, offy)
 
     def set_status_callback(self, cb):
         self._status_cb = cb
+
+    def set_atom_pick_callback(self, cb):
+        """设置原子点击回调（替换为单个）：cb(atom_idx_1based)。"""
+        self._atom_pick_cbs = [cb] if cb else []
+
+    def add_atom_pick_callback(self, cb):
+        """追加一个原子点击回调：cb(atom_idx_1based)。"""
+        if cb:
+            self._atom_pick_cbs.append(cb)
+
+    def set_box_select_callback(self, cb):
+        """设置框选回调：cb([atom_idx_1based, ...])，Shift+左键拖框选中原子后触发。"""
+        self._box_cb = cb
+
+    # ── VMD 同步场景登记 ───────────────────────────────────────
+    def set_vmd_scene(self, surfaces):
+        """登记当前画布场景，供主窗口「同步到 VMD」按钮读取。
+
+        surfaces: [dict, ...] 或 None（清除登记）。
+          {"type":"orbital", "vol": cube 路径, "iso": 等值面值}
+          {"type":"bgr",     "vol": 几何 cube 路径, "color_vol": 着色 cube 路径,
+                             "iso": 等值面值, "cmin": 色标下限, "cmax": 色标上限}
+        """
+        if surfaces:
+            self._vmd_scene = {"surfaces": list(surfaces)}
+        else:
+            self._vmd_scene = None
+
+    def vmd_scene(self):
+        return self._vmd_scene
 
     def _status(self, msg):
         if self._status_cb:
@@ -1148,6 +1670,76 @@ class CubGLWidget(QOpenGLWidget):
             traceback.print_exc()
             return False
 
+    def load_orbitals(self, cube_paths, isovalue=0.05, color_pairs=None):
+        """同时加载多个轨道 cube 并叠加显示（供 NBO E(2) 双轨道用）。
+
+        color_pairs: [(pos_rgb, neg_rgb), ...]，每项为 0-255 元组，与
+        cube_paths 一一对应；None / 不足时按轨道序号自动分配色相。
+        每个轨道各自的等值面顶点带各自颜色，合并成单张 pos/neg 网格渲染。
+        """
+        if not _HAS_GL or not cube_paths:
+            return False
+        try:
+            recs = []
+            for i, path in enumerate(cube_paths):
+                if not os.path.exists(path):
+                    continue
+                cube = read_cube(path)
+                pos = marching_cubes(cube, isovalue, False)
+                neg = marching_cubes(cube, -isovalue, True)
+                if color_pairs and i < len(color_pairs) and color_pairs[i]:
+                    pc = tuple(float(c) / 255.0 for c in color_pairs[i][0])
+                    nc = tuple(float(c) / 255.0 for c in color_pairs[i][1])
+                else:
+                    pc = self._auto_orbital_color(i, True)
+                    nc = self._auto_orbital_color(i, False)
+                recs.append((cube, pos, neg, pc, nc))
+
+            if not recs:
+                return False
+
+            pos_chunks, neg_chunks = [], []
+            for cube, pos, neg, pc, nc in recs:
+                pa = np.array([*pc, 1.0], dtype=np.float32)
+                na = np.array([*nc, 1.0], dtype=np.float32)
+                if pos.vertex_count > 0:
+                    pos.colors = np.tile(pa, (pos.vertex_count, 1))
+                    pos_chunks.append(pos)
+                if neg.vertex_count > 0:
+                    neg.colors = np.tile(na, (neg.vertex_count, 1))
+                    neg_chunks.append(neg)
+
+            self._pos_surf = merge_iso_surfaces(pos_chunks)
+            self._neg_surf = merge_iso_surfaces(neg_chunks)
+            self._cube = recs[0][0]
+            self._isovalue = isovalue
+            self._pc, self._nc = recs[0][3], recs[0][4]
+
+            ctr, r = compute_bounding_sphere(self._cube)
+            self._scene_r = r
+            self.cam.set_center_zoom(ctr, r)
+            self._gen_atoms()
+            self._needs_upload = True
+            self._status(f"就绪: {len(recs)} 个轨道叠加")
+            self.update()
+            return True
+        except Exception as e:
+            self._status(f"加载失败: {e}")
+            traceback.print_exc()
+            return False
+
+    @staticmethod
+    def _auto_orbital_color(idx, positive=True):
+        """多轨道叠加时按序号分配可区分色相。"""
+        palette = [
+            ((0.85, 0.20, 0.20), (0.20, 0.45, 0.95)),   # 红 / 蓝
+            ((0.20, 0.75, 0.30), (0.95, 0.55, 0.15)),   # 绿 / 橙
+            ((0.75, 0.20, 0.85), (0.95, 0.82, 0.20)),   # 紫 / 黄
+            ((0.15, 0.80, 0.85), (0.95, 0.30, 0.55)),   # 青 / 粉
+        ]
+        pos, neg = palette[idx % len(palette)]
+        return pos if positive else neg
+
     def set_isovalue(self, v):
         if self._cube is None or abs(self._isovalue - v) < 1e-6:
             return
@@ -1165,20 +1757,15 @@ class CubGLWidget(QOpenGLWidget):
             self._status(f"等值面更新失败: {e}")
 
     def set_style(self, name):
-        s = MERGED_STYLES.get(name)
+        s = STYLES.get(name)
         if not s:
             return
         self._style_name = name
-        if isinstance(s, tuple):
-            # IboView style: (desc, pos_rgb, neg_rgb, o_registers)
-            _desc, pc, nc, oreg = s
-            self._sp = iboview_params(oreg)
-        else:
-            sm = s.get('surface_mat')
-            if sm:
-                self._sp = style_params(sm)
-            pc = style_rgb(s.get('pos_color', []))
-            nc = style_rgb(s.get('neg_color', []))
+        sm = s.get('surface_mat')
+        if sm:
+            self._sp = style_params(sm, s)
+        pc = style_rgb(s.get('pos_color', []))
+        nc = style_rgb(s.get('neg_color', []))
         if pc:
             self._pc = pc
         if nc:
@@ -1246,7 +1833,7 @@ class CubGLWidget(QOpenGLWidget):
             self._mol_single_rgb = tuple(float(x) for x in single_rgb[:3])
         if name == "VMD single":
             # keep carbon tint in sync with the current isosurface style
-            s = MERGED_STYLES.get(self._style_name)
+            s = STYLES.get(self._style_name)
             if isinstance(s, dict):
                 rgb = s.get('c_rgb')
                 if rgb:
@@ -1254,7 +1841,7 @@ class CubGLWidget(QOpenGLWidget):
                         self._mol_single_rgb = tuple(float(x) for x in rgb.split())
                     except Exception:
                         pass
-        if self._cube:
+        if self._molecule is not None or self._cube is not None:
             self._gen_atoms()
             self._needs_upload = True
             self.update()
@@ -1295,11 +1882,486 @@ class CubGLWidget(QOpenGLWidget):
         if len(c) == 3:
             c = c + (1.0,)
         self._bg = c[:4]
+        self._bg_grad = None
         self.update()
 
-    def set_depth_peeling(self, on):
-        """Enable/disable depth peeling; disabling uses the sorted fallback."""
-        self._dp_layers = int(IBOVIEW_DEFAULTS['DepthPeelingLayers']) if on else 0
+    def set_background_gradient(self, top, mid, bot):
+        """三段竖向背景渐变（MolViewer 风格）。每个参数为 0..1 的 (r,g,b)。"""
+        t = tuple(float(x) for x in top[:3])
+        m = tuple(float(x) for x in mid[:3])
+        b = tuple(float(x) for x in bot[:3])
+        self._bg_grad = (t, m, b)
+        self._bg = (m[0], m[1], m[2], 1.0)   # glClear 底色取中段
+        self.update()
+
+    def set_bond_color(self, color):
+        """统一键色。color 为 hex 字符串或 0..1 (r,g,b) 元组；None 回退按元素配色。"""
+        if color is None:
+            self._bond_color = None
+        elif isinstance(color, str):
+            h = color.lstrip("#")
+            if len(h) == 6:
+                self._bond_color = (int(h[0:2], 16) / 255.0,
+                                    int(h[2:4], 16) / 255.0,
+                                    int(h[4:6], 16) / 255.0)
+        else:
+            self._bond_color = tuple(float(x) for x in color[:3])
+        if self._molecule is not None or self._cube is not None:
+            self._gen_atoms()
+            self._needs_upload = True
+        self.update()
+
+    def set_atom_labels(self, mode):
+        """原子标签：0=元素符号、1=原子序号、2=关闭。"""
+        self._atom_labels = 0 if mode == 0 else (1 if mode == 1 else 2)
+        self.update()
+
+    def set_hide_hydrogens(self, on, keep=None):
+        """隐藏氢原子（除保留编号外）。
+
+        on   : True=隐藏 H（球体/键/标签均不显示）
+        keep : 可选，1-based 原子序号的可迭代集合；这些 H 仍显示。
+               传 None 表示用当前的保留集合。
+        """
+        self._hide_hydrogens = bool(on)
+        if keep is not None:
+            self._keep_h_atoms = set(int(x) for x in keep if int(x) > 0)
+        if self._molecule is not None or self._cube is not None:
+            self._gen_atoms()
+            self._needs_upload = True
+        self.update()
+
+    def _hydrogen_visible(self, idx_1based, anum):
+        """原子序号 idx_1based（1-based）的原子是否应显示。"""
+        if anum == 1 and self._hide_hydrogens:
+            return idx_1based in self._keep_h_atoms
+        return True
+
+    def set_shadows(self, on):
+        """每原子软阴影（MolViewer 风格偏移椭圆，QPainter 叠加）。"""
+        self._shadows = bool(on)
+        self.update()
+
+    def set_crosshair(self, on):
+        """原子十字环（两条大圆带，GL 着色器直接在球面上绘制）。"""
+        self._crosshair = bool(on)
+        self.update()
+
+    def set_ring_style(self, color=None, width=None):
+        """圆环颜色（0..1 元组）与环带半宽（0.02~0.2）。"""
+        if color is not None:
+            self._ring_color = tuple(float(x) for x in color[:3])
+        if width is not None:
+            self._ring_width = max(0.02, min(0.2, float(width)))
+        self.update()
+
+    def set_ring_orientation(self, az1=None, tilt1=None, az2=None, tilt2=None, locked=None):
+        """设置两条圆环的方位角/俯仰角（度）与锁定状态。
+
+        locked=True：把**当前**视图系环方向冻结（锁定当前角度），此后分子怎么
+        旋转圆环都不再改变；locked=False：圆环随分子旋转（世界系固定）。
+        """
+        if az1 is not None:
+            self._ring_az1 = float(az1) % 360.0
+        if tilt1 is not None:
+            self._ring_tilt1 = max(0.0, min(90.0, float(tilt1)))
+        if az2 is not None:
+            self._ring_az2 = float(az2) % 360.0
+        if tilt2 is not None:
+            self._ring_tilt2 = max(0.0, min(90.0, float(tilt2)))
+        if locked is not None:
+            self._ring_locked = bool(locked)
+        self._refresh_ring_frozen()
+        self.update()
+
+    def _refresh_ring_frozen(self):
+        """锁定时把当前视图系的环法线冻结（即锁定当前角度）；解锁时清除。"""
+        if self._ring_locked:
+            R = self.cam.view()[:3, :3]
+            nA = _ring_normal(self._ring_az1, self._ring_tilt1)
+            nB = _ring_normal(self._ring_az2, self._ring_tilt2)
+            self._ring_frozen = (R @ nA, R @ nB)
+        else:
+            self._ring_frozen = None
+
+    def get_ring_state(self):
+        """导出十字圆环设置（JSON 可序列化）。"""
+        return {
+            "on": self._crosshair,
+            "az1": self._ring_az1,
+            "tilt1": self._ring_tilt1,
+            "az2": self._ring_az2,
+            "tilt2": self._ring_tilt2,
+            "locked": self._ring_locked,
+            "width": self._ring_width,
+            "color": list(self._ring_color),
+        }
+
+    def apply_ring_state(self, st):
+        """应用十字圆环设置（与 RingControlDialog 的保存/载入一致）。"""
+        if not isinstance(st, dict):
+            return
+        self.set_crosshair(bool(st.get("on", self._crosshair)))
+        self.set_ring_orientation(
+            az1=st.get("az1"), tilt1=st.get("tilt1"),
+            az2=st.get("az2"), tilt2=st.get("tilt2"),
+            locked=st.get("locked"))
+        self.set_ring_style(color=st.get("color"), width=st.get("width"))
+
+    def set_mv_gradient(self, name):
+        """设置 MolViewer 球体径向渐变类型（如 'full'/'glass_plus'/'flat'）。
+
+        name 为空或 None → 回退 IboView 三灯 Phong（u_MvGrad=0）。
+        同时按模式设定默认灯方向与数量（单光/双光/四光/三光）。
+        """
+        if not name:
+            self._mv_grad = 0
+            self._light_default_dirs = [
+                (0.5, 0.5, 0.70710678), (-0.4330127, -0.25, 0.8660254),
+                (0.4330127, -0.25, 0.8660254), (0.0, 0.0, 1.0)]
+            self._light_count = 3
+        else:
+            self._mv_grad = _MV_GRAD_IDS.get(name, 0)
+            if name == "two_light":
+                self._light_default_dirs = [
+                    (-0.30, 0.30, 0.90), (0.30, -0.30, 0.90),
+                    (0.0, 0.0, 1.0), (0.0, 0.0, 1.0)]
+                self._light_count = 2
+            elif name == "four_light":
+                self._light_default_dirs = [
+                    (-0.30, 0.30, 0.90), (0.30, -0.30, 0.90),
+                    (-0.60, 0.00, 0.80), (0.60, 0.00, 0.80)]
+                self._light_count = 4
+            else:  # 单光
+                self._light_default_dirs = [
+                    (-0.577, 0.577, 0.577), (0.0, 0.0, 1.0),
+                    (0.0, 0.0, 1.0), (0.0, 0.0, 1.0)]
+                self._light_count = 1
+        self._light_az = 0.0
+        self._light_el = 0.0
+        self._recompute_lights()
+        self.update()
+
+    def set_orb_outline(self, on, color=None, width=None):
+        """等值面剪影描边。color 为 0..1 (r,g,b)；width 为 0..1 剪影带厚度。"""
+        self._orb_outline = bool(on)
+        if color is not None:
+            self._orb_outline_color = tuple(float(x) for x in color[:3])
+        if width is not None:
+            self._orb_outline_width = max(0.01, min(0.99, float(width)))
+        self.update()
+
+    def set_vcube_carbon(self, rgb):
+        """设置 Vcube 分子风格的碳原子颜色（0..1 元组）。"""
+        self._vcube_c_rgb = tuple(float(x) for x in rgb[:3])
+        if self._molecule is not None or self._cube is not None:
+            self._gen_atoms()
+            self._needs_upload = True
+        self.update()
+
+    def set_carbon_color(self, rgb):
+        """通用碳色覆盖（0..1 元组；None 清除，回到分子风格默认碳色）。"""
+        if rgb is None:
+            self._carbon_rgb = None
+        else:
+            self._carbon_rgb = tuple(float(x) for x in rgb[:3])
+        if self._molecule is not None or self._cube is not None:
+            self._gen_atoms()
+            self._needs_upload = True
+        self.update()
+
+    def set_hydrogen_color(self, rgb):
+        """通用氢色覆盖（0..1 元组；None 清除，回到分子风格默认氢色）。"""
+        if rgb is None:
+            self._hydrogen_rgb = None
+        else:
+            self._hydrogen_rgb = tuple(float(x) for x in rgb[:3])
+        if self._molecule is not None or self._cube is not None:
+            self._gen_atoms()
+            self._needs_upload = True
+        self.update()
+
+    def set_surface_material(self, ambient=None, spec_mul=None):
+        """设置等值面材质（vcube/VMD 材质的近似映射）。
+
+        ambient:  自发光/环境项（VMD ambient，0..1+）
+        spec_mul: 高光强度倍率（VMD specular，0..1+）
+        """
+        if ambient is not None:
+            self._sp['ambient'] = max(0.0, float(ambient))
+        if spec_mul is not None:
+            self._sp['spec_mul'] = max(0.0, float(spec_mul))
+        self.update()
+
+    def set_light_dirs(self, dirs):
+        """自定义光源方向（视图空间方向，3 个 (x,y,z)，用于 IboView 三光等）。
+
+        同时记录为当前模式的默认方向并清零方位/俯仰偏移；None 保持不变。
+        """
+        if dirs is None:
+            return
+        self._light_default_dirs = [tuple(float(x) for x in d[:3]) for d in dirs[:3]]
+        while len(self._light_default_dirs) < 4:
+            self._light_default_dirs.append((0.0, 0.0, 1.0))
+        self._light_count = 3
+        self._light_az = 0.0
+        self._light_el = 0.0
+        self._recompute_lights()
+
+    def adjust_light_azimuth(self, deg):
+        """手动微调：所有灯绕视图轴整体旋转（方位角，度）。"""
+        self._light_az = float(deg)
+        self._recompute_lights()
+
+    def adjust_light_elevation(self, deg):
+        """手动微调：所有灯整体俯仰（度，>0 灯光上倾）。"""
+        self._light_el = float(deg)
+        self._recompute_lights()
+
+    def set_light_count(self, n):
+        """设置生效光源数量（1..4）。"""
+        self._light_count = max(1, min(4, int(n)))
+        self.update()
+
+    def set_light_dir(self, i, dir):
+        """手动摆放第 i 盏灯的方向（视图空间单位方向）。
+
+        同时写入该模式的默认方向并清零方位/俯仰（手动摆放优先于整体旋转）。
+        """
+        i = max(0, min(3, int(i)))
+        d = tuple(float(x) for x in dir[:3])
+        while len(self._light_default_dirs) < 4:
+            self._light_default_dirs.append((0.0, 0.0, 1.0))
+        self._light_default_dirs[i] = d
+        self._light_dirs = [list(x) for x in self._light_default_dirs]
+        self._light_az = 0.0
+        self._light_el = 0.0
+        self.update()
+
+    def set_light_glow(self, g):
+        """设置光晕大小（0.1..3.0；1.0=默认），同时作用于全部灯。"""
+        g = max(0.1, min(3.0, float(g)))
+        self._light_glow = g
+        self._light_glows = [g] * 4
+        self.update()
+
+    def set_light_glow_i(self, i, g):
+        """单独设置第 i 盏灯的光晕大小（0.1..3.0；1.0=默认）。
+
+        同时把整体值 _light_glow 同步为刚编辑的这盏灯的值，避免保存样式时
+        light_glow 字段携带过期值（与每灯光晕矛盾）。
+        """
+        i = max(0, min(3, int(i)))
+        g = max(0.1, min(3.0, float(g)))
+        while len(self._light_glows) < 4:
+            self._light_glows.append(self._light_glow)
+        self._light_glows[i] = g
+        self._light_glow = g
+        self.update()
+
+    def reset_light_adjust(self):
+        """清除方位/俯仰偏移，回到当前模式的默认灯方向。"""
+        self._light_az = 0.0
+        self._light_el = 0.0
+        self._recompute_lights()
+
+    def reset_light_config(self):
+        """光源全部复位：数量/光晕/方位/俯仰回到当前光照模式的默认。"""
+        if self._mv_grad == 14:
+            self._light_count = 2
+        elif self._mv_grad == 15:
+            self._light_count = 4
+        elif self._mv_grad == 0:
+            self._light_count = 3
+        else:
+            self._light_count = 1
+        self._light_glow = 1.0
+        self._light_glows = [1.0, 1.0, 1.0, 1.0]
+        self._light_az = 0.0
+        self._light_el = 0.0
+        self._recompute_lights()
+
+    def _recompute_lights(self):
+        """由默认灯方向 + 方位/俯仰偏移算出当前生效方向（4 盏）。"""
+        az = math.radians(self._light_az)
+        el = math.radians(self._light_el)
+        ca, sa = math.cos(az), math.sin(az)
+        ce, se = math.cos(el), math.sin(el)
+        out = []
+        for (x, y, z) in self._light_default_dirs:
+            # 方位：绕视图轴（z）旋转
+            xr = x * ca - y * sa
+            yr = x * sa + y * ca
+            # 俯仰：绕 x 轴旋转（>0 向上）
+            y2 = yr * ce + z * se
+            z2 = -yr * se + z * ce
+            out.append((xr, y2, z2))
+        self._light_dirs = out
+        self.update()
+
+    def reset_molviewer_style(self):
+        """清除 MolViewer 预设效果，恢复默认 IboView 球棍观感。
+
+        不触碰等值面风格（STYLE_NAMES）与相位配色。
+        """
+        self._mv_grad = 0
+        self._bg_grad = None
+        self._bg = (1.0, 1.0, 1.0, 1.0)
+        self._bond_color = None
+        self.set_mol_style("CPK")
+        self.set_shininess(SHININESS_DEFAULT)
+        self.set_atom_scale(1.68)
+        self.set_bond_scale(2.0)
+        self.set_atom_outline(False)
+        self.set_shadows(False)
+        self.set_crosshair(False)
+        self.set_ring_style((0.05, 0.05, 0.05), 0.07)
+        self.set_ring_orientation(90, 71, 205, 0, locked=False)
+        self.set_atom_labels(2)
+        self.set_orb_outline(False)
+        self.set_fade_enabled(True)
+        # 等值面不透明度回到默认
+        self._sp['opacity'] = float(IBOVIEW_DEFAULTS.get('OrbitalOpacity', 1.0))
+        # 灯光复位：数量 3、光晕 1、方位/俯仰归零、恢复默认三光方向
+        self._light_count = 3
+        self._light_glow = 1.0
+        self._light_glows = [1.0, 1.0, 1.0, 1.0]
+        self._light_az = 0.0
+        self._light_el = 0.0
+        self.set_mv_gradient("")
+        self.set_carbon_color(None)
+        self.set_hydrogen_color(None)
+        self.update()
+
+    def apply_molviewer_preset(self, name):
+        """应用一个 MolViewer（MolCanvas）样式预设；见 _molviewer_style.py。"""
+        from ._molviewer_style import apply_molviewer_preset as _apply
+        return _apply(self, name)
+
+    # ── 样式保存/载入 ──
+    def _mv_grad_name(self):
+        """当前 u_MvGrad → 渐变类型名（"" = IboView 三光）。"""
+        return _MV_GRAD_BY_ID.get(self._mv_grad, "")
+
+    def get_style_state(self):
+        """导出当前样式状态（JSON 可序列化），供「保存样式」使用。"""
+        return {
+            "mol_style": self._mol_style,
+            "gradient": self._mv_grad_name(),
+            "shininess": self._shininess,
+            "light_count": self._light_count,
+            "light_dirs": [list(d) for d in self._light_dirs],
+            "light_glow": self._light_glow,
+            "light_glows": list(self._light_glows),
+            "atom_scale": self._atom_scale,
+            "bond_scale": self._bond_scale,
+            "atom_outline": [self._atom_outline,
+                             list(self._atom_outline_color),
+                             self._atom_outline_width],
+            "orb_outline": [self._orb_outline,
+                            list(self._orb_outline_color),
+                            self._orb_outline_width],
+            "orb_opacity": self._sp.get('opacity', 1.0),
+            "phase_pos": list(self._pc),
+            "phase_neg": list(self._nc),
+            "bg": list(self._bg),
+            "crosshair": self._crosshair,
+            "fade": self._fade_enabled,
+            "depth_peeling": self._dp_layers > 0,
+            "carbon": list(self._carbon_rgb) if self._carbon_rgb else None,
+            "hydrogen": list(self._hydrogen_rgb) if self._hydrogen_rgb else None,
+            "hide_hydrogens": self._hide_hydrogens,
+            "keep_h_atoms": sorted(self._keep_h_atoms),
+            "atom_labels": self._atom_labels,
+        }
+
+    def apply_style_state(self, st):
+        """应用导出的样式状态（「载入样式」）。"""
+        if not isinstance(st, dict):
+            return
+        ms = st.get("mol_style")
+        if ms in MOL_STYLE_NAMES:
+            self.set_mol_style(ms)
+        self.set_mv_gradient(st.get("gradient", ""))
+        # 灯光（渐变已重置默认，这里覆盖为保存值）
+        if "light_count" in st:
+            self._light_count = max(1, min(4, int(st["light_count"])))
+        if st.get("light_dirs"):
+            self._light_default_dirs = [tuple(float(x) for x in d[:3])
+                                        for d in st["light_dirs"][:4]]
+            while len(self._light_default_dirs) < 4:
+                self._light_default_dirs.append((0.0, 0.0, 1.0))
+            self._light_dirs = [list(x) for x in self._light_default_dirs]
+            # 与 set_mv_gradient / LightControlDialog._load 一致：方向整体
+            # 替换后清掉旧偏移，避免残留方位/俯仰在微调时突然叠加生效
+            self._light_az = 0.0
+            self._light_el = 0.0
+        if "light_glow" in st:
+            self._light_glow = max(0.1, min(3.0, float(st["light_glow"])))
+        if st.get("light_glows"):
+            glows = [max(0.1, min(3.0, float(x))) for x in st["light_glows"][:4]]
+            while len(glows) < 4:
+                glows.append(self._light_glow)
+            self._light_glows = glows
+        elif "light_glow" in st:
+            # 旧格式（仅 light_glow）：整体值应用到全部灯
+            self._light_glows = [self._light_glow] * 4
+        if st.get("shininess") in SHININESS_PRESETS:
+            self.set_shininess(st["shininess"])
+        if "atom_scale" in st:
+            self.set_atom_scale(st["atom_scale"])
+        if "bond_scale" in st:
+            self.set_bond_scale(st["bond_scale"])
+        if st.get("atom_outline"):
+            on, col, w = st["atom_outline"]
+            self.set_atom_outline(bool(on), tuple(float(x) for x in col), float(w))
+        if st.get("orb_outline"):
+            on, col, w = st["orb_outline"]
+            self.set_orb_outline(bool(on), tuple(float(x) for x in col), float(w))
+        if "orb_opacity" in st:
+            self.set_opacity(max(0.0, min(1.0, float(st["orb_opacity"]))))
+        if st.get("phase_pos") and st.get("phase_neg"):
+            self.set_phase_colors(
+                pos_rgb=tuple(int(c * 255) for c in st["phase_pos"]),
+                neg_rgb=tuple(int(c * 255) for c in st["phase_neg"]))
+        if st.get("bg"):
+            self._bg = tuple(float(x) for x in st["bg"][:4])
+            self._bg_grad = None
+        if "crosshair" in st:
+            self._crosshair = bool(st["crosshair"])
+        if "fade" in st:
+            self._fade_enabled = bool(st["fade"])
+        if "depth_peeling" in st:
+            self.set_depth_peeling(bool(st["depth_peeling"]))
+        if "carbon" in st:
+            self.set_carbon_color(tuple(float(x) for x in st["carbon"])
+                                  if st["carbon"] else None)
+        if "hydrogen" in st:
+            self.set_hydrogen_color(tuple(float(x) for x in st["hydrogen"])
+                                    if st["hydrogen"] else None)
+        if "hide_hydrogens" in st:
+            keep = st.get("keep_h_atoms") or []
+            self.set_hide_hydrogens(bool(st["hide_hydrogens"]),
+                                    [int(x) for x in keep])
+        if "atom_labels" in st:
+            self.set_atom_labels(int(st["atom_labels"]))
+        self._needs_upload = True
+        self.update()
+
+    def set_depth_peeling(self, on, layers=None):
+        """Enable/disable depth peeling; disabling uses the sorted fallback.
+
+        layers: 手动指定剥离层数（1..8，越界自动钳制）；None 用默认（4）。
+        层数越多，复杂轨道的深处显示越完整，代价是每层多一遍渲染。
+        """
+        n = int(layers) if layers else int(IBOVIEW_DEFAULTS['DepthPeelingLayers'])
+        n = max(1, min(8, n))
+        self._dp_layers = n if on else 0
+        self.update()
+
+    def set_fade_enabled(self, enabled):
+        """景深雾化（IboView Fade：远处蒙白雾）开关。默认开启以保留 IboView 原貌。"""
+        self._fade_enabled = bool(enabled)
         self.update()
 
     def reset_view(self):
@@ -1307,6 +2369,19 @@ class CubGLWidget(QOpenGLWidget):
         if self._cube:
             ctr, r = compute_bounding_sphere(self._cube)
             self.cam.set_center_zoom(ctr, r)
+        self.update()
+
+    def frame_to_molecule(self):
+        """把相机对准当前球棍模型（分子），使整个分子居中并铺满视野。"""
+        if self._molecule is not None:
+            pts = np.array([[m[2], m[3], m[4]] for m in self._molecule], dtype=np.float64)
+        elif self._cube is not None and self._cube.atoms:
+            pts = np.array([[a[2], a[3], a[4]] for a in self._cube.atoms], dtype=np.float64)
+        else:
+            return
+        ctr = pts.mean(axis=0)
+        r = float(np.max(np.linalg.norm(pts - ctr, axis=1))) or 1.0
+        self.cam.set_center_zoom(ctr, max(r, 0.3) * 1.25)
         self.update()
 
     def screenshot(self, path, scale: float = 2.0):
@@ -1317,7 +2392,7 @@ class CubGLWidget(QOpenGLWidget):
         img.save(path)
         self._status(f"截图已保存: {os.path.basename(path)}")
 
-    def export_image(self, path, dpi: float = 600.0):
+    def export_image(self, path, dpi: float = 600.0, transparent: bool = False):
         """高分辨率导出（参照 IboView 的导出思路）。
 
         IboView 的 ExportPicture 不是把低分辨率位图拉伸缩放（那样会模糊），
@@ -1329,6 +2404,8 @@ class CubGLWidget(QOpenGLWidget):
             （避免一次性分配超大 FBO 撑爆显存导致 GPU context lost / 闪退）
           * 每块 glReadPixels 读回，拼成完整 RGBA 数组，再写 QImage
           * 通过 setDotsPerMeterX/Y 把 600 DPI 写入 PNG 元数据
+
+        transparent=True 时清屏 alpha=0，导出背景透明的 PNG。
 
         若 OpenGL 不可用则回退到 grabFramebuffer 缩放。
         """
@@ -1351,6 +2428,11 @@ class CubGLWidget(QOpenGLWidget):
         ny = (eh + ty - 1) // ty
 
         full = np.zeros((eh, ew, 4), dtype=np.uint8)
+
+        # 透明背景：清屏色 alpha=0（保留 RGB 与画布一致）
+        clear_col = list(self._bg[:4])
+        if transparent:
+            clear_col[3] = 0.0
 
         self.makeCurrent()
         try:
@@ -1383,7 +2465,7 @@ class CubGLWidget(QOpenGLWidget):
 
                         glBindFramebuffer(GL_FRAMEBUFFER, fbo.fbo)
                         glViewport(0, 0, tw, th)
-                        glClearColor(*self._bg)
+                        glClearColor(*clear_col)
                         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
                         glEnable(GL_DEPTH_TEST)
                         glDepthFunc(GL_LEQUAL)
@@ -1476,18 +2558,59 @@ class CubGLWidget(QOpenGLWidget):
             return origin, np.array([0.0, 0.0, 1.0])
         return origin, d / np.linalg.norm(d)
 
+    def _world_to_screen(self, x, y, z, w=None, h=None):
+        """把世界坐标投影到屏幕像素，返回 (sx, sy, visible)。"""
+        if w is None or h is None:
+            w, h = max(1, self.width()), max(1, self.height())
+        view, proj, _, _ = self._view_proj_matrices()
+        p = proj @ (view @ np.array([x, y, z, 1.0], dtype=np.float64))
+        if abs(p[3]) < 1e-9:
+            return 0.0, 0.0, False
+        ndc = p[:3] / p[3]
+        sx = (ndc[0] * 0.5 + 0.5) * w
+        sy = (1.0 - (ndc[1] * 0.5 + 0.5)) * h
+        visible = (-1.0 <= ndc[0] <= 1.0 and -1.0 <= ndc[1] <= 1.0
+                   and -1.0 <= ndc[2] <= 1.0)
+        return float(sx), float(sy), bool(visible)
+
+    def _box_select_atoms(self):
+        """返回当前拖拽矩形框内的原子索引列表（1-based）。"""
+        if not self._box_start or not self._box_current:
+            return []
+        x1, y1 = self._box_start
+        x2, y2 = self._box_current
+        x_min, y_min = min(x1, x2), min(y1, y2)
+        x_max, y_max = max(x1, x2), max(y1, y2)
+        selected = []
+        for i, (_anum, (ax, ay, az)) in enumerate(self._atom_list()):
+            sx, sy, visible = self._world_to_screen(ax, ay, az)
+            if visible and x_min <= sx <= x_max and y_min <= sy <= y_max:
+                selected.append(i + 1)
+        return selected
+
+    def _atom_list(self):
+        """返回 [(anum, (x, y, z)), ...]，坐标 Bohr。优先分子，其次 cube。
+
+        分子(_molecule)与 cube(_cube.atoms) 都存成 (anum, charge, x, y, z)，
+        因此这里统一提取 anum 与坐标，供拾取使用。
+        """
+        if self._molecule is not None:
+            return [(int(m[0]), (m[2], m[3], m[4])) for m in self._molecule]
+        if self._cube is not None and self._cube.atoms:
+            return [(int(a[0]), (a[2], a[3], a[4])) for a in self._cube.atoms]
+        return []
+
     def _pick_atom(self, x, y):
         """Ray-sphere intersection: find nearest atom at screen (x,y).
-        Returns (atom_index, hit_distance) or (-1, inf)."""
-        if self._cube is None or not self._cube.atoms:
+        Returns (atom_index_0based, hit_distance) or (-1, inf)."""
+        atoms = self._atom_list()
+        if not atoms:
             return -1, float('inf')
         ro, rd = self._screen_to_world(x, y)
         best_idx, best_dist = -1, float('inf')
-        coords = np.array([[a[2], a[3], a[4]] for a in self._cube.atoms], dtype=np.float64)
-        anums = [int(a[0]) for a in self._cube.atoms]
-        for i, ctr in enumerate(coords):
-            atom_r = self._atom_draw_radius(anums[i])
-            oc = ctr - ro
+        for i, (anum, ctr) in enumerate(atoms):
+            atom_r = self._atom_draw_radius(anum)
+            oc = np.asarray(ctr, dtype=np.float64) - ro
             t_ca = np.dot(oc, rd)
             if t_ca < 0:
                 continue
@@ -1504,11 +2627,12 @@ class CubGLWidget(QOpenGLWidget):
     def _pick_bond(self, x, y):
         """Ray-cylinder (approximate) intersection: find nearest bond at (x,y).
         Returns ((i, j), distance) or (( -1, -1), inf)."""
-        if self._cube is None or not self._cube.atoms:
+        atoms = self._atom_list()
+        if not atoms:
             return (-1, -1), float('inf')
         ro, rd = self._screen_to_world(x, y)
-        coords = np.array([[a[2], a[3], a[4]] for a in self._cube.atoms], dtype=np.float64)
-        anums = [int(a[0]) for a in self._cube.atoms]
+        coords = np.array([c for _, c in atoms], dtype=np.float64)
+        anums = [a for a, _ in atoms]
         n = len(coords)
         best_key, best_dist = (-1, -1), float('inf')
         bond_r = max(BOND_DRAW_SCALE * 0.4 * self._bond_scale, 0.04 * self._bond_scale) * 3.0
@@ -1552,12 +2676,58 @@ class CubGLWidget(QOpenGLWidget):
         self.setFocus()
         self._drag_start = (e.x(), e.y())
         self._was_drag = False
+        # Shift+左键 → 框选模式（优先于相机旋转）
+        if e.button() == Qt.LeftButton and (e.modifiers() & Qt.ShiftModifier):
+            self._box_selecting = True
+            self._box_start = (e.x(), e.y())
+            self._box_current = (e.x(), e.y())
+            self.setCursor(Qt.CrossCursor)
+            self.update()
+            return
+        # 右键在色标条上按下 → 拖动移动色标条（优先于相机旋转）
+        if e.button() == Qt.RightButton and self._cs_hit_test(e.x(), e.y()) is not None:
+            self._cs_drag_mode = "move"
+            self._cs_drag_anchor = (e.x(), e.y(), self._cs_offx, self._cs_offy)
+            self.setCursor(Qt.ClosedHandCursor)
+            return
         # Camera always gets a chance to start; if no drag happens, the
         # release handler converts it to a pick.
         if e.button() in (Qt.LeftButton, Qt.MiddleButton, Qt.RightButton):
             self.cam.start(e.x(), e.y(), self.width(), self.height(), e.button())
 
     def mouseMoveEvent(self, e):
+        if self._box_selecting:
+            self._box_current = (e.x(), e.y())
+            self.update()
+            return
+        # ── 拖动色标条到新位置（右键按住） ──
+        if self._cs_drag_mode == "move" and self._cs_drag_anchor is not None:
+            ax, ay, aoffx, aoffy = self._cs_drag_anchor
+            g = self._cs_geom
+            if g is None:
+                self._cs_drag_mode = None
+                self._cs_drag_anchor = None
+                return
+            x0, y0, bw, bh, orient = g
+            nox = aoffx + (e.x() - ax)
+            noy = aoffy + (e.y() - ay)
+            w0, h0 = self.width(), self.height()
+            # 默认锚点（与 _draw_color_scale 一致），并限制在画布内
+            if orient == "vertical":
+                bx, by = w0 - 44, (h0 - bh) // 2
+            else:
+                bx, by = (w0 - bw) // 2, h0 - 52
+            nox = max(-bx, min(w0 - (bx + bw), nox))
+            noy = max(-by, min(h0 - (by + bh), noy))
+            self._cs_offx, self._cs_offy = int(nox), int(noy)
+            self.update()
+            return
+        # ── 悬停在色标条上时光标提示 ──
+        if self.cam._btn is None and getattr(self, "_cs_show", False):
+            if self._cs_hit_test(e.x(), e.y()) is not None:
+                self.setCursor(Qt.OpenHandCursor)
+            else:
+                self.unsetCursor()
         b = self.cam._btn
         if b is not None:
             dx = e.x() - self._drag_start[0] if self._drag_start else 0
@@ -1569,47 +2739,48 @@ class CubGLWidget(QOpenGLWidget):
             self._drag_start = (e.x(), e.y())
 
     def mouseReleaseEvent(self, e):
+        if self._cs_drag_mode is not None:
+            self._cs_drag_mode = None
+            self._cs_drag_anchor = None
+            self.unsetCursor()
+            return
+        if self._box_selecting:
+            self._box_selecting = False
+            self.unsetCursor()
+            selected = self._box_select_atoms()
+            self._box_start = None
+            self._box_current = None
+            self.update()
+            if selected and self._box_cb is not None:
+                self._box_cb(selected)
+            return
         btn = self.cam._btn
         self.cam.stop()
         if btn == Qt.LeftButton and not self._was_drag:
-            # Left click (no drag) → pick atom.
-            # 方案 (A)：左键选两个原子组成一对。点第一个高亮，点第二个凑成
-            # 一对并保持；再点别的原子则替换第二个，始终只维持最近选中的两个。
+            # 左键点击（无拖拽）→ 切换原子选中：点一下选中，再点同一原子取消。
             hit_idx, _ = self._pick_atom(e.x(), e.y())
             if hit_idx >= 0:
-                mods = e.modifiers()
-                if mods & Qt.ControlModifier:
-                    # Ctrl+click: toggle the first-selected atom (keep pair logic)
-                    if hit_idx in self._selected_atoms:
-                        self._selected_atoms.remove(hit_idx)
-                    else:
-                        if len(self._selected_atoms) >= 2:
-                            # 已有满一对时，清空后把该原子作为新的第一个
-                            self._selected_atoms = [hit_idx]
-                        else:
-                            self._selected_atoms.insert(0, hit_idx)
+                if hit_idx in self._selected_atoms:
+                    self._selected_atoms.remove(hit_idx)
+                    removed = True
                 else:
-                    # Plain click：维护“最近两个”的原子对。
-                    if hit_idx in self._selected_atoms:
-                        # 重复点击已选原子：若只有一个则取消选中
-                        if len(self._selected_atoms) == 1:
-                            self._selected_atoms.clear()
-                        # 若已是一对中的成员，则不重复加入
-                    else:
-                        if len(self._selected_atoms) >= 2:
-                            # 已有一对，把第二个替换为新点的原子（保留第一个）
-                            self._selected_atoms = [self._selected_atoms[0], hit_idx]
-                        else:
-                            self._selected_atoms.append(hit_idx)
+                    self._selected_atoms.append(hit_idx)
+                    removed = False
                 self._regenerate_atoms()
                 self.update()
+                # 通知外部（如电荷表联动高亮 / 键级查询）点击到的原子，1-based 索引
+                for cb in self._atom_pick_cbs:
+                    cb(hit_idx + 1)
                 n_sel = len(self._selected_atoms)
                 if n_sel == 2:
                     i, j = self._selected_atoms[0], self._selected_atoms[1]
                     self._status(f"已选中原子对 {i}-{j}，右键可选择 成键/断键/虚线")
+                elif n_sel > 2:
+                    self._status(f"已选中 {n_sel} 个原子")
+                elif n_sel == 1:
+                    self._status(f"选中原子 {hit_idx}")
                 else:
-                    self._status(f"选中原子 {hit_idx}"
-                                 + (f" (共 {len(self._selected_atoms)} 个)" if len(self._selected_atoms) > 1 else ""))
+                    self._status(f"已取消选中原子 {hit_idx}")
         elif btn == Qt.RightButton and not self._was_drag:
             # Right click (no drag) → show context menu at mouse position
             self._show_context_menu(e.globalPos())
@@ -1622,6 +2793,32 @@ class CubGLWidget(QOpenGLWidget):
         late-binding issues with signal-slot connections."""
         from PyQt5.QtWidgets import QMenu, QAction
         menu = QMenu(self)
+        # 白底黑字（覆盖主题默认样式，保证右键菜单可读）
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #FFFFFF;
+                color: #000000;
+                border: 1px solid #C9CED6;
+                padding: 4px 0px;
+            }
+            QMenu::item {
+                background: transparent;
+                color: #000000;
+                padding: 6px 28px 6px 14px;
+            }
+            QMenu::item:selected {
+                background-color: #E3EBF4;
+                color: #000000;
+            }
+            QMenu::item:disabled {
+                color: #9AA3AD;
+            }
+            QMenu::separator {
+                height: 1px;
+                background: #E1E5EA;
+                margin: 4px 8px;
+            }
+        """)
 
         n_sel = len(self._selected_atoms)
 
@@ -1721,6 +2918,11 @@ class CubGLWidget(QOpenGLWidget):
             vs2 = compile_shader(VERT, GL_VERTEX_SHADER)
             self._prog_atom = link_program(vs2, compile_shader(FRAG_ATOM, GL_FRAGMENT_SHADER))
 
+            # 背景渐变（MolViewer 三段竖向渐变）
+            vb = compile_shader(VERT_BG, GL_VERTEX_SHADER)
+            self._prog_bg = link_program(vb, compile_shader(FRAG_BG, GL_FRAGMENT_SHADER))
+            self._vao_bg = glGenVertexArrays(1)
+
             self._gl_ok = True
 
             # Depth-peeling resources are optional: if anything fails we fall
@@ -1778,10 +2980,47 @@ class CubGLWidget(QOpenGLWidget):
 
         self._render()
 
+        # ── ESP 色标条叠加（2D，QPainter） ──
+        if getattr(self, "_cs_show", False):
+            self._draw_color_scale()
+
+        # ── ESP 极值点数值标签叠加 ──
+        self._draw_extrema_labels()
+
+        # ── MolViewer 球棍样式叠加（阴影 / 十字 / 原子标签） ──
+        self._draw_mol_overlay()
+
+        # ── Shift+左键框选橡皮筋 ──
+        if getattr(self, "_box_selecting", False):
+            self._draw_box_rect()
+
+    def _draw_box_rect(self):
+        """拖拽框选时绘制半透明橡皮筋矩形（QPainter 叠加）。"""
+        if not self._box_start or not self._box_current:
+            return
+        x1, y1 = self._box_start
+        x2, y2 = self._box_current
+        p = QPainter(self)
+        try:
+            p.setRenderHint(QPainter.Antialiasing, False)
+            r = QRectF(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
+            p.fillRect(r, QColor(80, 140, 255, 40))
+            pen = QPen(QColor(60, 120, 255), 1.0, Qt.DashLine)
+            p.setPen(pen)
+            p.drawRect(r)
+        finally:
+            p.end()
+
     # ── Internal ──
 
     def _atom_color(self, anum):
         """Return the (r,g,b) ball colour for an atom under the current style."""
+        # 通用碳色覆盖优先（预设 c_color 指定，任意分子风格生效）
+        if anum == 6 and self._carbon_rgb is not None:
+            return self._carbon_rgb
+        # 通用氢色覆盖优先（预设 h_color 指定）
+        if anum == 1 and self._hydrogen_rgb is not None:
+            return self._hydrogen_rgb
         if self._mol_style == "VMD single" and anum == 6:
             # Brighter, lighter, more vivid gold than the style's base c_rgb.
             g = self._mol_single_rgb
@@ -1799,9 +3038,24 @@ class CubGLWidget(QOpenGLWidget):
         if self._mol_style == "GaussView":
             return _GVIEW_COLORS.get(anum, (0.78, 0.78, 0.78))
         if self._mol_style == "HoukMol":
+            # HoukMol：氢白色、碳浅灰，其余元素用 GaussView 配色
+            if anum in _HOUKMOL_COLORS:
+                return _HOUKMOL_COLORS[anum]
+            return _GVIEW_COLORS.get(anum, (0.78, 0.78, 0.78))
+        if self._mol_style == "SobArt":
+            # Chem311：元素用 SobArt 表（氢白、碳亮沙、氮蓝、氧红……），
+            # 未列出的元素退回 GaussView 配色
+            if anum in _SOB_ART_COLORS:
+                return _SOB_ART_COLORS[anum]
+            return _GVIEW_COLORS.get(anum, (0.78, 0.78, 0.78))
+        if self._mol_style == "Vcube":
+            # VMD 风格：碳色由 vcube 预设指定（灰/棕/青），其余元素用 GaussView 配色
+            if anum == 6:
+                return self._vcube_c_rgb
             return _GVIEW_COLORS.get(anum, (0.78, 0.78, 0.78))
         # CPK (IboView ElementColors)
-        return _IBO_ELEMENT_COLORS[anum] if anum < len(_IBO_ELEMENT_COLORS) else (0.5, 0.5, 0.5)
+        return _IBO_ELEMENT_COLORS[anum] if 0 <= anum < len(_IBO_ELEMENT_COLORS) \
+            else (0.5, 0.5, 0.5)
 
     def _gen_atoms(self):
         """Generate the opaque molecule model (atoms + bonds).
@@ -1814,6 +3068,12 @@ class CubGLWidget(QOpenGLWidget):
         """
         if not self._cube or not self._cube.atoms:
             if not self._molecule:
+                old = self._meshes[2]
+                if old is not None:
+                    try:
+                        old.destroy()
+                    except Exception:
+                        pass
                 self._meshes[2] = GlMesh()
                 return
             atoms = self._molecule  # 独立分子数据（载入 fchk/xyz 时设置，单位 Bohr）
@@ -1835,15 +3095,18 @@ class CubGLWidget(QOpenGLWidget):
         # "CPK"        : every element coloured by its CPK tint
         # "VMD single" : CPK for all non-carbon atoms, carbon uses the
         #                current isosurface style's VMD c_rgb (gold for most)
-        use_vmd = (self._mol_style == "VMD single")
-        carbon_rgb = self._mol_single_rgb
+        # 原子配色统一走 _atom_color()（内部已处理 VMD single / Vcube / HoukMol 等分支）
         for k in range(n):
             anum = anums[k]
+            # 隐藏氢原子：除保留编号外，H 球体不生成
+            if not self._hydrogen_visible(k + 1, anum):
+                continue
             ax, ay, az = coords[k]
             r = _atom_base_radius(anum) * ATOM_DRAW_SCALE * self._atom_scale
-            if k in self._selected_atoms:
-                # 选中的原子高亮为亮绿色，便于确认左键已选中
-                col = (0.2, 1.0, 0.2)
+            # 选中标记改用半透明二十面体包裹（见 _gen_selection_marker），
+            # 原子本体保持元素色/电荷覆盖色，不再染绿。
+            if (k + 1) in self._atom_color_overrides:
+                col = self._atom_color_overrides[k + 1]
             else:
                 col = self._atom_color(anum)
             v, nrm, idx = make_sphere(r, 3)
@@ -1865,6 +3128,10 @@ class CubGLWidget(QOpenGLWidget):
 
         for i in range(n):
             for j in range(i + 1, n):
+                # 隐藏氢原子：任一端 H 被隐藏 → 该键不画
+                if not (self._hydrogen_visible(i + 1, anums[i])
+                        and self._hydrogen_visible(j + 1, anums[j])):
+                    continue
                 p = coords[i]; q = coords[j]
                 rij = float(np.linalg.norm(q - p))
                 if rij < 1e-4:
@@ -1872,8 +3139,8 @@ class CubGLWidget(QOpenGLWidget):
                 zi = anums[i]; zj = anums[j]
                 # Use the Bohr-valued covalent radii (g_CovalentRadii) so the
                 # threshold is compared in the same Bohr frame as the coords.
-                ci = _COVALENT_RADII_BOHR[zi] if zi < len(_COVALENT_RADII_BOHR) else 0.7
-                cj = _COVALENT_RADII_BOHR[zj] if zj < len(_COVALENT_RADII_BOHR) else 0.7
+                ci = _COVALENT_RADII_BOHR[zi] if 0 <= zi < len(_COVALENT_RADII_BOHR) else 0.7
+                cj = _COVALENT_RADII_BOHR[zj] if 0 <= zj < len(_COVALENT_RADII_BOHR) else 0.7
                 cov_sum = ci + cj
 
                 # Check manual bond override first (user context-menu action)
@@ -1909,7 +3176,10 @@ class CubGLWidget(QOpenGLWidget):
                         continue           # no bond
 
                 # Determine bond colour per the molecule style
-                if self._mol_style == "HoukMol":
+                if self._bond_color is not None:
+                    bc = self._bond_color
+                    col_i = col_j = np.array([bc[0], bc[1], bc[2], 1.0], dtype=np.float32)
+                elif self._mol_style == "HoukMol":
                     # HoukMol: 整条键统一黑色（从中间分界但两端同色）
                     col_i = col_j = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
                 else:
@@ -1955,6 +3225,24 @@ class CubGLWidget(QOpenGLWidget):
                         all_v.append(tv.astype(np.float32)); all_n.append(tn.astype(np.float32)); all_c.append(tc.astype(np.float32))
                         all_i.append(ci_ + off); off += len(tv)
 
+        # ── ESP 极值点标记（金=极大值，浅蓝=极小值；半径 Å→Bohr） ──
+        if self._extrema_pts:
+            er = max(float(self._extrema_radius) * ANGSTROM_TO_BOHR,
+                     0.02 * ANGSTROM_TO_BOHR)
+            col_max = np.array([0.95, 0.78, 0.10, 1.0], dtype=np.float32)
+            col_min = np.array([0.68, 0.85, 0.95, 1.0], dtype=np.float32)
+            ev, en, ei = make_sphere(er, 2)
+            for (ex, ey, ez, ekind) in self._extrema_pts:
+                is_max = str(ekind).lower() in ("max", "pos")
+                col = col_max if is_max else col_min
+                vv = ev + np.array([ex, ey, ez], dtype=np.float32)
+                cc = np.tile(col, (len(vv), 1))
+                all_v.append(vv)
+                all_n.append(en)
+                all_c.append(cc)
+                all_i.append(ei + off)
+                off += len(vv)
+
         if all_v:
             surf = IsoSurface()
             surf.vertices = np.vstack(all_v).astype(np.float32)
@@ -1967,11 +3255,125 @@ class CubGLWidget(QOpenGLWidget):
         # GPU upload is deferred to _upload() (called from paintGL with the
         # GL context already current) so atoms are not lost when load() runs
         # before the context is bound.
+        self._gen_selection_marker()
+
+    def _gen_selection_marker(self):
+        """为每个选中的原子生成半透明选中标记（IboView 移植，可换形状）。
+
+        IboView 在 IvView3D.cpp 中对选中的原子额外画一个半径 = 1.8 × 原子
+        绘制半径的正二十面体（MakeIcosahedron(1.8)），颜色 = 0.4*原子色 +
+        0.6*白、alpha=0.5，在透明通道里叠加。这里把所有选中原子的标记
+        烘焙进一个网格（顶点颜色含 alpha），统一在透明通道绘制。
+
+        形状可选：icosahedron（二十面体）/ sphere（光滑透明球）/
+        torus（圆环）/ glow（光晕：内壳 + 大透明外壳）。
+        """
+        atoms = self._atom_list()
+        selected = self._selected_atoms
+        if not atoms or not selected:
+            self._sel_surf = None
+            return
+
+        shape = getattr(self, "_sel_marker_shape", "icosahedron")
+        if shape == "sphere":
+            base_v, base_n, base_i = make_sphere(1.0, 3)
+        elif shape == "torus":
+            base_v, base_n, base_i = make_torus(1.0, tube=0.34)
+        elif shape == "glow":
+            base_v, base_n, base_i = make_sphere(1.0, 2)
+        else:
+            base_v, base_n, base_i = make_icosahedron(1.0)
+
+        # 呼吸动画：半径 ±12% 正弦
+        pulse = 1.0 + 0.12 * math.sin(getattr(self, "_sel_pulse", 0.0)) \
+            if getattr(self, "_sel_pulse_on", False) else 1.0
+
+        verts, norms, cols, idxs = [], [], [], []
+        off = 0
+        for k in selected:
+            if not (0 <= k < len(atoms)):
+                continue
+            anum, (x, y, z) = atoms[k]
+            r = _atom_base_radius(anum) * ATOM_DRAW_SCALE * self._atom_scale
+            s = 1.8 * r * pulse
+            ctr = np.array([x, y, z], dtype=np.float32)
+            # 0.4*原子色 + 0.6*白（IboView 的选中标记颜色），alpha=0.5
+            ac = self._atom_color(anum)
+            light = (0.4 * ac[0] + 0.6, 0.4 * ac[1] + 0.6, 0.4 * ac[2] + 0.6)
+
+            if shape == "glow":
+                # 内壳（主体）+ 大透明外壳（光晕）
+                for (scale, alpha) in ((1.0, 0.45), (1.62, 0.12)):
+                    v = base_v * (s * scale) + ctr
+                    c = np.tile(np.array([*light, alpha], dtype=np.float32),
+                                (len(v), 1))
+                    verts.append(v)
+                    norms.append(base_n)
+                    cols.append(c)
+                    idxs.append(base_i + off)
+                    off += len(v)
+            else:
+                v = base_v * s + ctr
+                c = np.tile(np.array([*light, 0.5], dtype=np.float32), (len(v), 1))
+                verts.append(v)
+                norms.append(base_n)
+                cols.append(c)
+                idxs.append(base_i + off)
+                off += len(v)
+
+        if not verts:
+            self._sel_surf = None
+            return
+        surf = IsoSurface()
+        surf.vertices = np.vstack(verts).astype(np.float32)
+        surf.normals = np.vstack(norms).astype(np.float32)
+        surf.colors = np.vstack(cols).astype(np.float32)
+        surf.indices = np.concatenate(idxs).astype(np.uint32)
+        self._sel_surf = surf
+
+    def set_selection_marker_shape(self, name):
+        """切换选中原子标记形状：icosahedron / sphere / torus / glow。"""
+        if name not in ("icosahedron", "sphere", "torus", "glow"):
+            return
+        self._sel_marker_shape = name
+        if self._selected_atoms:
+            self._gen_selection_marker()
+            self._needs_upload = True
+            self.update()
+
+    def set_selection_marker_pulse(self, on):
+        """选中标记呼吸动画开关（半径 ±12% 正弦呼吸）。"""
+        self._sel_pulse_on = bool(on)
+        if self._sel_pulse_on:
+            if self._sel_pulse_timer is None:
+                self._sel_pulse_timer = QTimer(self)
+                self._sel_pulse_timer.timeout.connect(self._on_sel_pulse_tick)
+            self._sel_pulse_timer.start(60)
+        else:
+            if self._sel_pulse_timer is not None:
+                self._sel_pulse_timer.stop()
+            self._sel_pulse = 0.0
+            if self._selected_atoms:
+                self._gen_selection_marker()
+                self._needs_upload = True
+            self.update()
+
+    def _on_sel_pulse_tick(self):
+        self._sel_pulse += 0.1
+        if self._selected_atoms:
+            self._gen_selection_marker()
+            # 只重传选中标记，避免每帧全量重传整个等值面网格（大网格卡顿）
+            try:
+                self._sel_mesh.upload(self._sel_surf)
+            except Exception:
+                self._needs_upload = True
+        self.update()
 
     def _upload(self):
         for i, s in enumerate([self._pos_surf, self._neg_surf]):
             self._meshes[i].upload(s)
         self._meshes[2].upload(self._atom_surf)
+        self._sel_mesh.upload(self._sel_surf)
 
     # ── Ball-and-stick scale controls ──
 
@@ -1992,6 +3394,7 @@ class CubGLWidget(QOpenGLWidget):
         self._cube = None
         self._pos_surf = None
         self._neg_surf = None
+        self._vmd_scene = None   # 新分子：清空 VMD 同步场景登记
         conv = ANGSTROM_TO_BOHR
         self._molecule = [
             (a[2], 0.0, a[3][0] * conv, a[3][1] * conv, a[3][2] * conv)
@@ -2000,6 +3403,399 @@ class CubGLWidget(QOpenGLWidget):
         self._gen_atoms()
         self._needs_upload = True
         self.update()
+
+    def set_atom_colors(self, overrides):
+        """按原子索引(1-based)覆盖球棍模型的原子颜色。
+
+        overrides: dict {atom_idx: (r,g,b)}，颜色分量 0..1；传 None 或空 dict
+        清除覆盖，恢复到按元素/分子风格配色。
+        """
+        self._atom_color_overrides = dict(overrides) if overrides else {}
+        if self._molecule is not None or self._cube is not None:
+            self._gen_atoms()
+            self._needs_upload = True
+            self.update()
+
+    # ── ESP 扩展（整合自 ESPViewer） ──
+
+    def set_extrema(self, points, radius=None, values=None):
+        """设置 ESP 极值点标记（金=极大值，浅蓝=极小值）。
+
+        points: [(x, y, z, kind), ...]，坐标在世界帧（Bohr），kind 为
+        "max"/"min"（也接受 "pos"/"neg" 别名）。标记颜色按 kind 区分，
+        不按 ESP 数值正负（极大值也可能是负的局部峰）。
+        radius: 小球半径（Å）。
+        values: 与 points 对齐的数值（显示单位），用于标签显示。
+        """
+        norm = []
+        for pt in points:
+            x, y, z = float(pt[0]), float(pt[1]), float(pt[2])
+            kind = str(pt[3]).lower() if len(pt) > 3 else "max"
+            norm.append((x, y, z, kind))
+        self._extrema_pts = norm
+        if values is not None:
+            self._extrema_vals = [float(v) for v in values]
+        else:
+            self._extrema_vals = [0.0] * len(norm)
+        if radius is not None:
+            self._extrema_radius = float(radius)
+        self._gen_atoms()
+        self._needs_upload = True
+        self.update()
+
+    def clear_extrema(self):
+        """清除所有 ESP 极值点标记。"""
+        self._extrema_pts = []
+        self._gen_atoms()
+        self._needs_upload = True
+        self.update()
+
+    def set_esp_point_mode(self, enabled, point_size=3.0):
+        """PT 点云模式：把 ESP 等值面顶点渲染成彩色点（跳过三角面）。"""
+        self._esp_point_mode = bool(enabled)
+        try:
+            self._esp_point_size = float(point_size)
+        except (TypeError, ValueError):
+            self._esp_point_size = 3.0
+        self.update()
+
+    def set_color_scale(self, low, high, unit=None, show=None):
+        """设置画布内色标条的范围/单位，可选控制显示。"""
+        try:
+            self._cs_low = float(low)
+            self._cs_high = float(high)
+        except (TypeError, ValueError):
+            return
+        if unit is not None:
+            self._cs_unit = str(unit)
+        if show is not None:
+            self._cs_show = bool(show)
+        self.update()
+
+    def set_show_color_scale(self, show):
+        self._cs_show = bool(show)
+        self.update()
+
+    def set_color_scale_cmap(self, cmap_name):
+        """设置色标条使用的配色（与 ESP 表面配色一致）。"""
+        self._cs_cmap = self._resolve_cmap(cmap_name)
+        self.update()
+
+    def set_color_scale_ticks(self, n):
+        """设置画布内色标轴的刻度段数（2~20）。"""
+        try:
+            self._cs_ticks = max(2, min(20, int(n)))
+        except (TypeError, ValueError):
+            self._cs_ticks = 5
+        self.update()
+
+    def set_color_scale_orient(self, orient):
+        """设置画布内色标轴方位："vertical"（竖直）或 "horizontal"（水平）。"""
+        self._cs_orient = "horizontal" if orient == "horizontal" else "vertical"
+        self.update()
+
+    def set_color_scale_len(self, frac):
+        """设置画布内色标条长度（占画布高/宽的比例，0.15~0.95）。"""
+        try:
+            self._cs_len = max(0.15, min(0.95, float(frac)))
+        except (TypeError, ValueError):
+            self._cs_len = 0.55
+        self.update()
+
+    def _cs_hit_test(self, mx, my):
+        """命中检测：返回色标条几何 (x0,y0,bw,bh,orient)，未命中返回 None。"""
+        if not getattr(self, "_cs_show", False) or self._cs_geom is None:
+            return None
+        x0, y0, bw, bh, orient = self._cs_geom
+        if x0 - 10 <= mx <= x0 + bw + 10 and y0 - 10 <= my <= y0 + bh + 10:
+            return (x0, y0, bw, bh, orient)
+        return None
+
+    # ── ESP 极值点数值标签 ──────────────────────────────────────
+    def set_extrema_labels(self, show=None, font_size=None, dist=None,
+                           border=None):
+        """控制极值点数值标签（QPainter 叠加）。参数为 None 表示保持当前值。"""
+        if show is not None:
+            self._extrema_labels = bool(show)
+        if font_size is not None:
+            try:
+                self._extrema_label_font = max(6, min(40, int(font_size)))
+            except (TypeError, ValueError):
+                pass
+        if dist is not None:
+            try:
+                self._extrema_label_dist = max(0, min(120, int(dist)))
+            except (TypeError, ValueError):
+                pass
+        if border is not None:
+            self._extrema_label_border = bool(border)
+        self.update()
+
+    def set_extrema_radius(self, radius_angstrom):
+        """实时调整极值点小球半径（Å）。"""
+        try:
+            self._extrema_radius = max(0.01, float(radius_angstrom))
+        except (TypeError, ValueError):
+            return
+        if self._extrema_pts:
+            self._gen_atoms()
+        self.update()
+
+    def _draw_extrema_labels(self):
+        """在画布上为每个极值点叠加 ESP 数值标签。"""
+        if not self._extrema_pts or not self._extrema_labels:
+            return
+        w0, h0 = max(1, self.width()), max(1, self.height())
+        p = QPainter(self)
+        try:
+            p.setRenderHint(QPainter.Antialiasing)
+            p.setRenderHint(QPainter.TextAntialiasing)
+            fs = int(self._extrema_label_font)
+            f = p.font()
+            f.setPointSize(max(6, fs))
+            p.setFont(f)
+            dist = int(self._extrema_label_dist)
+            border = bool(self._extrema_label_border)
+            for i, (ex, ey, ez, ekind) in enumerate(self._extrema_pts):
+                sx, sy, visible = self._world_to_screen(ex, ey, ez, w0, h0)
+                if not visible:
+                    continue
+                val = self._extrema_vals[i] if i < len(self._extrema_vals) else None
+                txt = f"{val:.2f}" if val is not None else ""
+                is_max = str(ekind).lower() in ("max", "pos")
+                color = QColor(190, 140, 0) if is_max else QColor(20, 90, 160)
+                tw = p.fontMetrics().horizontalAdvance(txt) + 8
+                th = p.fontMetrics().height() + 4
+                tx = sx - tw / 2.0
+                ty = sy - dist - th if is_max else sy + dist
+                rect = QRectF(tx, ty, tw, th)
+                if border:
+                    p.fillRect(rect, QColor(255, 255, 255, 200))
+                    p.setPen(QPen(QColor(120, 120, 120)))
+                    p.drawRect(rect)
+                p.setPen(color)
+                p.drawText(rect, Qt.AlignCenter, txt)
+        finally:
+            p.end()
+
+    # ── MolViewer 球棍样式叠加（阴影 / 十字 / 原子标签） ──
+    def _atom_screen_geo(self, w=None, h=None):
+        """返回 [(anum, x, y, z, sx, sy, sr, visible), ...]。
+
+        x/y/z 为世界坐标（Bohr，供 3D 圆环投影用）；sx/sy 为屏幕像素；
+        sr 为屏幕半径。
+        """
+        if w is None or h is None:
+            w, h = max(1, self.width()), max(1, self.height())
+        ox, oy, _ = self._world_to_screen(0.0, 0.0, 0.0, w, h)
+        px, py, _ = self._world_to_screen(1.0, 0.0, 0.0, w, h)
+        per_bohr = math.hypot(px - ox, py - oy) or 1.0
+        out = []
+        for i, (anum, (ax, ay, az)) in enumerate(self._atom_list()):
+            # 隐藏氢原子：被隐藏的 H 不参与标签/阴影/十字叠加
+            if not self._hydrogen_visible(i + 1, anum):
+                continue
+            sx, sy, vis = self._world_to_screen(ax, ay, az, w, h)
+            r = _atom_base_radius(anum) * ATOM_DRAW_SCALE * self._atom_scale
+            out.append((anum, i + 1, ax, ay, az, sx, sy, r * per_bohr, vis))
+        return out
+
+    def _draw_mol_overlay(self):
+        """把 MolViewer（MolCanvas）的 2D 叠加效果画到画布：阴影→十字→原子标签。
+
+        十字与 molcanvas.py 逐字一致：两条**世界空间**圆环
+        (azimuth=90°, tilt=71°) 与 (azimuth=205°, tilt=0°)，环半径
+        = 0.92×原子世界半径，随分子一起旋转；只画视图 z ≥ 原子中心 z 的
+        前向弧，背面不显示（看不到圆球背后的圆环）。
+        """
+        if not (self._shadows or self._crosshair or self._atom_labels != 2):
+            return
+        if not self._molecule and not (self._cube and self._cube.atoms):
+            return
+        geo = self._atom_screen_geo()
+        if not geo:
+            return
+        dark = (sum(self._bg[:3]) / 3.0) < 0.5
+        view, proj, w, h = self._view_proj_matrices()
+        p = QPainter(self)
+        try:
+            p.setRenderHint(QPainter.Antialiasing)
+            for anum, aidx, ax, ay, az, sx, sy, sr, vis in geo:
+                if not vis or sr < 1.0:
+                    continue
+                # ── 软阴影（MolViewer 偏移椭圆） ──
+                if self._shadows:
+                    p.save()
+                    p.setOpacity(0.10)
+                    p.setPen(Qt.NoPen)
+                    p.setBrush(QBrush(QColor(0, 0, 0)))
+                    p.drawEllipse(QPointF(sx + sr * 0.3, sy + sr * 0.55),
+                                  sr * 1.25, max(1.0, sr * 0.32))
+                    p.restore()
+                # （十字圆环已改为 GL 着色器绘制：FRAG_ATOM 的 u_Rings 球面大圆带，
+                #   必然贴在球面上，此处不再用 QPainter 叠加）
+                # ── 原子标签 ──
+                if self._atom_labels != 2:
+                    if self._atom_labels == 0:
+                        label = ELEMENT_SYMBOLS.get(anum, str(anum))
+                    else:
+                        # 原子序号：分子内 1-based 编号（与拾取/保留编号一致）
+                        label = str(aidx)
+                    f = QFont(p.font())
+                    f.setPointSize(max(7, int(sr * 0.7)))
+                    f.setBold(True)
+                    p.setFont(f)
+                    p.setPen(QPen(QColor(220, 220, 230) if dark else Qt.black))
+                    fm = p.fontMetrics()
+                    tw = fm.horizontalAdvance(label)
+                    p.drawText(QPointF(sx - tw / 2.0, sy + fm.height() / 3.0), label)
+        finally:
+            p.end()
+
+    @staticmethod
+    def _bwr_rgb(t):
+        """Blue→White→Red 传递函数（t∈[0,1]）。"""
+        t = max(0.0, min(1.0, t))
+        if t < 0.5:
+            k = t / 0.5
+            return (k, k, 0.6 + 0.4 * k)
+        k = (t - 0.5) / 0.5
+        return (0.6 + 0.4 * (1.0 - k), 1.0 - k, 1.0 - k)
+
+    def _resolve_cmap(self, cmap_name):
+        """把 ESP_CMAPS 配色名解析成 matplotlib Colormap；失败返回 None（回退 BWR）。"""
+        try:
+            from esp_viewer import ESP_CMAPS
+            mpl_name = ESP_CMAPS.get(cmap_name, ("bwr", True))[0] if ESP_CMAPS else "bwr"
+            from matplotlib import cm as _mcm
+            try:
+                return _mcm.get_cmap(mpl_name)
+            except Exception:
+                return None
+        except Exception:
+            return None
+
+    def _cs_cmap_rgb(self, t):
+        """当前配色在 t∈[0,1] 处的 RGB（0..1）。"""
+        if getattr(self, "_cs_cmap", None) is not None:
+            try:
+                rgba = self._cs_cmap(float(t))
+                return (rgba[0], rgba[1], rgba[2])
+            except Exception:
+                pass
+        return self._bwr_rgb(t)
+
+    @staticmethod
+    def _fmt_tick(v):
+        a = abs(v)
+        if a == 0:
+            return "0"
+        if a >= 100 or a < 0.01:
+            return f"{v:.2g}"
+        if a >= 10:
+            return f"{v:.1f}"
+        return f"{v:.2f}"
+
+    def _draw_color_scale(self):
+        """叠加 ESP 色标条（QPainter，渐变 + 刻度 + 单位）。
+
+        长度按 _cs_len（画布高/宽比例）计算、位置可被右键拖动（_cs_offx/y），
+        支持竖直/水平两种方位与可调刻度段数；几何写入 _cs_geom 供命中检测。
+        """
+        p = QPainter(self)
+        try:
+            p.setRenderHint(QPainter.Antialiasing)
+            p.setRenderHint(QPainter.TextAntialiasing)
+            w0, h0 = self.width(), self.height()
+            n_ticks = int(getattr(self, "_cs_ticks", 5))
+            orient = getattr(self, "_cs_orient", "vertical")
+
+            def _grad(rect, horizontal):
+                # 注意：PyQt5 的 QLinearGradient 没有 QRectF 构造重载，必须用浮点坐标
+                if horizontal:
+                    grad = QLinearGradient(rect.x(), rect.y(),
+                                           rect.x() + rect.width(), rect.y())
+                else:
+                    grad = QLinearGradient(rect.x(), rect.y(),
+                                           rect.x(), rect.y() + rect.height())
+                n = 32
+                for i in range(n + 1):
+                    t = i / n
+                    r, g, b = self._cs_cmap_rgb(t)
+                    grad.setColorAt(t, QColor(int(r * 255), int(g * 255), int(b * 255)))
+                return grad
+
+            if orient == "horizontal":
+                # 水平条：底部居中，长度可调
+                bar_w = max(60, int(w0 * float(getattr(self, "_cs_len", 0.6))))
+                bar_h = 16
+                x0 = (w0 - bar_w) // 2 + int(getattr(self, "_cs_offx", 0))
+                y0 = h0 - 52 + int(getattr(self, "_cs_offy", 0))
+                if y0 < 30:
+                    return
+                rect = QRectF(x0, y0, bar_w, bar_h)
+                p.fillRect(rect, QBrush(_grad(rect, True)))
+                p.setPen(QPen(QColor(120, 120, 120)))
+                p.drawRect(rect)
+                # 刻度：左=low，右=high，中段均匀
+                p.setPen(QColor(40, 40, 40))
+                labels = self._tick_values(n_ticks)
+                for i, (val, t) in enumerate(labels):
+                    tx = x0 + bar_w * t
+                    p.drawLine(QPointF(tx, y0 - 3), QPointF(tx, y0 + bar_h + 3))
+                    align = Qt.AlignHCenter | Qt.AlignTop
+                    if i == 0:
+                        align = Qt.AlignLeft | Qt.AlignTop
+                    elif i == len(labels) - 1:
+                        align = Qt.AlignRight | Qt.AlignTop
+                    p.drawText(QRectF(tx - 40, y0 + bar_h + 4, 80, 16),
+                               align, self._fmt_tick(val))
+                p.drawText(QRectF(x0 + bar_w - 80, y0 - 16, 80, 14),
+                           Qt.AlignRight | Qt.AlignBottom, self._cs_unit)
+                self._cs_geom = (x0, y0, bar_w, bar_h, "horizontal")
+                # 两端拖拽小手柄（提示可拖动）
+                p.setBrush(QColor(255, 255, 255))
+                p.setPen(QPen(QColor(40, 40, 40)))
+                p.drawEllipse(QRectF(x0 - 4, y0 + bar_h // 2 - 4, 8, 8))
+                p.drawEllipse(QRectF(x0 + bar_w - 4, y0 + bar_h // 2 - 4, 8, 8))
+            else:
+                # 竖直条：右侧居中，长度可调
+                bar_w = 16
+                bar_h = max(40, int(h0 * float(getattr(self, "_cs_len", 0.55))))
+                x0 = w0 - 44 + int(getattr(self, "_cs_offx", 0))
+                y0 = (h0 - bar_h) // 2 + int(getattr(self, "_cs_offy", 0))
+                if y0 < 30 or x0 < 60:
+                    return
+                rect = QRectF(x0, y0, bar_w, bar_h)
+                p.fillRect(rect, QBrush(_grad(rect, False)))
+                p.setPen(QPen(QColor(120, 120, 120)))
+                p.drawRect(rect)
+                p.setPen(QColor(40, 40, 40))
+                labels = self._tick_values(n_ticks)
+                for i, (val, t) in enumerate(labels):
+                    ty = y0 + bar_h * (1.0 - t)
+                    p.drawLine(QPointF(x0 - 3, ty), QPointF(x0 + bar_w + 3, ty))
+                    p.drawText(QRectF(x0 - 50, ty - 10, 44, 20),
+                               Qt.AlignRight | Qt.AlignVCenter, self._fmt_tick(val))
+                p.drawText(QRectF(x0 - 50, y0 + bar_h + 6, 44, 16),
+                           Qt.AlignRight | Qt.AlignTop, self._cs_unit)
+                self._cs_geom = (x0, y0, bar_w, bar_h, "vertical")
+                # 两端拖拽小手柄
+                p.setBrush(QColor(255, 255, 255))
+                p.setPen(QPen(QColor(40, 40, 40)))
+                p.drawEllipse(QRectF(x0 + bar_w // 2 - 4, y0 + bar_h - 4, 8, 8))
+                p.drawEllipse(QRectF(x0 + bar_w // 2 - 4, y0 - 4, 8, 8))
+        finally:
+            p.end()
+
+    def _tick_values(self, n):
+        """返回 [(值, t), ...]，从高到低共 n+1 个等距刻度。"""
+        lo, hi = self._cs_low, self._cs_high
+        out = []
+        for i in range(n + 1):
+            t = i / n
+            out.append((hi + (lo - hi) * t, t))
+        return out
 
     def set_atom_scale(self, scale):
         """Set atom ball radius multiplier and regenerate the molecule model."""
@@ -2127,6 +3923,20 @@ class CubGLWidget(QOpenGLWidget):
         glClearColor(*self._bg)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
+        # ── MolViewer 三段竖向背景渐变（先于所有 3D 几何） ──
+        if getattr(self, "_bg_grad", None) is not None and self._prog_bg:
+            glDisable(GL_DEPTH_TEST); glDepthMask(GL_FALSE)
+            glDisable(GL_BLEND)
+            glUseProgram(self._prog_bg)
+            t, m, b = self._bg_grad
+            glUniform3f(glGetUniformLocation(self._prog_bg, 'uTop'), t[0], t[1], t[2])
+            glUniform3f(glGetUniformLocation(self._prog_bg, 'uMid'), m[0], m[1], m[2])
+            glUniform3f(glGetUniformLocation(self._prog_bg, 'uBot'), b[0], b[1], b[2])
+            glBindVertexArray(self._vao_bg)
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
+            glBindVertexArray(0)
+            glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE)
+
         self.render_opaque(view, nm, proj)
 
         used_dp = False
@@ -2137,8 +3947,18 @@ class CubGLWidget(QOpenGLWidget):
                 self._dp_ok = False
                 self._status(f"depth peeling 失败，回退排序混合: {e}")
                 used_dp = False
+                # DP 中途异常可能残留自定义 FBO/混合状态，先复位再走回退
+                glBindFramebuffer(GL_FRAMEBUFFER, 0)
+                glViewport(0, 0, w, h)
+                glEnable(GL_DEPTH_TEST)
+                glDepthFunc(GL_LESS)
+                glDepthMask(GL_TRUE)
+                glDisable(GL_BLEND)
         if not used_dp:
             self.render_transparent_sorted_fallback(view, nm, proj)
+
+        # 选中原子标记（半透明二十面体）最后叠加，确保始终可见
+        self.render_selection_markers(view, nm, proj)
 
         glDisable(GL_BLEND)
         glDepthMask(GL_TRUE)
@@ -2152,7 +3972,46 @@ class CubGLWidget(QOpenGLWidget):
         self.set_iboview_uniforms(self._prog_atom, self._sp['a_reg'],
                                   diffuse=(0.8, 0.8, 0.8, 1.0))
         self._set_atom_outline_uniforms()
+        self._set_atom_mv_uniforms(True)
+        self._set_atom_ring_uniforms(True)
         self._meshes[2].draw()
+
+        # PT (点云) 模式：把 ESP 等值面顶点渲染成彩色点（不透明），
+        # 下方透明通道会跳过三角面。
+        if self._esp_point_mode:
+            glUseProgram(self._prog_orb)
+            self._set_xforms(self._prog_orb, view, nm, proj)
+            self.set_iboview_uniforms(self._prog_orb, self._sp['o_reg'],
+                                      diffuse=(1.0, 1.0, 1.0, 1.0))
+            self._set_mv_grad_uniform(self._prog_orb, self._mv_grad)
+            # 点云也走完整轨道 uniform 推送，保证描边/渐变设置即时生效
+            self._set_orbital_uniforms(self._prog_orb)
+            for mi in (0, 1):
+                self._meshes[mi].draw_points(self._esp_point_size)
+
+    def render_selection_markers(self, view, nm, proj):
+        """Draw semi-transparent icosahedron markers around selected atoms.
+
+        移植自 IboView 的选中标记：半透明正二十面体包裹所选原子，深度测试
+        但**不写深度**，用标准 alpha 混合叠加在不透明几何之上。
+        """
+        if self._sel_mesh.count == 0:
+            return
+        glEnable(GL_DEPTH_TEST)
+        glDepthFunc(GL_LEQUAL)
+        glDepthMask(GL_FALSE)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        glUseProgram(self._prog_atom)
+        self._set_xforms(self._prog_atom, view, nm, proj)
+        self.set_iboview_uniforms(self._prog_atom, self._sp['a_reg'],
+                                  diffuse=(1.0, 1.0, 1.0, 1.0))
+        self._set_atom_outline_uniforms()
+        self._set_atom_mv_uniforms(False)
+        self._set_atom_ring_uniforms(False)
+        self._sel_mesh.draw()
+        glDisable(GL_BLEND)
+        glDepthMask(GL_TRUE)
 
     def render_transparent_depth_peeling(self, view, nm, proj, w, h):
         """Front-to-back depth peeling, following IboView's FView3d::RenderScene.
@@ -2163,6 +4022,8 @@ class CubGLWidget(QOpenGLWidget):
         `GL_SRC_ALPHA / GL_ONE_MINUS_SRC_ALPHA` blending.  Because the layers
         arrive in exact front-to-back order the result is order independent.
         """
+        if self._esp_point_mode:
+            return True  # PT 点云模式：不渲染透明三角面（点已在 render_opaque 画完）
         if not self._ensure_peel_targets(w, h):
             return False
         if self._meshes[0].count == 0 and self._meshes[1].count == 0:
@@ -2185,14 +4046,15 @@ class CubGLWidget(QOpenGLWidget):
         self.set_iboview_uniforms(self._prog_atom, self._sp['a_reg'],
                                   diffuse=(0.8, 0.8, 0.8, 1.0))
         self._set_atom_outline_uniforms()
+        self._set_atom_mv_uniforms(True)
+        self._set_atom_ring_uniforms(True)
         self._meshes[2].draw()
 
         glActiveTexture(GL_TEXTURE0)
         prog = self._prog_orb_dp
         glUseProgram(prog)
         self._set_xforms(prog, view, nm, proj)
-        self.set_iboview_uniforms(prog, self._sp['o_reg'],
-                                  diffuse=(1.0, 1.0, 1.0, self._sp['opacity']))
+        self._set_orbital_uniforms(prog)
         glUniform1i(glGetUniformLocation(prog, 'Depth1'), 0)
 
         for layer in range(self._dp_layers):
@@ -2237,34 +4099,76 @@ class CubGLWidget(QOpenGLWidget):
         return True
 
     def render_transparent_sorted_fallback(self, view, nm, proj):
-        """Back-to-front sorted alpha blending (used when peeling is off).
+        """等值面透明回退（Depth peeling 关闭时）：逐三角形画家算法。
 
-        Instead of blindly drawing the positive lobe before the negative one,
-        both meshes are split into chunks whose view-space depth is known and
-        the chunks are drawn far-to-near, which removes most of the obvious
-        layer-ordering artefacts.
+        按视图深度从远到近绘制（远的先画、近的盖上来）——与 Depth peeling
+        （IboView 移植）的合成方向一致，近处表面占主导：透明度越高越接近
+        Depth peeling 的观感，不会出现"后方的等值面反客为主透到前面"。
+
+        性能：三角形世界系中心缓存（表面不变不重算）；相机不变时跳过
+        排序与索引上传，仅保留两次绘制，旋转时才做 CPU 排序。
         """
+        if self._esp_point_mode:
+            return  # PT 点云模式：不渲染透明三角面
         glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LESS)
         glDepthMask(GL_FALSE)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         glUseProgram(self._prog_orb)
         self._set_xforms(self._prog_orb, view, nm, proj)
-        self.set_iboview_uniforms(self._prog_orb, self._sp['o_reg'],
-                                  diffuse=(1.0, 1.0, 1.0, self._sp['opacity']))
+        self._set_orbital_uniforms(self._prog_orb)
 
-        # View-space z of each mesh's chunks; more negative == farther away.
-        draws = []
-        for mi in (0, 1):
-            mesh = self._meshes[mi]
-            if mesh.count == 0:
-                continue
-            for c0, c1, ctr in mesh.chunks():
-                p = view @ np.array([ctr[0], ctr[1], ctr[2], 1.0])
-                draws.append((float(p[2]), mesh, c0, c1))
-        draws.sort(key=lambda d: d[0])          # farthest (most negative z) first
-        for _z, mesh, c0, c1 in draws:
-            mesh.draw_range(c0, c1)
+        # 世界系三角形中心缓存：仅当表面或网格代际变化时重算。
+        # 网格每次 upload() 代际 +1（含颜色/风格变化触发的重传），
+        # 保证重传后必重建缓存并重传排序索引，避免画到已删除的缓冲。
+        mesh_key = (id(self._pos_surf), self._meshes[0]._gen,
+                    id(self._neg_surf), self._meshes[1]._gen)
+        if getattr(self, "_fb_mesh_key", None) != mesh_key:
+            self._fb_mesh_key = mesh_key
+            self._fb_parts = []
+            # 表面/网格重建后 scratch EBO 已删，必须强制重传排序索引
+            self._fb_view_key = None
+            self._fb_orders = []
+            for mi in (0, 1):
+                surf = self._pos_surf if mi == 0 else self._neg_surf
+                mesh = self._meshes[mi]
+                if mesh.count == 0 or surf is None:
+                    continue
+                idx = getattr(surf, "indices", None)
+                verts = getattr(surf, "vertices", None)
+                if idx is None or verts is None or len(idx) == 0 or len(verts) == 0:
+                    continue
+                idx = np.asarray(idx, dtype=np.uint32)
+                tri = idx[:len(idx) // 3 * 3].reshape(-1, 3)
+                ctr = np.asarray(verts, dtype=np.float32)[tri].mean(axis=1)
+                self._fb_parts.append((mesh, tri, ctr))
+
+        # 视图变化时才排序 + 上传索引；不变时直接绘制上一帧的排序结果
+        try:
+            view_key = view.tobytes()
+        except Exception:
+            view_key = None
+        if view_key is not None and getattr(self, "_fb_view_key", None) != view_key:
+            new_orders = []
+            v = np.asarray(view, dtype=np.float32)
+            m3 = v[:3, :3].T            # 旋转矩阵转置（行向量投影用）
+            t3 = v[:3, 3]
+            try:
+                for mesh, tri, ctr in self._fb_parts:
+                    z = ctr @ m3[:, 2] + t3[2]          # 视图深度（远 = 更负）
+                    order = np.argsort(z, kind='stable')  # 远 → 近（远的先画）
+                    ordered = np.ascontiguousarray(tri[order].ravel(), dtype=np.uint32)
+                    mesh.upload_order(ordered)
+                    new_orders.append((mesh, order.size))
+            except Exception:
+                # 排序/上传失败：不更新 key，保持上一帧完整排序结果可绘制
+                pass
+            else:
+                self._fb_view_key = view_key
+                self._fb_orders = new_orders
+        for mesh, n_tri in getattr(self, "_fb_orders", ()):
+            mesh.draw_order_range(0, n_tri)
+        glDepthMask(GL_TRUE)
 
     def _set_xforms(self, prog, view, nm, proj):
         glUniformMatrix4fv(glGetUniformLocation(prog, 'u_ModelView'), 1, GL_TRUE, view)
@@ -2276,8 +4180,13 @@ class CubGLWidget(QOpenGLWidget):
         for i in range(4):
             glUniform1f(loc[i], regs[i])
 
-    def set_iboview_uniforms(self, prog, regs, diffuse):
-        """Upload the IboView shader registers, fade parameters and DiffuseColor.
+    def set_iboview_uniforms(self, prog, regs, diffuse,
+                             ambient=0.0, spec_color=(1.0, 1.0, 1.0),
+                             spec_mul=1.0, fx=0, fx_strength=0.0,
+                             fx_color=(1.0, 1.0, 1.0)):
+        """Upload the IboView shader registers, fade parameters, DiffuseColor
+        and the extended material uniforms (emissive ambient / tinted specular /
+        orbital FX).
 
         DiffuseColor is kept white for orbitals so that v_Color (the green/red
         phase colour) alone determines the hue, exactly as in IboView where the
@@ -2285,8 +4194,53 @@ class CubGLWidget(QOpenGLWidget):
         """
         self._set_regs(prog, regs)
         glUniform1f(glGetUniformLocation(prog, 'FadeBias'), self._sp['FadeBias'])
-        glUniform1f(glGetUniformLocation(prog, 'FadeWidth'), self._sp['FadeWidth'])
+        # 景深雾化开关：关闭时 FadeWidth=0（无任何雾化），开启时用 IboView 默认值
+        fade_w = self._sp['FadeWidth'] if self._fade_enabled else 0.0
+        glUniform1f(glGetUniformLocation(prog, 'FadeWidth'), fade_w)
         glUniform4f(glGetUniformLocation(prog, 'DiffuseColor'), *diffuse)
+        glUniform1f(glGetUniformLocation(prog, 'u_Ambient'), ambient)
+        glUniform4f(glGetUniformLocation(prog, 'u_SpecColor'),
+                    spec_color[0], spec_color[1], spec_color[2], 0.0)
+        glUniform1f(glGetUniformLocation(prog, 'u_SpecMul'), spec_mul)
+        glUniform1i(glGetUniformLocation(prog, 'u_Fx'), fx)
+        glUniform1f(glGetUniformLocation(prog, 'u_FxStrength'), fx_strength)
+        glUniform3f(glGetUniformLocation(prog, 'u_FxColor'),
+                    fx_color[0], fx_color[1], fx_color[2])
+        # 光源：方向（4 盏）+ 数量 + 光晕（u_MvGrad=0 时 calc_base_color 用前 3 盏）
+        ld = getattr(self, "_light_dirs", None) or getattr(self, "_light_default_dirs", None) or [
+            (0.5, 0.5, 0.70710678), (-0.4330127, -0.25, 0.8660254),
+            (0.4330127, -0.25, 0.8660254), (0.0, 0.0, 1.0)]
+        glUniform1f(glGetUniformLocation(prog, 'u_UseCustomLights'), 1.0)
+        for i in range(4):
+            d = ld[i] if i < len(ld) else (0.0, 0.0, 1.0)
+            glUniform3f(glGetUniformLocation(prog, f'u_L{i}'), d[0], d[1], d[2])
+        glUniform1i(glGetUniformLocation(prog, 'u_LightCount'),
+                    getattr(self, "_light_count", 3))
+        glUniform1f(glGetUniformLocation(prog, 'u_Glow'),
+                    getattr(self, "_light_glow", 1.0))
+        glows = getattr(self, "_light_glows", None) or [1.0] * 4
+        while len(glows) < 4:
+            glows = list(glows) + [1.0]
+        glUniform4f(glGetUniformLocation(prog, 'u_Glows'),
+                    glows[0], glows[1], glows[2], glows[3])
+
+    def _set_orbital_uniforms(self, prog):
+        """Upload orbital material uniforms (registers + extended FX channels)."""
+        sp = self._sp
+        self.set_iboview_uniforms(
+            prog, sp['o_reg'],
+            diffuse=(1.0, 1.0, 1.0, sp['opacity']),
+            ambient=sp.get('ambient', 0.0),
+            spec_color=sp.get('spec_color', (1.0, 1.0, 1.0)),
+            spec_mul=sp.get('spec_mul', 1.0),
+            fx=sp.get('fx', 0),
+            fx_strength=sp.get('fx_strength', 0.0),
+            fx_color=sp.get('fx_color', (1.0, 1.0, 1.0)),
+        )
+        # MolViewer 单光点（u_MvGrad>0 时等值面也走 mv_orb_color）
+        self._set_mv_grad_uniform(prog, self._mv_grad)
+        # 等值面剪影描边
+        self._set_orb_outline_uniforms(prog)
 
     def _set_atom_outline_uniforms(self):
         """Push the current atom-outline state into the atom shader program."""
@@ -2297,13 +4251,64 @@ class CubGLWidget(QOpenGLWidget):
         glUniform3f(glGetUniformLocation(p, 'u_OutlineColor'), oc[0], oc[1], oc[2])
         glUniform1f(glGetUniformLocation(p, 'u_OutlineWidth'), self._atom_outline_width)
 
+    def _set_atom_mv_uniforms(self, on=True):
+        """把 MolViewer 径向渐变类型写入原子着色器。
+
+        on=False 时强制 u_MvGrad=0（选中标记等非球棍几何仍用 IboView Phong）。
+        """
+        self._set_mv_grad_uniform(self._prog_atom, self._mv_grad if on else 0)
+
+    def _set_atom_ring_uniforms(self, on=True):
+        """把十字圆环状态（开关/颜色/带宽 + 两条环面法线）写入原子着色器。
+
+        法线：locked=False（默认）→ 世界系环法线随相机旋转（环随分子转）；
+        locked=True → 直接用视图系法线（环固定在屏幕，分子旋转圆环不动）。
+        """
+        p = self._prog_atom
+        glUniform1f(glGetUniformLocation(p, 'u_Rings'),
+                    1.0 if (self._crosshair and on) else 0.0)
+        rc = self._ring_color
+        glUniform3f(glGetUniformLocation(p, 'u_RingColor'), rc[0], rc[1], rc[2])
+        glUniform1f(glGetUniformLocation(p, 'u_RingWidth'), self._ring_width)
+        nA = _ring_normal(self._ring_az1, self._ring_tilt1)
+        nB = _ring_normal(self._ring_az2, self._ring_tilt2)
+        if self._ring_locked:
+            # 锁定：用冻结的当前角度（分子旋转不变）
+            if getattr(self, "_ring_frozen", None) is None:
+                self._refresh_ring_frozen()
+            nAv, nBv = self._ring_frozen
+        else:
+            R = self.cam.view()[:3, :3]  # 世界系 → 视图系：环随分子转
+            nAv = R @ nA
+            nBv = R @ nB
+        for i, nv in enumerate((nAv, nBv)):
+            nv = nv / (np.linalg.norm(nv) + 1e-12)
+            glUniform3f(glGetUniformLocation(p, 'u_RingN%d' % (i + 1)),
+                        nv[0], nv[1], nv[2])
+
+    def _set_mv_grad_uniform(self, prog, grad_id):
+        """把一个程序的 u_MvGrad uniform 设为渐变类型 id（0=IboView 三灯）。"""
+        if prog:
+            glUniform1i(glGetUniformLocation(prog, 'u_MvGrad'), int(grad_id))
+
+    def _set_orb_outline_uniforms(self, prog):
+        """把等值面描边状态写入轨道着色器程序。"""
+        if not prog:
+            return
+        glUniform1f(glGetUniformLocation(prog, 'u_OrbOutline'),
+                    1.0 if self._orb_outline else 0.0)
+        oc = self._orb_outline_color
+        glUniform3f(glGetUniformLocation(prog, 'u_OrbOutlineColor'), oc[0], oc[1], oc[2])
+        glUniform1f(glGetUniformLocation(prog, 'u_OrbOutlineWidth'),
+                    self._orb_outline_width)
+
     # ── Mouse ──
 
     def wheelEvent(self, e): self.cam.zoom(e.angleDelta().y()); self.update()
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_R: self.reset_view()
         elif e.key() == Qt.Key_S and self._cube:
-            p, _ = QFileDialog.getSaveFileName(self, "Save", "screenshot.png", "PNG (*.png)")
+            p, _ = save_file(self, "Save", "screenshot.png", "PNG (*.png)")
             if p: self.screenshot(p)
         else: super().keyPressEvent(e)
 
@@ -2388,8 +4393,8 @@ class CubViewer(QMainWindow):
             }
             QPushButton { background: #f0f0f0; color: #111111; border: 1px solid #aaaaaa; border-radius: 3px; padding: 5px 12px; font-weight: bold; }
             QPushButton:hover { background: #e2e2e2; }
-            QPushButton#LoadBtntn { background: #1a6fc4; border-color: #1a6fc4; color: #ffffff; font-size: 14px; padding: 8px; }
-            QPushButton#LoadBtntn:hover { background: #2080e0; }
+            QPushButton#LoadBtn { background: #1a6fc4; border-color: #1a6fc4; color: #ffffff; font-size: 14px; padding: 8px; }
+            QPushButton#LoadBtn:hover { background: #2080e0; }
         """)
         pl = QVBoxLayout(pn); pl.setContentsMargins(4,4,4,4); pl.setSpacing(8)
 
@@ -2637,7 +4642,7 @@ class CubViewer(QMainWindow):
         self._status_lbl.setText(msg)
 
     def _browse(self):
-        p, _ = QFileDialog.getOpenFileName(self, "选择 Cube 文件", "",
+        p, _ = open_file(self, "选择 Cube 文件", "",
             "Cube Files (*.cub *.cube);;All (*)")
         if p:
             self._path_edit.setText(p)
@@ -2826,11 +4831,11 @@ class CubViewer(QMainWindow):
         self.glw.set_dot_spacing(v)
 
     def _screenshot(self):
-        p, _ = QFileDialog.getSaveFileName(self, "Save", "cub_view.png", "PNG (*.png)")
+        p, _ = save_file(self, "Save", "cub_view.png", "PNG (*.png)")
         if p: self.glw.screenshot(p)
 
     def _export_image(self):
-        p, _ = QFileDialog.getSaveFileName(self, "Export", "cub_view.png", "PNG (*.png)")
+        p, _ = save_file(self, "Export", "cub_view.png", "PNG (*.png)")
         if not p:
             return
         try:
@@ -2859,9 +4864,8 @@ class CubViewer(QMainWindow):
 # Entry
 # ═══════════════════════════════════════════════════════════════
 
+# 独立启动入口已移至项目根目录的 cubviewer.py。
+# 请用: python cubviewer.py
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-    w = CubViewer()
-    w.show()
-    sys.exit(app.exec_())
+    print("请运行项目根目录下的 cubviewer.py", file=sys.stderr)
+    sys.exit(1)

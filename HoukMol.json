@@ -1,0 +1,70 @@
+{
+  "mol_style": "HoukMol",
+  "gradient": "gau_default",
+  "shininess": "reasonably shiny",
+  "light_count": 1,
+  "light_dirs": [
+    [
+      -0.577,
+      0.577,
+      0.577
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "light_glow": 1.25,
+  "atom_scale": 1.68,
+  "bond_scale": 2.0,
+  "atom_outline": [
+    true,
+    [
+      0.0,
+      0.0,
+      0.0
+    ],
+    0.35
+  ],
+  "orb_outline": [
+    false,
+    [
+      0.0,
+      0.0,
+      0.0
+    ],
+    0.3
+  ],
+  "orb_opacity": 0.3,
+  "phase_pos": [
+    0.6666666666666666,
+    1.0,
+    0.4980392156862745
+  ],
+  "phase_neg": [
+    0.0,
+    0.6666666666666666,
+    1.0
+  ],
+  "bg": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "crosshair": true,
+  "fade": false,
+  "carbon": null,
+  "hydrogen": null
+}

@@ -108,9 +108,18 @@ def load_config():
 
 
 def save_config(multiwfn, vmd, tachyon):
-    """Save path configuration to ini file."""
+    """Save path configuration to ini file.
+
+    先读旧文件再更新 [paths]，保留其它 section（如 [dialogs] last_dir），
+    避免每次保存路径都清空"上次目录"记忆。
+    """
     import configparser
     cfg = configparser.ConfigParser()
+    if os.path.exists(CONFIG_FILE):
+        try:
+            cfg.read(CONFIG_FILE, encoding="utf-8")
+        except Exception:
+            cfg = configparser.ConfigParser()
     cfg["paths"] = {
         "multiwfn": multiwfn,
         "vmd": vmd,
@@ -125,6 +134,21 @@ def save_config(multiwfn, vmd, tachyon):
 # All styles from E:\vcube2.0\styles\ (vcube 2.0, Zhong Cheng)
 
 STYLES = {
+    "ultra-glass": {
+        "desc": "Ice Crystal, Ultra-Transparent Glass (冰晶透澈)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.75", "aodirect": "0.30",
+        "surface_mat": [0.25, 0.12, 1.15, 0.82, 0.0, 0.30, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.25, 0.12, 1.15, 0.82, 0.0, 0.30, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.48, 0.78, 0.92],
+        "neg_color": [32, 0.65, 0.55, 0.88],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.1, 0.50, 0.15, 0.30, 0.0, 1.0, 0.5, 0.9, 0.0],
+        "c_color": "gray", "c_rgb": "0.600000 0.600000 0.600000",
+        "display_distance": "-7.5",
+    },
     "sob-art": {
         "desc": "Green-Blue, Highlight, Classic (sobereva recommended)",
         "tachyon_options": "-trans_vmd",
@@ -688,6 +712,442 @@ STYLES = {
         "atom_cpk": "0.650000 0.400000 30.000000 30.000000",
         "atom_mat": [0.0, 0.85, 0.95, 0.75, 0.10, 1.0, 2.0, 0.3, 0.0],
         "c_color": "gray", "c_rgb": "0.650000 0.650000 0.650000",
+        "display_distance": "-7.5",
+    },
+    # ── Glass Family (4 additional variants) ──────────────
+    # Core "ultra-glass" moved to top of STYLES as the default style.
+    # Each variant has strongly contrasting ± phase colors
+    "amber-glass": {
+        "desc": "Amber × Cobalt Blue Glass (琥珀金×钴蓝)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.75", "aodirect": "0.30",
+        "surface_mat": [0.22, 0.14, 1.10, 0.78, 0.0, 0.32, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.22, 0.14, 1.10, 0.78, 0.0, 0.32, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.95, 0.58, 0.08],
+        "neg_color": [32, 0.10, 0.32, 0.82],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.1, 0.50, 0.15, 0.30, 0.0, 1.0, 0.5, 0.9, 0.0],
+        "c_color": "gray", "c_rgb": "0.600000 0.600000 0.600000",
+        "display_distance": "-7.5",
+    },
+    "frost-glass": {
+        "desc": "Mint × Coral Frosted Glass (薄荷×珊瑚磨砂璃)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.80", "aodirect": "0.28",
+        "surface_mat": [0.38, 0.24, 0.25, 0.20, 0.0, 0.40, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.38, 0.24, 0.25, 0.20, 0.0, 0.40, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.22, 0.75, 0.60],
+        "neg_color": [32, 0.88, 0.40, 0.42],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.15, 0.60, 0.10, 0.15, 0.0, 1.0, 0.3, 0.6, 0.0],
+        "c_color": "gray", "c_rgb": "0.600000 0.600000 0.600000",
+        "display_distance": "-7.5",
+    },
+    "jade-glass": {
+        "desc": "Emerald × Ruby Glass (翡翠×红宝石璃)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.75", "aodirect": "0.30",
+        "surface_mat": [0.20, 0.16, 0.85, 0.68, 0.0, 0.35, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.20, 0.16, 0.85, 0.68, 0.0, 0.35, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.12, 0.70, 0.32],
+        "neg_color": [32, 0.82, 0.12, 0.28],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.1, 0.50, 0.15, 0.30, 0.0, 1.0, 0.5, 0.9, 0.0],
+        "c_color": "gray", "c_rgb": "0.600000 0.600000 0.600000",
+        "display_distance": "-7.5",
+    },
+    "crystal-glass": {
+        "desc": "Cream × Lavender Crystal Glass (暖奶×冷薰水晶璃)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.72", "aodirect": "0.30",
+        "surface_mat": [0.12, 0.10, 1.38, 0.90, 0.0, 0.22, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.12, 0.10, 1.38, 0.90, 0.0, 0.22, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.88, 0.76, 0.45],
+        "neg_color": [32, 0.52, 0.48, 0.82],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.1, 0.50, 0.15, 0.30, 0.0, 1.0, 0.5, 0.9, 0.0],
+        "c_color": "gray", "c_rgb": "0.600000 0.600000 0.600000",
+        "display_distance": "-7.5",
+    },
+    # ── IboView-derived shiny styles (migrated from MERGED_STYLES) ──
+    "Gaussview default": {
+        "desc": "Gaussview 默认外观 (o* = 0.8/0.7/0.7/-0.5)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.80", "aodirect": "0.25",
+        "surface_mat": [0.20, 0.60, 0.65, 0.45, 0.0, 0.80, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.20, 0.60, 0.65, 0.45, 0.0, 0.80, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.20, 0.85, 0.20],
+        "neg_color": [32, 0.85, 0.25, 0.25],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.0, 0.85, 0.95, 0.75, 0.10, 1.0, 2.0, 0.3, 0.0],
+        "c_color": "gray", "c_rgb": "0.650000 0.650000 0.650000",
+        "display_distance": "-7.5",
+    },
+    "Blue/Orange shiny": {
+        "desc": "柔和 (蓝/橙)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.80", "aodirect": "0.25",
+        "surface_mat": [0.25, 0.50, 0.50, 0.20, 0.0, 0.80, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.25, 0.50, 0.50, 0.20, 0.0, 0.80, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.20, 0.55, 0.95],
+        "neg_color": [32, 0.95, 0.55, 0.15],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.0, 0.85, 0.80, 0.55, 0.10, 1.0, 2.0, 0.3, 0.0],
+        "c_color": "gray", "c_rgb": "0.650000 0.650000 0.650000",
+        "display_distance": "-7.5",
+    },
+    "Purple/Yellow shiny": {
+        "desc": "柔和 (紫/黄)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.80", "aodirect": "0.25",
+        "surface_mat": [0.25, 0.50, 0.50, 0.20, 0.0, 0.80, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.25, 0.50, 0.50, 0.20, 0.0, 0.80, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.60, 0.35, 0.90],
+        "neg_color": [32, 0.95, 0.85, 0.20],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.0, 0.85, 0.80, 0.55, 0.10, 1.0, 2.0, 0.3, 0.0],
+        "c_color": "gray", "c_rgb": "0.650000 0.650000 0.650000",
+        "display_distance": "-7.5",
+    },
+    "Cyan/Magenta shiny": {
+        "desc": "柔和 (青/品红)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.80", "aodirect": "0.25",
+        "surface_mat": [0.25, 0.50, 0.50, 0.20, 0.0, 0.80, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.25, 0.50, 0.50, 0.20, 0.0, 0.80, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.15, 0.85, 0.85],
+        "neg_color": [32, 0.90, 0.25, 0.75],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.0, 0.85, 0.80, 0.55, 0.10, 1.0, 2.0, 0.3, 0.0],
+        "c_color": "gray", "c_rgb": "0.650000 0.650000 0.650000",
+        "display_distance": "-7.5",
+    },
+    "Orange/Blue shiny": {
+        "desc": "柔和 (橙/蓝)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.80", "aodirect": "0.25",
+        "surface_mat": [0.25, 0.50, 0.50, 0.20, 0.0, 0.80, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.25, 0.50, 0.50, 0.20, 0.0, 0.80, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.95, 0.55, 0.15],
+        "neg_color": [32, 0.20, 0.55, 0.95],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.0, 0.85, 0.80, 0.55, 0.10, 1.0, 2.0, 0.3, 0.0],
+        "c_color": "gray", "c_rgb": "0.650000 0.650000 0.650000",
+        "display_distance": "-7.5",
+    },
+    "Red/Green shiny": {
+        "desc": "柔和 (红/绿)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.80", "aodirect": "0.25",
+        "surface_mat": [0.25, 0.50, 0.50, 0.20, 0.0, 0.80, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.25, 0.50, 0.50, 0.20, 0.0, 0.80, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.90, 0.25, 0.30],
+        "neg_color": [32, 0.25, 0.80, 0.35],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.0, 0.85, 0.80, 0.55, 0.10, 1.0, 2.0, 0.3, 0.0],
+        "c_color": "gray", "c_rgb": "0.650000 0.650000 0.650000",
+        "display_distance": "-7.5",
+    },
+    "Teal/Rose shiny": {
+        "desc": "柔和 (青绿/玫红)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.80", "aodirect": "0.25",
+        "surface_mat": [0.25, 0.50, 0.50, 0.20, 0.0, 0.80, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.25, 0.50, 0.50, 0.20, 0.0, 0.80, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.20, 0.80, 0.70],
+        "neg_color": [32, 0.95, 0.45, 0.55],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.0, 0.85, 0.80, 0.55, 0.10, 1.0, 2.0, 0.3, 0.0],
+        "c_color": "gray", "c_rgb": "0.650000 0.650000 0.650000",
+        "display_distance": "-7.5",
+    },
+    "Mono Cyan shiny": {
+        "desc": "柔和 (单色青)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.80", "aodirect": "0.25",
+        "surface_mat": [0.25, 0.50, 0.50, 0.20, 0.0, 0.80, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.25, 0.50, 0.50, 0.20, 0.0, 0.80, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.15, 0.80, 0.80],
+        "neg_color": [32, 0.25, 0.92, 0.92],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.0, 0.85, 0.80, 0.55, 0.10, 1.0, 2.0, 0.3, 0.0],
+        "c_color": "gray", "c_rgb": "0.650000 0.650000 0.650000",
+        "display_distance": "-7.5",
+    },
+    # ── New high-end scientific series (5 styles) ──────────
+    "quantum-porcelain": {
+        "desc": "Quantum Porcelain, Smooth Enamel (量子瓷釉)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.85", "aodirect": "0.25",
+        # Enamel: high diffuse + mid-high specular + high shininess, opaque,
+        # near-zero mirror, very faint outline → ceramic, not glass.
+        "surface_mat": [0.22, 0.78, 0.70, 0.85, 0.02, 0.90, 0.08, 0.6, 1.0],
+        "surface_mat_b": [0.22, 0.78, 0.70, 0.85, 0.02, 0.90, 0.08, 0.6, 1.0],
+        # muted cobalt (pos) vs warm coral (neg) — distinct, paper-friendly
+        "pos_color": [31, 0.18, 0.34, 0.62],
+        "neg_color": [32, 0.78, 0.36, 0.32],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.12, 0.70, 0.45, 0.60, 0.0, 1.0, 1.0, 0.3, 0.0],
+        "c_color": "gray", "c_rgb": "0.620000 0.620000 0.620000",
+        "display_distance": "-7.5",
+    },
+    "liquid-quantum": {
+        "desc": "Liquid Quantum, Fluid Glass (液态量子)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
+        "shadows": "on", "ao": "on",
+        "aoambient": "0.90", "aodirect": "0.18",
+        # Fluid drop: mid-high transparency, high specular + shininess,
+        # low mirror, soft AO + light shadow → suspended liquid.
+        "surface_mat": [0.18, 0.40, 1.05, 0.92, 0.08, 0.68, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.18, 0.40, 1.05, 0.92, 0.08, 0.68, 0.0, 0.0, 1.0],
+        # deep aqua (pos) vs warm amber (neg) — dye-in-water feel
+        "pos_color": [31, 0.10, 0.55, 0.62],
+        "neg_color": [32, 0.80, 0.52, 0.22],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.08, 0.55, 0.50, 0.65, 0.0, 1.0, 1.5, 0.25, 0.0],
+        "c_color": "gray", "c_rgb": "0.600000 0.600000 0.600000",
+        "display_distance": "-7.5",
+    },
+    "quantum-crystal": {
+        "desc": "Quantum Crystal, Prismatic Solid (量子晶体)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.82", "aodirect": "0.22",
+        # Prism: mid transparency, strong specular + shininess, slight mirror,
+        # faint outline → cut gem, not plain glass.
+        "surface_mat": [0.16, 0.46, 0.98, 0.95, 0.15, 0.75, 0.35, 0.7, 1.0],
+        "surface_mat_b": [0.16, 0.46, 0.98, 0.95, 0.15, 0.75, 0.35, 0.7, 1.0],
+        # icy turquoise (pos) vs amethyst violet (neg) — clear hue split
+        "pos_color": [31, 0.42, 0.78, 0.78],
+        "neg_color": [32, 0.55, 0.38, 0.72],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.10, 0.60, 0.85, 0.80, 0.10, 1.0, 2.0, 0.25, 0.0],
+        "c_color": "gray", "c_rgb": "0.600000 0.600000 0.600000",
+        "display_distance": "-7.5",
+    },
+    "velvet-quantum": {
+        "desc": "Velvet Quantum, Soft Matte (天鹅绒量子)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "off", "3": "off"},
+        "shadows": "on", "ao": "on",
+        "aoambient": "0.88", "aodirect": "0.22",
+        # Matte velvet: very high diffuse, low specular, near-zero shininess,
+        # opaque, no mirror, AO + soft shadow → soft volumetric sculpture.
+        "surface_mat": [0.35, 0.82, 0.18, 0.22, 0.0, 0.95, 0.05, 0.4, 1.0],
+        "surface_mat_b": [0.35, 0.82, 0.18, 0.22, 0.0, 0.95, 0.05, 0.4, 1.0],
+        # deep burgundy (pos) vs dusty teal (neg) — desaturated, not neon
+        "pos_color": [31, 0.45, 0.16, 0.22],
+        "neg_color": [32, 0.22, 0.48, 0.46],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.20, 0.75, 0.10, 0.15, 0.0, 1.0, 0.3, 0.5, 0.0],
+        "c_color": "gray", "c_rgb": "0.620000 0.620000 0.620000",
+        "display_distance": "-7.5",
+    },
+    "precision-ink": {
+        "desc": "Precision Ink, Publication Minimal (精密墨稿)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
+        "shadows": "on", "ao": "on",
+        "aoambient": "0.86", "aodirect": "0.20",
+        # Publication: mid-high opacity, moderate specular/shininess, no mirror,
+        # very faint outline, weak AO+shadow → clean, light-bg friendly.
+        "surface_mat": [0.30, 0.68, 0.45, 0.55, 0.0, 0.90, 0.12, 0.4, 1.0],
+        "surface_mat_b": [0.30, 0.68, 0.45, 0.55, 0.0, 0.90, 0.12, 0.4, 1.0],
+        # academic blue (pos) vs academic red (neg) — desaturated, hi-contrast
+        "pos_color": [31, 0.22, 0.42, 0.82],
+        "neg_color": [32, 0.82, 0.30, 0.32],
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.18, 0.72, 0.20, 0.35, 0.0, 1.0, 0.5, 0.2, 0.0],
+        "c_color": "gray", "c_rgb": "0.780000 0.780000 0.780000",
+        "display_distance": "-7.5",
+    },
+    # ── Extended material FX series (ovcanvas shader) ──────────
+    # 这些风格驱动 ovcanvas 着色器的扩展材质通道：
+    #   fx:          'neon'(边缘辉光) | 'pearl'(虹彩珍珠) | 'metal'(菲涅尔金属)
+    #   ambient:     自发光强度（surface_mat[0] 仅作 VMD 侧提示，此处显式指定）
+    #   spec_color:  高光染色（金属色）
+    #   spec_mul:    1 = IboView 原样; 0 = 哑光; >1 = 更亮的高光
+    #   fx_color:    边缘 / 次生光泽颜色
+    "neon-cyber": {
+        "desc": "Neon Cyber, Electroluminescent Tube (霓虹赛博)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.85", "aodirect": "0.20",
+        "surface_mat": [0.30, 0.45, 0.30, 0.50, 0.0, 0.85, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.30, 0.45, 0.30, 0.50, 0.0, 0.85, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.05, 0.85, 0.95],
+        "neg_color": [32, 0.95, 0.20, 0.65],
+        "fx": "neon",
+        "ambient": 0.55,
+        "fx_color": [0.55, 0.95, 1.00],
+        "fx_strength": 1.0,
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.1, 0.5, 0.15, 0.30, 0.0, 1.0, 0.5, 0.9, 0.0],
+        "c_color": "gray", "c_rgb": "0.600000 0.600000 0.600000",
+        "display_distance": "-7.5",
+    },
+    "plasma-core": {
+        "desc": "Plasma Core, Indigo-Orange Energy (等离子核心)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.85", "aodirect": "0.20",
+        "surface_mat": [0.35, 0.40, 0.35, 0.55, 0.0, 0.82, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.35, 0.40, 0.35, 0.55, 0.0, 0.82, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.20, 0.15, 0.75],
+        "neg_color": [32, 1.00, 0.45, 0.10],
+        "fx": "neon",
+        "ambient": 0.60,
+        "fx_color": [1.00, 0.75, 0.35],
+        "fx_strength": 0.9,
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.1, 0.5, 0.15, 0.30, 0.0, 1.0, 0.5, 0.9, 0.0],
+        "c_color": "gray", "c_rgb": "0.600000 0.600000 0.600000",
+        "display_distance": "-7.5",
+    },
+    "aurora-pearl": {
+        "desc": "Aurora Pearl, Iridescent Teal-Violet (极光珍珠)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.82", "aodirect": "0.22",
+        "surface_mat": [0.20, 0.50, 0.70, 0.80, 0.0, 0.72, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.20, 0.50, 0.70, 0.80, 0.0, 0.72, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.10, 0.75, 0.65],
+        "neg_color": [32, 0.55, 0.35, 0.85],
+        "fx": "pearl",
+        "ambient": 0.12,
+        "fx_color": [0.95, 0.55, 0.85],
+        "fx_strength": 0.6,
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.1, 0.5, 0.15, 0.30, 0.0, 1.0, 0.5, 0.9, 0.0],
+        "c_color": "gray", "c_rgb": "0.600000 0.600000 0.600000",
+        "display_distance": "-7.5",
+    },
+    "hologram": {
+        "desc": "Hologram, Silver Rainbow Sheen (全息幻彩)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.85", "aodirect": "0.22",
+        "surface_mat": [0.22, 0.48, 0.75, 0.85, 0.0, 0.68, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.22, 0.48, 0.75, 0.85, 0.0, 0.68, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.85, 0.88, 0.92],
+        "neg_color": [32, 0.88, 0.82, 0.95],
+        "fx": "pearl",
+        "ambient": 0.20,
+        "fx_color": [0.35, 0.80, 0.95],
+        "fx_strength": 0.75,
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.1, 0.5, 0.15, 0.30, 0.0, 1.0, 0.5, 0.9, 0.0],
+        "c_color": "gray", "c_rgb": "0.600000 0.600000 0.600000",
+        "display_distance": "-7.5",
+    },
+    "rose-gold": {
+        "desc": "Rose Gold × Champagne, Brushed Metal (玫瑰金香槟)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.80", "aodirect": "0.25",
+        "surface_mat": [0.12, 0.40, 1.20, 0.95, 0.10, 0.90, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.12, 0.40, 1.20, 0.95, 0.10, 0.90, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.90, 0.45, 0.55],
+        "neg_color": [32, 0.90, 0.82, 0.65],
+        "fx": "metal",
+        "ambient": 0.05,
+        "spec_color": [1.00, 0.75, 0.55],
+        "spec_mul": 1.9,
+        "fx_color": [1.00, 0.65, 0.45],
+        "fx_strength": 0.7,
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.1, 0.5, 0.15, 0.30, 0.0, 1.0, 0.5, 0.9, 0.0],
+        "c_color": "gray", "c_rgb": "0.600000 0.600000 0.600000",
+        "display_distance": "-7.5",
+    },
+    "copper-patina": {
+        "desc": "Copper × Patina Teal, Oxidized Metal (铜绿氧化)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.80", "aodirect": "0.25",
+        "surface_mat": [0.12, 0.42, 1.10, 0.90, 0.08, 0.88, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.12, 0.42, 1.10, 0.90, 0.08, 0.88, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.85, 0.42, 0.22],
+        "neg_color": [32, 0.15, 0.55, 0.52],
+        "fx": "metal",
+        "ambient": 0.05,
+        "spec_color": [1.00, 0.62, 0.32],
+        "spec_mul": 1.7,
+        "fx_color": [1.00, 0.70, 0.40],
+        "fx_strength": 0.6,
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.1, 0.5, 0.15, 0.30, 0.0, 1.0, 0.5, 0.9, 0.0],
+        "c_color": "gray", "c_rgb": "0.600000 0.600000 0.600000",
+        "display_distance": "-7.5",
+    },
+    "matte-clay": {
+        "desc": "Studio Clay, Terracotta × Slate Matte (陶土哑光)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "off", "3": "off"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.85", "aodirect": "0.25",
+        "surface_mat": [0.35, 0.82, 0.10, 0.10, 0.0, 1.0, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.35, 0.82, 0.10, 0.10, 0.0, 1.0, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.72, 0.42, 0.32],
+        "neg_color": [32, 0.36, 0.44, 0.54],
+        "fx": None,
+        "ambient": 0.0,
+        "spec_mul": 0.0,
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.1, 0.5, 0.15, 0.30, 0.0, 1.0, 0.5, 0.9, 0.0],
+        "c_color": "gray", "c_rgb": "0.600000 0.600000 0.600000",
+        "display_distance": "-7.5",
+    },
+    "ghost-glass": {
+        "desc": "Ghost Glass, Ethereal Ice Translucent (幽灵冰晶)",
+        "tachyon_options": "-trans_vmd",
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "on"},
+        "shadows": "off", "ao": "off",
+        "aoambient": "0.85", "aodirect": "0.20",
+        "surface_mat": [0.30, 0.30, 0.40, 0.50, 0.0, 0.35, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.30, 0.30, 0.40, 0.50, 0.0, 0.35, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.75, 0.90, 0.95],
+        "neg_color": [32, 0.90, 0.88, 0.95],
+        "fx": None,
+        "ambient": 0.25,
+        "spec_mul": 1.0,
+        "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
+        "atom_mat": [0.1, 0.5, 0.15, 0.30, 0.0, 1.0, 0.5, 0.9, 0.0],
+        "c_color": "gray", "c_rgb": "0.600000 0.600000 0.600000",
         "display_distance": "-7.5",
     },
 }
@@ -1830,6 +2290,330 @@ display height 10
 {extra_mat_tcl}
 {h_filter_code}
 """
+
+
+# ── 画布场景 → VMD（「同步到 VMD」一键同步） ────────────────
+
+def _socket_server_tcl(port, label):
+    """VMD socket 命令服务器（供 Python 端发送实时命令）。"""
+    return f"""
+# === Socket Server: Waiting for Python commands ===
+set serverSocket [socket -server _vmd_accept -myaddr 127.0.0.1 {port}]
+proc _vmd_accept {{chan addr port}} {{
+    global _vmd_waiting
+    fconfigure $chan -buffering line -translation binary
+    fileevent $chan readable [list _vmd_handle $chan]
+}}
+
+proc _vmd_handle {{chan}} {{
+    if [eof $chan] {{
+        close $chan
+        return
+    }}
+    gets $chan cmd
+    if {{$cmd eq ""}} return
+
+    if [catch {{uplevel #0 $cmd}} err] {{
+        puts $chan "ERROR: $err"
+    }} else {{
+        puts $chan "OK"
+    }}
+    flush $chan
+}}
+
+puts "==========================================="
+puts " VMD Scene Sync Ready ({label})"
+puts " Port: {port}"
+puts "==========================================="
+"""
+
+
+def _scene_tcl(scene, style_name="sob-art", shade_mode="full"):
+    """把画布场景描述生成 VMD Tcl 脚本（分子 + 等值面 + 配色 + 极值点）。
+
+    scene: {
+        "xyz":      xyz 文件名（render_dir 内相对名，已写好）
+        "surfaces": [ {"type":"orbital","vol":name,"iso":v,
+                       "pos_color":(cid,r,g,b)|None, "neg_color":(cid,r,g,b)|None} |
+                      {"type":"bgr","vol":name,"color_vol":name2,
+                       "iso":v,"cmin":cmin,"cmax":cmax} ],
+        "atom_groups": [ {"sel":"index 0 1", "cid":20, "rgb":(r,g,b)} ],  # 片段着色
+        "keep_h":   None | [0-based 保留的 H 索引]（None=全部显示）
+        "extrema":  [(x, y, z, kind)] 单位 Å，kind="max"/"min"
+        "opacity":  float | None（覆盖样式默认表面不透明度）
+    }
+    rep 布局：0=CPK 原子；1/2=第一个 orbital 的 ±iso（保证实时滑杆可用）；
+    其余表面（含 bgr）依次追加；片段着色 rep 放在最后。
+    """
+    s = STYLES.get(style_name, STYLES["sob-art"])
+
+    # Lighting / shadows（与 _style_tcl 一致）
+    light_lines = "".join(f"light {k} {v}\n" for k, v in s["lights"].items())
+    if shade_mode == "medium":
+        shadow_on, ao_on = True, False
+    elif shade_mode == "noshadow":
+        shadow_on, ao_on = False, False
+    else:
+        shadow_on, ao_on = s["shadows"] == "on", s["ao"] == "on"
+    shadow_lines = f"display shadows {'on' if shadow_on else 'off'}\n"
+    shadow_lines += ("display ambientocclusion on\n" if ao_on
+                     else "display ambientocclusion off\n")
+    shadow_lines += "display aoambient 0.8\ndisplay aodirect 0.3\n"
+
+    mat_names = ["ambient", "diffuse", "specular", "shininess", "mirror",
+                 "opacity", "outline", "outlinewidth", "transmode"]
+
+    def mat_block(mat, vals):
+        lines = [f"if {{[lsearch [material list] {mat}] < 0}} {{material add {mat}}}\n"]
+        for name, val in zip(mat_names, vals):
+            lines.append(f"material change {name} {mat} {val}\n")
+        return "".join(lines)
+
+    mat_a = mat_block("_stl_a", s["surface_mat"])
+    mat_b = mat_block("_stl_b", s["surface_mat_b"])
+    mat_atom = mat_block("_stl_atom", s["atom_mat"])
+    mat_bgr = mat_block("_stl_bgr", s["surface_mat"])
+
+    # 全局不透明度覆盖
+    opacity_lines = ""
+    op = scene.get("opacity")
+    if op is not None:
+        try:
+            op = max(0.0, min(float(op), 1.0))
+            for m in ("_stl_a", "_stl_b", "_stl_bgr", "EdgyGlass"):
+                opacity_lines += (f"if {{[lsearch [material list] {m}] >= 0}} "
+                                  f"{{material change opacity {m} {op:.3f}}}\n")
+        except (TypeError, ValueError):
+            pass
+
+    extra_mat_tcl = "\n".join(s.get("extra_mat_lines", [])) + "\n" \
+        if s.get("extra_mat_lines") else ""
+
+    # H 过滤选择子句（VMD index 为 0-based）
+    keep_h = scene.get("keep_h")
+    if keep_h is None:
+        h_clause = None
+    elif keep_h:
+        h_clause = f"(not element H or (element H and index {' '.join(map(str, keep_h))}))"
+    else:
+        h_clause = "not element H"
+
+    lines = []
+    lines.append("color Display Background white\n")
+    lines.append("axes location Off\ndisplay depthcue off\n"
+                 "display projection Orthographic\ndisplay rendermode GLSL\n")
+    lines.append(light_lines)
+    lines.append(shadow_lines)
+
+    # 球棍配色方案：scene["atom_color"] = "Element"（默认，沿用本软件风格）
+    # 或 "Name"（对齐 ESPViewer2/esp_surface_gui.py：VMD 默认 Name 配色，
+    # C=青、N=蓝、O=红、H=白、S=黄）
+    atom_color = scene.get("atom_color", "Element")
+    if atom_color not in ("Element", "Name"):
+        atom_color = "Element"
+
+    # 分子（先建 _stl_atom 材质，再指定给 rep0，避免材质未定义时被忽略）
+    lines.append(f"mol new {{{scene['xyz']}}} type xyz first 0 last 0 step 1 waitfor all\n")
+    lines.append("mol bondsrecalc top\n")
+    lines.append(f"mol modstyle 0 top CPK {s['atom_cpk']}\n")
+    lines.append(mat_atom)
+    lines.append("mol modmaterial 0 top _stl_atom\n")
+    if atom_color == "Name":
+        lines.append("mol modcolor 0 top Name\n")
+    else:
+        lines.append("mol modcolor 0 top Element\n")
+        lines.append(ATOM_COLORS)
+        lines.append(f"color Element C {s['c_color']}\n")
+        lines.append(f"color change rgb {s['c_color']} {s['c_rgb']}\n")
+    if h_clause is not None:
+        lines.append(f'mol modselect 0 top "{h_clause}"\n')
+
+    rep = 0
+    vol_id = 0
+
+    def cid_lines(cid, rgb):
+        if rgb is not None and len(rgb) >= 3:
+            return (f"color change rgb {cid} {rgb[0]:.4f} {rgb[1]:.4f} {rgb[2]:.4f}\n"
+                    f"mol modcolor {rep} top ColorID {cid}\n")
+        return f"mol modcolor {rep} top ColorID {cid}\n"
+
+    # 表面
+    for sf in scene.get("surfaces", []):
+        sf_type = sf.get("type")
+        iso = sf.get("iso", 0.05)
+        if sf_type == "orbital":
+            vol = sf["vol"]
+            lines.append(f"if {{[catch {{mol addfile {{{vol}}} type cube first 0 last 0 step 1 waitfor all volsets {{0}}}} err]}} {{puts \"SYNC-WARN: $err\"}}\n")
+            this_vol = vol_id
+            vol_id += 1
+            # +iso（Isosurface 参数：iso volset draw wire solid normals）
+            rep += 1
+            lines.append(f"mol addrep top\n")
+            lines.append(f"mol modstyle {rep} top Isosurface {iso} {this_vol} 0 0 1 1\n")
+            pc = sf.get("pos_color")
+            if pc:
+                cid = pc[0]
+                rgb = pc[1:4] if len(pc) > 1 else None
+                lines.append(cid_lines(cid, rgb))
+            else:
+                pc_def = s["pos_color"]
+                lines.append(cid_lines(pc_def[0], pc_def[1:4] if len(pc_def) > 1 else None))
+            lines.append(mat_a)
+            lines.append(f"mol modmaterial {rep} top _stl_a\n")
+            # -iso
+            rep += 1
+            lines.append("mol addrep top\n")
+            lines.append(f"mol modstyle {rep} top Isosurface -{iso} {this_vol} 0 0 1 1\n")
+            nc = sf.get("neg_color")
+            if nc:
+                cid = nc[0]
+                rgb = nc[1:4] if len(nc) > 1 else None
+                lines.append(cid_lines(cid, rgb))
+            else:
+                nc_def = s["neg_color"]
+                lines.append(cid_lines(nc_def[0], nc_def[1:4] if len(nc_def) > 1 else None))
+            lines.append(mat_b)
+            lines.append(f"mol modmaterial {rep} top _stl_b\n")
+        elif sf_type == "bgr":
+            vol = sf["vol"]
+            cvol = sf.get("color_vol")
+            lines.append(f"if {{[catch {{mol addfile {{{vol}}} type cube first 0 last 0 step 1 waitfor all volsets {{0}}}} err]}} {{puts \"SYNC-WARN: $err\"}}\n")
+            this_vol = vol_id
+            vol_id += 1
+            color_vol = this_vol
+            if cvol and cvol != vol:
+                lines.append(f"if {{[catch {{mol addfile {{{cvol}}} type cube first 0 last 0 step 1 waitfor all volsets {{0}}}} err]}} {{puts \"SYNC-WARN: $err\"}}\n")
+                color_vol = vol_id
+                vol_id += 1
+            rep += 1
+            lines.append("mol addrep top\n")
+            lines.append(f"mol modstyle {rep} top Isosurface {iso} {this_vol} 0 0 1 1\n")
+            lines.append(f"mol modcolor {rep} top Volume {color_vol}\n")
+            # 注意：scaleminmax 的第二个参数是该 rep 的编号（不是 vol 编号）
+            lines.append(f"mol scaleminmax top {rep} {sf.get('cmin', -0.05)} {sf.get('cmax', 0.05)}\n")
+            # 色标：ESP 用 BWR（对齐 ESPViewer2 的 ESPiso.vmd），IGMH 用 BGR
+            cmap = str(sf.get("cmap", "BGR")).upper()
+            if cmap not in ("RGB", "BGR", "RWB", "BWR"):
+                cmap = "BWR"
+            lines.append(f"color scale method {cmap}\n")
+            # 材质：ESP 用 EdgyGlass（对齐 ESPViewer2），IGMH 用 _stl_bgr
+            mat = sf.get("material", "_stl_bgr")
+            if mat == "EdgyGlass":
+                lines.append("material change transmode EdgyGlass 1.0\n"
+                             "material change specular EdgyGlass 0.15\n"
+                             "material change shininess EdgyGlass 0.95\n"
+                             "material change opacity EdgyGlass 0.7\n"
+                             "material change outlinewidth EdgyGlass 0.9\n"
+                             "material change outline EdgyGlass 0.5\n")
+                lines.append(f"mol modmaterial {rep} top EdgyGlass\n")
+            else:
+                lines.append(mat_bgr)
+                lines.append(f"mol modmaterial {rep} top _stl_bgr\n")
+
+    lines.append(opacity_lines)
+
+    # 片段着色 rep（最后，避免占用 rep 1/2）
+    for grp in scene.get("atom_groups", []):
+        rep += 1
+        lines.append("mol addrep top\n")
+        lines.append(f"mol modstyle {rep} top CPK {s['atom_cpk']}\n")
+        lines.append(f"mol modmaterial {rep} top _stl_atom\n")
+        sel = grp["sel"]
+        if h_clause is not None:
+            sel = f"{sel} and {h_clause}"
+        lines.append(f'mol modselect {rep} top "{sel}"\n')
+        lines.append(f"mol modcolor {rep} top ColorID {grp['cid']}\n")
+        rgb = grp.get("rgb")
+        if rgb and len(rgb) >= 3:
+            lines.append(f"color change rgb {grp['cid']} {rgb[0]:.4f} {rgb[1]:.4f} {rgb[2]:.4f}\n")
+
+    # ESP 极值点标记
+    extrema = scene.get("extrema") or []
+    if extrema:
+        lines.append("draw delete all\n")
+        ext_r = 0.25
+        for (x, y, z, kind) in extrema:
+            col = "orange" if str(kind).lower() in ("max", "pos") else "iceblue"
+            lines.append(f"draw color {col}\n")
+            lines.append(f"draw sphere {{{x:.4f} {y:.4f} {z:.4f}}} radius {ext_r} resolution 20\n")
+
+    # 兜底：球棍模型始终实体不透明（rep0 配色 + _stl_atom 不透明），
+    # 防止任何表面透明度/样式副作用让分子"发蓝/半透明"
+    lines.append(f"mol modcolor 0 top {atom_color}\n")
+    lines.append("mol modmaterial 0 top _stl_atom\n")
+    lines.append("material change opacity _stl_atom 1.0\n")
+    lines.append("material change transmode _stl_atom 0.0\n")
+
+    lines.append(f"display distance {s.get('display_distance', '-8.0')}\n")
+    lines.append("display height 10\n")
+    lines.append(extra_mat_tcl)
+    lines.append("display resetview\n")
+    return "".join(lines)
+
+
+def build_scene_tcl(scene, style_name="sob-art", shade_mode="full", port=None,
+                    render_dir=None):
+    """把场景写进渲染目录：安全化文件路径、写 xyz 与 _sync.tcl。
+
+    scene 需含 "xyz_text"（xyz 文件内容字符串）与 "surfaces"。
+    返回 (render_dir, tcl_filename)。
+    """
+    import tempfile as _tmp
+    if render_dir is None:
+        render_dir = _tmp.mkdtemp(prefix="vmd_sync_")
+
+    def safe(p):
+        """非 ASCII 路径复制进 render_dir 并返回相对名；ASCII 路径转正斜杠。"""
+        if not p:
+            return p
+        try:
+            p.encode("ascii")
+            return p.replace("\\", "/")
+        except UnicodeEncodeError:
+            base = os.path.basename(p)
+            dst = os.path.join(render_dir, base)
+            if os.path.abspath(p) != os.path.abspath(dst):
+                shutil.copy2(p, dst)
+            return base
+
+    xyz_text = scene.get("xyz_text", "")
+    xyz_name = scene.get("xyz") or "scene.xyz"
+    with open(os.path.join(render_dir, xyz_name), "w", encoding="utf-8") as f:
+        f.write(xyz_text)
+
+    for sf in scene.get("surfaces", []):
+        sf["vol"] = safe(sf["vol"])
+        if sf.get("color_vol"):
+            sf["color_vol"] = safe(sf["color_vol"])
+
+    tcl = _scene_tcl(scene, style_name, shade_mode)
+    if port is not None:
+        tcl += _socket_server_tcl(port, style_name)
+    tcl = _draw_bond_tcl() + tcl
+    tcl_path = os.path.join(render_dir, "_sync.tcl")
+    with open(tcl_path, "w", encoding="utf-8") as f:
+        f.write(tcl)
+    return render_dir, "_sync.tcl"
+
+
+def preview_scene(scene, style_name="sob-art", vmd_exe=None, shade_mode="full"):
+    """启动 VMD 显示画布同步场景，返回 (port, render_dir) 或 (None, None)。"""
+    if vmd_exe is None:
+        vmd_exe = DEFAULT_VMD
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+
+    render_dir, tcl_name = build_scene_tcl(
+        scene, style_name, shade_mode, port=port)
+    subprocess.Popen(
+        [vmd_exe, "-e", tcl_name],
+        cwd=render_dir,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
+    )
+    return port, render_dir
 
 
 # ── Multiwfn: Single fchk -> cube ───────────────────────

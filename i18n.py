@@ -19,17 +19,17 @@ def tr(key, **fmt):
 TR = {
     # ── Window title ──
     "win_title": {
-        "zh": "轨道等值面可视化 v6.0 — Multiwfn + VMD/Tachyon [PyQt 中文版]",
-        "en": "Orbital Isosurface Visualization v6.0 — Multiwfn + VMD/Tachyon [PyQt]"
+        "zh": "GXNU MolStudio v1.0 — 分子可视化与量子化学分析 [PyQt 中文版]",
+        "en": "GXNU MolStudio v1.0 — Molecular Visualization & Quantum Chemical Analysis [PyQt]"
     },
     # ── Header ──
     "title_label": {
-        "zh": "◆  轨道等值面可视化  ◆",
-        "en": "◆  ORBITAL ISOSURFACE VISUALIZATION  ◆"
+        "zh": "◆  GXNU MolStudio  ◆",
+        "en": "◆  GXNU MOLSTUDIO  ◆"
     },
     "subtitle_label": {
-        "zh": "Multiwfn + VMD + Tachyon  |  v6.0 PyQt 中文版",
-        "en": "Multiwfn + VMD + Tachyon  |  v6.0 PyQt Edition"
+        "zh": "分子可视化与量子化学分析  |  v1.0 PyQt 中文版",
+        "en": "Molecular Visualization & Quantum Chemical Analysis  |  v1.0 PyQt Edition"
     },
     # ── Language button ──
     "lang_btn": {"zh": "EN", "en": "中"},
@@ -63,6 +63,7 @@ TR = {
     "grp_paths": {"zh": "软件路径", "en": "SOFTWARE PATHS"},
     "grp_acknowledgments": {"zh": "致谢", "en": "Acknowledgments"},
     "grp_input": {"zh": "输入文件", "en": "INPUT"},
+    "grp_canvas": {"zh": "可视化画布", "en": "VISUALIZATION CANVAS"},
     "grp_orbital": {"zh": "轨道选择", "en": "ORBITAL SELECTION"},
     "grp_render": {"zh": "渲染参数", "en": "RENDER PARAMETERS"},
     "grp_output": {"zh": "输出目录", "en": "OUTPUT DIRECTORY"},
@@ -151,6 +152,25 @@ TR = {
     "btn_render_view": {"zh": "渲染出图", "en": "Render Image"},
     "btn_flip_phase": {"zh": "翻转相位", "en": "Flip Phase"},
     "btn_preview_mol": {"zh": "VMD 预览分子", "en": "VMD Preview Mol"},
+    "tab_charge": {"zh": "🧪  电荷分析", "en": "🧪  Charge"},
+    "tab_bond_order": {"zh": "🔗  键级", "en": "🔗  Bond Order"},
+    "tab_nbo": {"zh": "🧬  NBO 分析", "en": "🧬  NBO"},
+    "tab_esp": {"zh": "⚡  ESP 表面", "en": "⚡  ESP"},
+    "tab_igmh": {"zh": "🧩  IGMH 分析", "en": "🧩  IGMH"},
+    "tab_orbit_table": {"zh": "📊  轨道表", "en": "📊  Orbitals"},
+    "btn_sync_vmd": {"zh": "🖥  同步到 VMD", "en": "🖥  Sync to VMD"},
+    "btn_sync_vmd_tip": {"zh": "把左侧画布当前场景（分子+等值面+配色+极值点）一键同步到 VMD",
+                        "en": "Sync the current canvas scene (molecule + isosurfaces + colors) to VMD"},
+    "msg_sync_no_molecule": {"zh": "画布中没有分子，请先载入 .fchk/.log 或可视化一个轨道",
+                             "en": "No molecule in the canvas — load an .fchk/.log or visualize an orbital first"},
+    "msg_no_vmd": {"zh": "未找到 VMD，请先在 ⚙️ 路径设置中配置",
+                   "en": "VMD not found — configure it in ⚙️ Path Settings first"},
+    "log_sync_vmd_start": {"zh": "同步画布场景到 VMD（{n} 个表面）…",
+                           "en": "Syncing canvas scene to VMD ({n} surfaces)…"},
+    "log_sync_vmd_ok": {"zh": "VMD 场景同步完成",
+                        "en": "VMD scene synced"},
+    "log_sync_vmd_fail": {"zh": "VMD 同步失败: {err}",
+                          "en": "VMD sync failed: {err}"},
     "flip_choose": {"zh": "选择要翻转的轨道:", "en": "Choose orbital to flip:"},
     "btn_stop": {"zh": "停止", "en": "Stop"},
     "btn_save": {"zh": "保存", "en": "Save"},

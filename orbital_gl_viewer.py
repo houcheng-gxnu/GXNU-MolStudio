@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
     QMessageBox, QFileDialog,
 )
 from PyQt5.QtCore import Qt
+from file_dialogs import open_file, save_file
 from PyQt5.QtGui import QDoubleValidator
 
 try:
@@ -37,7 +38,7 @@ class OrbitalGLViewer(QMainWindow):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("OrbitalViewer — OpenGL 实时渲染")
+        self.setWindowTitle("GXNU MolStudio — OpenGL 实时渲染")
         self.resize(1200, 800)
         self.setMinimumSize(800, 500)
 
@@ -275,7 +276,7 @@ class OrbitalGLViewer(QMainWindow):
         return True
 
     def _browse_cube(self):
-        path, _ = QFileDialog.getOpenFileName(
+        path, _ = open_file(
             self, "选择 Cube 文件", "",
             "Cube Files (*.cub *.cube);;All Files (*)")
         if path:
@@ -466,7 +467,7 @@ class OrbitalGLViewer(QMainWindow):
     def _screenshot(self):
         if not self._gl_ready or self._current_cube_path is None:
             return
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = save_file(
             self, "保存截图", "orbital_view.png",
             "PNG Images (*.png);;All Files (*)")
         if not path:

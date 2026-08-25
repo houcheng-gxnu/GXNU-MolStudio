@@ -39,10 +39,11 @@ from PyQt5.QtWidgets import (
     QGridLayout, QCheckBox, QFrame,
 )
 from PyQt5.QtCore import Qt, QTimer
+from file_dialogs import open_file
 from PyQt5.QtGui import QDoubleValidator as _QDV
 
-# ── 复用 cub_viewer 引擎组件 ──
-from cub_viewer import (
+# ── 复用 ovcanvas 引擎组件 ──
+from ovcanvas import (
     CubGLWidget, _ensure_pyopengl, IBOVIEW_DEFAULTS,
 )
 from marching_cubes import read_cube, compute_bounding_sphere, marching_cubes
@@ -378,7 +379,7 @@ class ESPViewer(QMainWindow):
 
     # ── 交互 ──
     def _pick(self, which):
-        p, _ = QFileDialog.getOpenFileName(
+        p, _ = open_file(
             self, "选择 cube 文件", "", "Cube Files (*.cub *.cube);;All (*)")
         if not p:
             return
