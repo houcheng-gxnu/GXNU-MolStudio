@@ -1,23 +1,23 @@
-cff-version: 1.2.0
-message: "If you use OrbitalViewer in your research, please cite it as below."
-title: "OrbitalViewer: A Molecular Orbital Isosurface Visualization Tool"
+﻿cff-version: 1.2.0
+message: "If you use GXNU MolStudio in your research, please cite it as below."
+title: "GXNU MolStudio: Molecular Visualization and Quantum Chemical Analysis"
 type: software
 authors:
   - given-names: Cheng
     family-names: Hou
     affiliation: "Guangxi Normal University"
     orcid: ""
-repository-code: "https://github.com/houcheng-gxnu/OrbitalViewer"
-url: "https://github.com/houcheng-gxnu/OrbitalViewer"
-abstract: "A one-stop molecular orbital isosurface visualization tool that integrates Multiwfn, VMD, and Tachyon for rapid generation of publication-quality orbital images from fchk files."
+repository-code: "https://cnb.cool/chem311/GXNU-MolStudio"
+url: "https://cnb.cool/chem311/GXNU-MolStudio"
+abstract: "A one-stop molecular visualization and quantum chemical analysis tool integrating an embedded OpenGL renderer (IboView pipeline), Multiwfn-based IGMH/IRI analysis, ESP, NBO and charge analysis."
 keywords:
   - "molecular orbital"
   - "isosurface"
   - "visualization"
   - "quantum chemistry"
+  - "IGMH"
+  - "IRI"
   - "Multiwfn"
-  - "VMD"
-  - "Tachyon"
-license: MIT
-version: "6.0"
-date-released: "2026-06-22"
+license: GPL-3.0
+version: "1.0"
+date-released: "2026-01-01"
