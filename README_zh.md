@@ -1,13 +1,13 @@
+# GXNU MolStudio（分子可视化与量子化学分析）
+
 <p align="center">
-  <img src="https://img.shields.io/badge/version-5.3-blue.svg" alt="Version 5.3">
+  <img src="https://img.shields.io/badge/version-1.0-blue.svg" alt="Version 1.0">
   <img src="https://img.shields.io/badge/python-3.8+-green.svg" alt="Python 3.8+">
   <img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="GPLv3 License">
 </p>
 
-<h1 align="center">OrbitalViewer（轨道查看器）</h1>
-
 <p align="center">
-  <b>Multiwfn → VMD → Tachyon 一键串联，从 fchk 到期刊精美轨道图，两分钟搞定。</b>
+  <b>分子可视化与量子化学分析 — 从 fchk 到期刊精美轨道图，一站式完成。</b>
   <br>
   <sub>侯成课题组 · 广西师范大学</sub>
 </p>
@@ -18,73 +18,49 @@
 
 ---
 
-## 为什么选择 OrbitalViewer？
+## 简介
 
-传统的轨道可视化流程需要手动操作 Multiwfn 生成 cube，再用 VMD 加载、调参、渲染，步骤繁琐且容易出错。OrbitalViewer 将整个流程自动化封装，提供直观的 GUI 和 30+ 种预置渲染风格，让你专注于科研本身。
+GXNU MolStudio 是一款面向计算化学研究的分子可视化与量子化学分析软件。它集成了**内嵌 OpenGL 实时渲染引擎**（基于 IboView 管线移植）、**Multiwfn 波函数分析**、**IGMH/IRI 弱相互作用分析**、**ESP 静电势**、**NBO 与电荷分析**等模块，把传统上需要在多个软件间手动切换的流程封装为直观的图形界面。
 
-| | 传统流程 | OrbitalViewer |
+| | 传统流程 | GXNU MolStudio |
 |---|---|---|
-| cube 生成 | 手动输命令 | 双击轨道自动生成 |
-| VMD 预览 | 手动 load、调等值面 | 自动加载，滑块实时调整 |
-| 渲染出图 | 手动调灯光、材质 | 下拉选风格，一键出图 |
+| cube 生成 | 手动输入命令 | 双击轨道自动生成 |
+| 3D 预览 | 手动 load、调等值面 | 内嵌 OpenGL 画布，滑块实时调整 |
+| 渲染出图 | 手动调灯光、材质 | 一键样式，即时出图 |
+| 弱相互作用 | 分开跑 IGMH/IRI 再拼图 | 面板内一键分析并可视化 |
 | 批量处理 | 逐个文件重复操作 | 拖入文件夹，全自动批处理 |
-| 双语支持 | — | 中 / English 即时切换 |
 
 ---
 
 ## 功能特性
 
-### 🧬 智能文件加载
-- **拖放即用** — 支持 `.fchk`、`.log`、`.out`、`.cub`、`.cube`、`.xyz`，自动识别文件类型
-- **自动成键** — 导入结构后自动计算化学键，2D 画布实时预览
+### 🧬 内嵌 OpenGL 渲染引擎（ovcanvas）
+- **深度剥离透明合成** — IboView 移植管线，多层面内透明正确排序；不可用时自动回退排序混合
+- **一键样式** — sob-art / IBOview / HoukMol / IQmol 四种默认观感，一键切换
+- **原子配色与光照正交双轴** — 原子配色（CPK / SobArt / HoukMol / Vcube …）× 光照（三光 / 单光 / 双光 / 四光）自由组合
+- **每灯独立光晕** — 光源对话框支持方向/数量/光晕精细调节并保存载入
+- **十字圆环** — HoukMol 风格球面大圆环，方位/俯仰可调、可锁定
 
-### 📊 轨道浏览器
-- **双标签布局** — 开壳层 α/β 电子自动分标签紧邻排列
-- **占据态可视化** — ⬆️⬇️ 双占据 / ⬆️ α 单电子 / ⬇️ β 单电子 / ⬜⬜ 空轨道
-- **完整信息展示** — 轨道编号、能量 (a.u.)、能量 (eV)、占据数
-- **双击即生成** — 双击任意行，自动调用 Multiwfn 生成 cube 并发送至 VMD
+### 🔬 分子显示辅助
+- **隐藏氢原子** — 一键隐藏全部 H，突出重原子骨架
+- **保留指定 H** — 输入编号（如 `1,3,5-8`），仅显示选中的 H
+- **显示原子编号 / 元素符号** — 每个原子旁标注分子内序号或元素符号
 
-### 🎬 VMD 实时预览
-- **等值面滑块** — 拖动滑块，VMD 中等值面实时同步（0.01 ~ 0.10）
-- **透明度控制** — 独立调整正/负相等值面透明度
-- **多轨道同时显示** — 支持同时加载多条轨道，各自独立配色
-- **一键隐藏氢原子** — 突出重原子骨架，可保留指定 H
+### 🧪 IGMH / IRI 弱相互作用分析
+- **一键分析** — 选择片段，调用 Multiwfn 计算 IGMH 或 IRI 指标
+- **BGR 着色** — sign(λ₂)ρ 蓝-绿-红着色，等值面大小/透明度滑块 + 精确输入框
+- **IGM 散点图** — 内嵌散点图查看器
 
-### 🎨 30+ 内置渲染风格
+### ⚡ 量子化学数据分析
+- **轨道浏览器** — 轨道能量、占据数、HOMO/LUMO 标注，双击自动生成 cube
+- **ESP 静电势** — 等值面 + 极值点标注 + 色标条
+- **NBO 分析** — 键级、占据、二阶微扰能（E2）轨道对
+- **电荷分析** — Mulliken / 拟合电荷、键级可视化
 
-| 类别 | 风格 | 数量 |
-|------|------|:---:|
-| **vcube2.0（钟成老师）** | sob-art, ao-shiny, ao-chalky, white-green, white-red, morandi-blue, morandi-green, morandi-orange, morandi-red, vmwfn0, vmwfn1, IQmol | 12 |
-| **IboView 风格** | iboview-crystal, iboview-dark, iboview-green-pink, iboview-purple-blue, iboview-cyan-yellow, iboview-orange-teal, iboview-rainbow | 7 |
-| **原创精选** | aurora-teal, midnight-gold, lavender-mint, sunset-fire, ocean-depth, rose-quartz, forest-emerald, neon-cyber, cherry-blossom, graphite-ink, lakers, blood-orange, Gaussview | 13+ |
-
-### 🖼️ Tachyon 光线追踪渲染
-- **4 种渲染模式** — Solid, CPK, Sob-Multi, Sob-Art
-- **高分辨率输出** — 支持 BMP/PNG，分辨率可达 3000+
-- **可选透明背景** — 便于后期排版拼接
-- **阴影控制** — 开关阴影、AO（环境光遮蔽）
-- **Tachyon 路径自定义** — 支持选择任意版本的 Tachyon 渲染器
-
-### ✏️ 虚线绘制工具
-- **一键锁定原子对** — 画布与 VMD 同步绘制虚线键
-- **8 种颜色 + 5 种线型** — 圆点、虚线、圆柱、锥形、线段，下拉即时生效
-- **标注氢键与分子间相互作用**
-
-### 🔄 高级叠加模式
-- 选中两条轨道，同步生成 cube 并叠加渲染
-- 方便对比 HOMO/LUMO 或不同等值面阈值
-
-### 📦 批量处理
-- 拖入文件夹，自动遍历所有 fchk 文件
-- 支持命令行批处理，可自定义轨道、风格、分辨率
-
-### 🌐 中英双语
-- UI 即时切换，无需重启
-- 完整覆盖所有界面文字与提示
-
-### 📋 运行日志
-- 16px 等宽字体，彩色标签（`VMD` / `OK` / `ERR` / `GEN`）
-- 带时间戳，可复制导出
+### 🎬 传统 VMD / Tachyon 渲染（兼容模式）
+- 30+ 预置渲染风格（vcube2.0、IboView、原创精选）
+- 高分辨率输出（BMP/PNG，3000+）、可选透明背景、阴影/AO 控制
+- 中英双语即时切换、运行日志、命令行批处理
 
 ---
 
@@ -95,46 +71,37 @@
 | 组件 | 用途 | 安装 |
 |------|------|------|
 | Python 3.8+ | 运行环境 | [python.org](https://www.python.org/) |
-| PyQt5 | GUI 界面 | `pip install PyQt5` |
+| PyQt5 | GUI 界面 | `pip install PyQt5 PyOpenGL PyOpenGL-accelerate` |
 | NumPy | 数值计算 | `pip install numpy` |
-| [Multiwfn](http://sobereva.com/multiwfn/) | fchk → cube | 下载后配置路径 |
-| [VMD](https://www.ks.uiuc.edu/Research/vmd/) | 3D 预览 + 渲染 | 安装后配置路径 |
-| Tachyon | 光线追踪 | 随 VMD 附带 |
+| PyMCubes | 等值面提取 | `pip install PyMCubes` |
+| matplotlib | 散点图/色标 | `pip install matplotlib` |
+| [Multiwfn](http://sobereva.com/multiwfn/) | fchk → cube、IGMH/IRI | 下载后配置路径 |
+
+> VMD / Tachyon 仅传统渲染模式需要；内嵌 OpenGL 画布不依赖它们。
 
 ### 安装
 
 ```bash
-git clone https://github.com/houcheng-gxnu/OrbitalViewer.git
-cd OrbitalViewer
-pip install PyQt5 numpy
+git clone https://cnb.cool/chem311/GXNU-MolStudio.git
+cd GXNU-MolStudio
+pip install PyQt5 PyOpenGL numpy PyMCubes matplotlib
 ```
 
 ### 配置工具路径
 
-首次启动时在 GUI 中浏览选择，或手动编辑 `fchk_orbital.ini`：
-
-```ini
-[paths]
-multiwfn = E:\Multiwfn_2026.4.10_bin_Win64\Multiwfn.exe
-vmd      = C:\Program Files (x86)\University of Illinois\VMD\vmd.exe
-tachyon  = C:\Program Files (x86)\University of Illinois\VMD\tachyon_WIN64.exe
-```
-
-> **提示**：Multiwfn 和 VMD 均可通过 GUI 设置界面浏览选择路径，配置自动保存。
+首次启动时在 GUI ⚙️ 设置中浏览选择 Multiwfn 等路径，自动保存到 `fchk_orbital.ini`。
 
 ### 启动
 
 ```bash
 # GUI 模式（默认中文）
 python main.py
-
-# 英文界面 — 启动后从菜单切换 Language / 语言 → English
 ```
 
-### 命令行模式
+### 命令行模式（批处理）
 
 ```bash
-# 单个文件，HOMO 轨道，soba 推荐风格
+# 单个文件，HOMO 轨道，sob-art 风格
 python main.py input.fchk --mo h --iso 0.05 --style sob-art
 
 # 批量处理文件夹，HOMO + LUMO
@@ -147,17 +114,15 @@ python main.py input.fchk --mo h-1,h,l,l+1 --iso 0.04 --style lakers --res 3000,
 python main.py ./folder/ --mo h --grid 3 --no-render
 ```
 
-### 命令行参数详解
-
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `input` | str | — | fchk 文件路径或文件夹路径 |
-| `--mo` | str | `h` | 轨道选择，支持：`h` (HOMO), `l` (LUMO), `h-1` (HOMO-1), 数字编号, 逗号分隔多项 |
+| `--mo` | str | `h` | 轨道选择：`h` (HOMO)、`l` (LUMO)、`h-1`、数字编号、逗号分隔 |
 | `--iso` | float | `0.05` | 等值面阈值 |
 | `--grid` | int | `2` | 网格质量：1=低, 2=中, 3=高 |
-| `--style` | str | `sob-art` | 渲染风格，可选值见 `fchk_orbital.py` 中 `STYLES` 字典 key |
-| `--res` | str | `2000,1500` | 输出分辨率 `宽,高` |
-| `--no-render` | flag | — | 仅生成 cube 文件，不渲染出图 |
+| `--style` | str | `sob-art` | 渲染风格 |
+| `--res` | str | `2000,1500` | 输出分辨率 `宽,高`（也支持 `宽x高`） |
+| `--no-render` | flag | — | 仅生成 cube，不渲染 |
 | `--out` | str | 输入同目录 | 输出目录 |
 
 ---
@@ -165,75 +130,73 @@ python main.py ./folder/ --mo h --grid 3 --no-render
 ## 项目结构
 
 ```
-OrbitalViewer/
-├── main.py                # 入口模块（GUI 启动 + 命令行批处理）
-├── main_window.py         # 主窗口（UI 布局、信号/槽交互逻辑）
-├── molcanvas.py           # 2D 分子结构画布（Qt 自定义 QPainter 绘制）
-├── fchk_orbital.py        # 后端核心引擎（cube 生成、VMD 控制、Tachyon 渲染管道、30+ 风格定义）
-├── fchk_parser.py         # fchk 文件解析（提取轨道能量、占据数等）
-├── orbital_viewer_lib.py  # 共享工具函数库
-├── orbital_viewer_v53.py  # 旧版兼容层
-├── cub_viewer.py          # OpenGL 渲染引擎（深度剥离 + Phong 光照，IboView 风格）
-├── cub_canvas.py          # 球棍模型 / 等值面画布控件
-├── color_wheel.py         # 色轮配色控件
-├── orbital_gl_widget.py   # OpenGL 窗口部件
-├── glsl_shaders.py        # GLSL 着色器源码
-├── marching_cubes.py      # Marching Cubes 等值面提取
-├── esp_viewer.py          # ESP 势视图
-├── workers.py             # QThread 后台工作线程（异步 cube 生成与渲染）
-├── widgets.py             # 自定义 QSS 控件（滑块、组合框、按钮等）
-├── dialogs.py             # 对话框（设置、关于、路径配置）
-├── i18n.py                # 国际化翻译模块（中/English 字典）
-├── theme.py               # QSS 主题样式表
-├── OrbitalViewer.spec     # PyInstaller 打包配置
-└── README.md
+GXNU-MolStudio/
+├── main.py                # 入口（GUI 启动 + 命令行批处理）
+├── main_window.py         # 主窗口（UI 布局、面板集成、日志）
+├── ovcanvas/              # 内嵌 OpenGL 渲染引擎（IboView 管线移植）
+│   ├── _glwidget.py       # GL 渲染核心（深度剥离/光照/球棍/等值面）
+│   ├── _panel.py          # 画布面板（一键样式/参数/光源/圆环）
+│   ├── _colorwheel.py     # IboView 风格色轮
+│   └── _molviewer_style.py# MolViewer 预设
+├── igmh_panel.py          # IGMH/IRI 弱相互作用分析面板
+├── esp_panel.py           # ESP 静电势分析面板
+├── nbo_viewer.py          # NBO 分析查看器
+├── charge_viewer.py       # 电荷分析查看器
+├── fchk_orbital.py        # 后端引擎（cube 生成、VMD 控制、Tachyon 渲染、风格定义）
+├── fchk_parser.py         # fchk 解析
+├── marching_cubes.py      # 等值面提取（PyMCubes 封装）
+├── file_dialogs.py        # 文件对话框（记住上次目录）
+├── i18n.py                # 国际化（中/English）
+├── theme.py               # QSS 主题
+├── workers.py             # 后台工作线程
+├── OrbitalViewer.spec     # PyInstaller 打包配置（onedir）
+└── README.md / README_zh.md
 ```
 
 ---
 
 ## 打包为独立 EXE
 
-无需安装 Python 即可运行，适合分发给非技术用户。
+无需安装 Python 即可运行，适合分发给非技术用户：
 
 ```bash
 pip install pyinstaller
 pyinstaller OrbitalViewer.spec --clean
 ```
 
-输出：`dist/OrbitalViewer.exe`（单文件，无控制台窗口）
+输出：`dist/GXNU MolStudio/`（文件夹形式，双击 `GXNU MolStudio.exe` 启动）。
+
+> 打包时已处理 360 安全卫士对个别系统 DLL 的写入拦截（见 spec 内注释）。
 
 ---
 
 ## 致谢
 
-OrbitalViewer 站在巨人的肩膀上：
+GXNU MolStudio 站在巨人的肩膀上：
 
-- **[Multiwfn](http://sobereva.com/multiwfn/)** — 卢天老师开发的量子化学波函数分析程序，引用超 4 万篇论文。OrbitalViewer 使用其从 fchk 生成 cube 文件。
-- **[vcube2.0](https://github.com/Zhong-Cheng-2020/vcube2.0)** — 钟成老师提供的 11 套精美 VMD 轨道渲染配置，大部分内置风格来自 vcube2.0。
+- **[Multiwfn](http://sobereva.com/multiwfn/)** — 卢天老师开发的量子化学波函数分析程序，引用超 4 万篇论文。本项目使用其生成 cube、执行 IGMH/IRI 分析。
+- **[vcube2.0](https://github.com/Zhong-Cheng-2020/vcube2.0)** — 钟成老师提供的多套精美 VMD 轨道渲染配置。
 - **[VMD](https://www.ks.uiuc.edu/Research/vmd/)** — Humphrey, W., Dalke, A. and Schulten, K., "VMD: Visual Molecular Dynamics", J. Molec. Graphics, 1996, 14, 33–38.
 - **[Tachyon](http://jedi.ks.uiuc.edu/~johns/raytracer/)** — Stone, J. E., "An Efficient Library for Parallel Ray Tracing and Animation", M.Sc. Thesis, 1998.
-- **虚线绘制** — 来自 KeinSci 论坛 Eming 老师的 `draw_bond` Tcl 脚本。
-- **[IboView](https://www.iboview.org)** — Gerald Knizia 开发的量子化学可视化程序。本项目的 OpenGL 渲染引擎（深度剥离透明合成、三向 Phong 光照、球棍模型几何与原子半径/颜色表）参考并部分移植自 IboView（Copyright (c) 2015 Gerald Knizia, GPLv3），特此致谢。
+- **[IboView](https://www.iboview.org)** — Gerald Knizia 开发的量子化学可视化程序。本项目的 OpenGL 渲染引擎（深度剥离透明合成、Phong 光照、球棍模型几何与原子半径/颜色表）参考并部分移植自 IboView（Copyright (c) 2015 Gerald Knizia, GPLv3），特此致谢。
 
 ---
 
 ## 引用
 
-如果 OrbitalViewer 对你的研究有帮助，请在论文中引用：
+如果 GXNU MolStudio 对你的研究有帮助，请在论文中引用：
 
 ```bibtex
-@software{OrbitalViewer2026,
-  title        = {OrbitalViewer: A Molecular Orbital Isosurface Visualization Tool},
+@software{GXNUMolStudio2026,
+  title        = {GXNU MolStudio: Molecular Visualization and Quantum Chemical Analysis},
   author       = {Hou Cheng},
   year         = {2026},
-  version      = {5.3},
-  url          = {https://github.com/houcheng-gxnu/OrbitalViewer},
+  version      = {1.0},
+  url          = {https://cnb.cool/chem311/GXNU-MolStudio},
 }
 ```
 
-同时请引用上述致谢中的对应工具文献。
-
-另见 [CITATION.cff](./CITATION.cff) 和 [CITATION.bib](./CITATION.bib)。
+同时请引用上述致谢中的对应工具文献。另见 [CITATION.cff](./CITATION.cff) 和 [CITATION.bib](./CITATION.bib)。
 
 ---
 
