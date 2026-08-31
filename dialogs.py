@@ -5,9 +5,9 @@ dialogs: 弹窗对话框
 
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QColor
 
 from i18n import tr
@@ -21,6 +21,7 @@ class OrbitalBrowserDialog(QDialog):
         super().__init__(parent)
         self.fchk_path = fchk_path
         self.selected_orbital = None
+        self._homo_row = None   # 打开后滚到表格中间的 HOMO 行
         self.setWindowTitle(tr("dlg_orbital_browser"))
         self.setMinimumSize(680, 500)
         self._setup_ui()
@@ -139,9 +140,40 @@ class OrbitalBrowserDialog(QDialog):
                 rows.append((i, e, e * eV, occ, tag, "α"))
             self._fill_rows(rows, is_open=False)
 
-        # 滚动到 HOMO
-        if homo and homo <= self.table.rowCount():
-            self.table.scrollToItem(self.table.item(homo - 1, 0))
+        # 定位到 HOMO-LUMO：表格按能量升序填充，HOMO（第 homo 个轨道）
+        # 在第 homo-1 行。滚动必须在布局完全就绪后做——构造期 viewport
+        # 还没有真实尺寸，showEvent 时对话框仍会 resize，滚动会被冲掉
+        #（打开时停在顶部的根因）。showEvent 里用 singleShot(0) 推迟到
+        # 事件循环下一拍（布局/尺寸全部就绪）再滚，PositionAtCenter 让
+        # HOMO 居中、LUMO（下一行）也在视口内，打开即见 HOMO-LUMO
+        if homo and 1 <= homo <= self.table.rowCount():
+            self._homo_row = homo - 1
+            self.table.setCurrentCell(self._homo_row, 0)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        # 布局就绪后把 HOMO 行滚到表格中间。触发点：0ms（下一拍）、
+        # 150ms 兜底、resizeEvent——对话框打开后往往还有 resize，会把
+        # 一次性的滚动冲掉，所以目标行不消费、多次幂等重滚；用户
+        # 之后手动滚动时不再有触发点，不受影响
+        QTimer.singleShot(0, self._scroll_to_homo)
+        QTimer.singleShot(150, self._scroll_to_homo)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if self.isVisible() and self._homo_row is not None:
+            QTimer.singleShot(0, self._scroll_to_homo)
+
+    def _scroll_to_homo(self):
+        """把 HOMO 行垂直居中（打开即见 HOMO-LUMO），可安全重复调用。"""
+        r = self._homo_row
+        if r is None or not self.isVisible():
+            return
+        it = self.table.item(r, 0)
+        if it is None or self.table.viewport().height() <= 0:
+            return
+        self.table.selectRow(r)
+        self.table.scrollToItem(it, QAbstractItemView.PositionAtCenter)
 
     def _fill_rows(self, rows, is_open):
         self.table.setRowCount(len(rows))

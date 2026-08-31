@@ -17,7 +17,8 @@ from PyQt5.QtWidgets import (
     QFrame, QSplitter, QScrollArea, QGridLayout, QSizePolicy,
     QSlider, QTabWidget, QDialog, QDialogButtonBox, QFormLayout,
     QTextBrowser, QTableWidget, QTableWidgetItem, QHeaderView,
-    QListView,
+    QToolButton, QListWidget, QStackedWidget, QAbstractItemView,
+    QInputDialog,
 )
 from PyQt5 import QtCore
 from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
@@ -37,6 +38,10 @@ from molcanvas import (
     get_atoms_from_cube, get_bonds_from_cube, ELEMENT_SYMBOLS,
 )
 
+# 元素符号 → 原子序数（XYZ 解析用）。符号按首字母大写归一化，
+# 便于处理 "C"/"cl"/"CL" 等写法；查不到时回退 0。
+_SYMBOL_TO_AN = {sym: an for an, sym in ELEMENT_SYMBOLS.items()}
+
 # ── OpenGL 渲染器（替代 VMD 预览） ──
 try:
     from orbital_gl_viewer import OrbitalGLViewer
@@ -47,9 +52,11 @@ except ImportError:
 # ── 内嵌 OpenGL cube 画布（左侧面板） ──
 try:
     from ovcanvas import OVCanvas as CubCanvasPanel
+    from ovcanvas import LimitedPopupComboBox
     _HAS_CUB_CANVAS = True
 except Exception:
     _HAS_CUB_CANVAS = False
+    LimitedPopupComboBox = QComboBox   # 画布不可用时退化为普通下拉框
 
 # ── 原子电荷读取/分析（整合自 ChargeViewer） ──
 try:
@@ -79,6 +86,27 @@ try:
 except Exception:
     _HAS_IGMH_PANEL = False
 
+# ── AIM 拓扑分析（移植自 AIM_Qt5_Analyzer） ──
+try:
+    from aim_panel import AIMPanel
+    _HAS_AIM_PANEL = True
+except Exception:
+    _HAS_AIM_PANEL = False
+
+# ── ETS-NOCV 分析（移植自 ETS-NOCV-Viewer） ──
+try:
+    from etsnocv_panel import ETSNOCVPanel
+    _HAS_ETSNOCV_PANEL = True
+except Exception:
+    _HAS_ETSNOCV_PANEL = False
+
+# ── MPP 分子平面性参数分析（移植自 mpp_auto_qt.py） ──
+try:
+    from mpp_panel import MPPPanel
+    _HAS_MPP_PANEL = True
+except Exception:
+    _HAS_MPP_PANEL = False
+
 # ── 拆分后的模块 ──
 import i18n
 from theme import LIGHT_QSS
@@ -88,36 +116,11 @@ from widgets import SciFiGroupBox
 from dialogs import OrbitalBrowserDialog
 
 
-class _PopupLimitedComboBox(QComboBox):
-    """QComboBox 子类：限制下拉弹出窗口高度，超出部分用滚动条。
-
-    通过 setMaxVisibleItems 控制一次可见的最大条目数，配合始终显示的
-    垂直滚动条，使很长的风格列表也能在固定高度的弹出框里滚动浏览。
-    """
-    def __init__(self, max_popup_height=200, max_visible_items=6, parent=None):
-        super().__init__(parent)
-        self._popup_height = max_popup_height
-
-        view = QListView(self)
-        view.setUniformItemSizes(True)
-        # 始终显示垂直滚动条，长列表可滚动；水平方向不出现滚动条
-        view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        # 直接限制下拉视图本身的最大高度（含图标项也适用），
-        # 这是跨 Qt 版本都可靠的高度限制手段（setMaxVisibleItems 对
-        # 自定义 view 未必生效，故此处显式约束 view 高度）。
-        view.setMaximumHeight(max_popup_height)
-        self.setView(view)
-
-        # 一次最多可见的条目数（超出自动滚动）；对自定义 view 不一定
-        # 生效，但作为提示保留。
-        self.setMaxVisibleItems(max_visible_items)
-
-    def showPopup(self):
-        super().showPopup()
-        # 固定弹出窗口高度，确保超出 max_visible_items 的内容靠滚动条浏览
-        popup = self.view().window()
-        popup.setFixedHeight(self._popup_height)
+# 限制下拉弹出高度并严格贴合选框的组合框（实现见 ovcanvas._panel）。
+# 注意：不要在 super().showPopup() 之后再改弹出窗口尺寸而不重新定位——
+# Qt 是按改尺寸前的高度把弹出窗口对齐到选框边缘的，那样会导致弹出框
+# 与选框之间裂开一条缝（向上弹时尤其明显）。
+_PopupLimitedComboBox = LimitedPopupComboBox
 
 
 class PathsDialog(QDialog):
@@ -125,6 +128,7 @@ class PathsDialog(QDialog):
 
     def __init__(self, paths, ack_html, tr, parent=None):
         super().__init__(parent)
+        self._tr_fn = tr  # 供 _browse 等实例方法使用（tr 只是构造参数，方法内不可见）
         self.setWindowTitle(tr("dlg_paths_title"))
         self.resize(580, 560)
         self.setModal(True)
@@ -166,16 +170,6 @@ class PathsDialog(QDialog):
         ty_row.addWidget(self.btn_ty)
         form.addRow(tr("lbl_tachyon"), ty_row)
 
-        # VMD 相关功能已停用（可视化走内置 OpenGL 画布），隐藏 VMD/Tachyon 路径行
-        try:
-            form.setRowVisible(1, False)   # VMD
-            form.setRowVisible(2, False)   # Tachyon
-        except Exception:
-            self.edit_vmd.hide()
-            self.btn_vmd.hide()
-            self.edit_tachyon.hide()
-            self.btn_ty.hide()
-
         g.addLayout(form)
 
         btn_save = QPushButton(tr("btn_save"))
@@ -198,7 +192,7 @@ class PathsDialog(QDialog):
 
     def _browse(self, target, which):
         path, _ = open_file(
-            self, "Select " + which, "",
+            self, self._tr_fn("dlg_select_exe", which=which), "",
             "Executables (*.exe);;All Files (*)")
         if path:
             target.setText(path)
@@ -357,11 +351,31 @@ class OrbitalVisApp(QMainWindow):
         self._vmd_dash_pairs = []
         self.vmd_multi_cubes = None
         self._dash_dialog = None
-        # 应用图标
-        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "OV.png")
-        if os.path.exists(icon_path):
+        # ── VMD 控制台弹出窗口 ──
+        self._vmd_console_win = None
+        # 应用图标（打包后 exe 同目录或 _internal/sys._MEIPASS；多候选回退）
+        try:
             from PyQt5.QtGui import QIcon
-            self.setWindowIcon(QIcon(icon_path))
+            _dirs = [os.path.dirname(os.path.abspath(__file__))]
+            if getattr(sys, "frozen", False):
+                _dirs.insert(0, os.path.dirname(sys.executable))
+                _meipass = getattr(sys, "_MEIPASS", None)
+                if _meipass:
+                    _dirs.append(_meipass)
+            _icon_path = None
+            for _name in ("OV.png", "molstudio.ico", "gxnu_molstudio.ico",
+                          "molstudio_icon_src.png"):
+                for _dir in _dirs:
+                    _p = os.path.join(_dir, _name)
+                    if os.path.exists(_p):
+                        _icon_path = _p
+                        break
+                if _icon_path:
+                    break
+            if _icon_path:
+                self.setWindowIcon(QIcon(_icon_path))
+        except Exception:
+            pass
         self._vmd_style_applied = None
         self._custom_pos_rgb = None  # 自定义正相位颜色 (R,G,B), None=用风格默认
         self._custom_neg_rgb = None  # 自定义负相位颜色
@@ -370,6 +384,8 @@ class OrbitalVisApp(QMainWindow):
         self.iso_step = 0.005
         # ── 轨道状态管理（统一追踪 rep/molid/phase） ──
         self._vmd_state = {"rep_pos": 1, "rep_neg": 2, "molid": 0}
+        # 多轨道相位翻转状态：{轨道标签: 是否已翻转}（volset i ↔ rep 2i+1/2i+2）
+        self._vmd_orbital_flips = {}
         self.opacity_step = 0.05
         # ── 虚线绘制共享参数（弹窗控件 → VMD 绘制） ──
         self._dash_params = {
@@ -424,17 +440,34 @@ class OrbitalVisApp(QMainWindow):
         main_layout.setContentsMargins(12, 8, 12, 10)
         main_layout.setSpacing(6)
 
-        # ── 主体：左栏(画布+参数设置) | 右栏(设置面板+运行日志) ──
+        # ── 输入文件行：全宽、置顶（所有 tab 共用） ──
+        main_layout.addWidget(self._build_input_panel())
+
+        # ── 主体：左栏(画布) | 右栏(tab 区) ──
         body = QWidget()
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(4)
+        body_layout.setSpacing(0)
 
-        # 主水平分割：左栏 | 右栏
+        # 主水平分割：功能导航条（画布左侧） | 左栏画布 | 右栏 tabs 内容
+        # 导航条与右栏参数区都用白色圆角卡片包裹（浅灰窗口底上更自然）
         main_splitter = QSplitter(Qt.Horizontal)
-        main_splitter.setStretchFactor(0, 1)
+        main_splitter.setChildrenCollapsible(False)
+        self.main_nav = QListWidget()
+        self.main_nav.setObjectName("MainNav")
+        self.main_nav.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.main_nav.setCurrentRow(0)
+        nav_card = QFrame()
+        nav_card.setObjectName("NavCard")
+        nav_card.setFixedWidth(122)
+        nav_l = QVBoxLayout(nav_card)
+        nav_l.setContentsMargins(0, 6, 0, 6)
+        nav_l.addWidget(self.main_nav)
+        main_splitter.addWidget(nav_card)
+        main_splitter.setStretchFactor(0, 0)
         main_splitter.setStretchFactor(1, 1)
-        main_splitter.setSizes([620, 620])
+        main_splitter.setStretchFactor(2, 1)
+        main_splitter.setSizes([122, 620, 620])
         self._body_splitter = main_splitter
 
         # ===== 左栏：输入文件行 + 画布（参数设置在画布下方） =====
@@ -446,12 +479,10 @@ class OrbitalVisApp(QMainWindow):
         # 创建 MolCanvas 实例但不加到主窗口布局中（由弹窗复用）
         self.mol_canvas = MolCanvas(None)
 
-        # ── 可视化画布（圆角卡片 + 标题） ──
-        # 内嵌 OpenGL 轨道画布（cub_canvas.CubCanvasPanel）
-        # 画布参数区（等值面/球棍模型）已移到右侧；画布下方放运行日志
-        self.grp_canvas = SciFiGroupBox("")
+        # ── 可视化画布（纯容器，无边框/标题，保证与右侧 tabs 上下对齐） ──
+        self.grp_canvas = QWidget()
         cv = QVBoxLayout(self.grp_canvas)
-        cv.setContentsMargins(2, 2, 2, 2)
+        cv.setContentsMargins(0, 0, 0, 0)
         cv.setSpacing(0)
 
         self.cub_canvas = None
@@ -467,20 +498,35 @@ class OrbitalVisApp(QMainWindow):
                 print(f"[cub_canvas] 初始化失败: {e}")
 
         if self.cub_canvas is None:
-            _tip = QLabel("OpenGL 画布不可用\n请安装: pip install PyOpenGL PyOpenGL-accelerate")
+            _tip = QLabel(self._tr("msg_gl_install_hint"))
             _tip.setAlignment(Qt.AlignCenter)
             _tip.setStyleSheet("color:#94A3B8; background:#F5F6FA; font-size:10pt;")
             cv.addWidget(_tip, stretch=1)
 
         left_layout.addWidget(self.grp_canvas, stretch=1)
 
-        # ── 画布参数区（等值面 + 球棍模型两组）移到右侧；
-        #    画布下方让位给运行日志（见右栏/日志构建处） ──
+        # ── 画布参数区（显示/等值面 + 球棍模型）→ 移入「可视化控制」tab ──
+        # ── 一键样式 + 分子显示卡片 → 保留在画布内部（圆角矩形卡片） ──
+        # 注意：_style_wrap 仍由画布自身的 root 布局承载，不再抽离到窗口底部。
         self.canvas_params = None
+        self._style_wrap = None
         if self.cub_canvas is not None:
             try:
                 self.canvas_params = self.cub_canvas._params
                 self.canvas_params.setParent(None)
+                self._style_wrap = getattr(self.cub_canvas, "_style_wrap", None)
+                # 「同步到VMD」按钮注入主窗口回调（按钮本身在画布一键样式卡片内）
+                try:
+                    self.cub_canvas.on_sync_vmd = self._open_vmd_console
+                    self.btn_sync_vmd = getattr(
+                        self.cub_canvas, "_sync_vmd_btn", None)
+                except Exception:
+                    self.btn_sync_vmd = None
+                # 「清空样式」按钮注入主窗口回调（联动各分析面板）
+                try:
+                    self.cub_canvas.on_clear_analysis = self._clear_analysis
+                except Exception:
+                    pass
                 # 画布工具栏（仅剩“参数 ▴”开关）一并隐藏；
                 # 仅隐藏真正的工具栏，避免 GL 不可用时误藏“未安装 PyOpenGL”提示
                 _bar = self.cub_canvas.layout().itemAt(0).widget()
@@ -488,19 +534,64 @@ class OrbitalVisApp(QMainWindow):
                     _bar.hide()
             except Exception:
                 self.canvas_params = None
+                self._style_wrap = None
+                self.btn_sync_vmd = None
 
-        # ===== 右栏：输入行(上) + tab 区 + 画布参数区(下) =====
+        # ── VMD 控制台（渲染参数/操作/辅助行）→ 移入「可视化控制」tab ──
+        # 复用 SciFiGroupBox，使其外观与「渲染参数 / 操作」分组框一致
+        # （蓝底白字标题条，压在圆角矩形顶边上）
+        self._vmd_content = SciFiGroupBox(self._tr("vmd_console_title"))
+        self._vmd_content.setObjectName("VmdConsoleBox")
+        vc = QVBoxLayout(self._vmd_content)
+        vc.setContentsMargins(12, 6, 12, 10)
+        vc.setSpacing(10)
+        vc.addWidget(self._build_render_params_panel())
+        # 实时调节滑杆与内嵌画布参数区重复：控件仍构建（供 _apply_lang_ui
+        # 等引用），但保持隐藏
+        vc.addWidget(self._build_live_panel())
+        self.grp_live.hide()
+        vc.addWidget(self._build_buttons_panel())
+        # AIM 期刊级出图（原 AIM tab 的 VMD 渲染区，整合到 VMD 控制台）
+        vc.addWidget(self._build_aim_vmd_panel())
+        # 注：δg等值面/不透明度/极值点半径/数值/色标条 已并入操作按钮区
+        #（_build_buttons_panel 内部第二行），不再单独追加在底部。
+        # 不加入 left_layout；稍后与参数区一起放进「可视化控制」tab
+
+        # ===== 右栏：tab 区（输入行已移到窗口顶部通栏） =====
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(4)
-
-        # ── 输入文件行（右侧控制面板顶部，所有 tab 共用） ──
-        right_layout.addWidget(self._build_input_panel())
+        right_layout.setSpacing(0)
 
         scroll_right = QScrollArea()
         scroll_right.setWidgetResizable(True)
-        self.tabs = QTabWidget()
+        scroll_right.setFrameShape(QFrame.NoFrame)
+        scroll_right.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_right.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.tabs = QStackedWidget()
+        # 右侧功能页容器：导航条在画布左侧（self.main_nav，QListWidget），
+        # 文字横排、宽度充足；选中联动由 _setup_main_nav / _sync_main_nav 维护
+        self.tabs.setObjectName("MainStack")
+
+        # ── 可视化控制 tab（第一个，始终可点）：显示/等值面 + 球棍模型 ──
+        self._viz_tab = QWidget()
+        viz_l = QVBoxLayout(self._viz_tab)
+        viz_l.setContentsMargins(6, 6, 6, 6)
+        viz_l.setSpacing(6)
+        # 「同步到VMD」入口已移到左侧画布下方一键样式卡片（见画布初始化处）
+        self.btn_sync_vmd = None
+        if self.canvas_params is not None:
+            viz_l.addWidget(self.canvas_params)
+        viz_l.addStretch(1)
+        self.tabs.addWidget(self._viz_tab)
+        self._viz_tab.setEnabled(True)
+        # 参数区两个折叠组默认展开（不再隐藏）
+        if self.cub_canvas is not None:
+            try:
+                self.cub_canvas._btn_toggle_iso.setChecked(True)
+                self.cub_canvas._btn_toggle_ball.setChecked(True)
+            except Exception:
+                pass
 
         tab_setup = QWidget()
         tab_setup_layout = QVBoxLayout(tab_setup)
@@ -526,29 +617,22 @@ class OrbitalVisApp(QMainWindow):
             QTabBar::tab:disabled { background:#1565C0; color:white; border:1px solid #0D47A1; border-bottom:none; }
         """)
         tab_setup_layout.addWidget(self.orbital_tabs, 1)
-        self.tabs.addTab(tab_setup, "")
+        self.tabs.addWidget(tab_setup)
 
-        tab_style = QWidget()
-        tab_style_layout = QVBoxLayout(tab_style)
-        tab_style_layout.setContentsMargins(4, 4, 4, 4)
-        tab_style_layout.setSpacing(6)
-        tab_style_layout.addWidget(self._build_render_params_panel())
-        tab_style_layout.addWidget(self._build_live_panel())
-        tab_style_layout.addWidget(self._build_buttons_panel())
-        tab_style_layout.addStretch()
-        self.tabs.addTab(tab_style, "")
+        # （原「VMD 渲染」tab 已取消：渲染参数/动作按钮搬到左侧画布下方，
+        #   见 _build_left_vmd_area；tab 索引顺移，_set_tab_texts 已同步）
 
-        # （原「路径设置」tab 已改为输入栏的 ⚙️ 按钮，见 _build_input_panel）
-
-        # ── 电荷分析 Tab（整合自 ChargeViewer，可视化复用左侧 OpenGL 画布） ──
-        self.charge_panel = None
-        self.bond_order_panel = None
+        # ── 电荷 + 键级 合并 Tab（包裹 ChargePanel 与 BondOrderPanel，
+        #    纵向组合到同一页签，共用左侧 OpenGL 画布） ──
+        self.charge_panel = None        # 仍为组合面板实例
+        self.bond_order_panel = None    # 兼容属性：指向组合面板
         self.nbo_panel = None
         # Multiwfn 路径只在此统一提供（⚙️ 路径设置 → fchk_orbital.ini → self.paths）
         _get_mw = lambda: self.paths.get("multiwfn", "") or ""
         if _HAS_CHARGE_VIEWER:
             glw = self.cub_canvas.glw if self.cub_canvas is not None else None
-            self.charge_panel = ChargePanel(
+            from charge_bond_panel import ChargeBondPanel
+            self.charge_panel = ChargeBondPanel(
                 glw=glw,
                 multiwfn_path=self.paths.get("multiwfn", ""),
                 get_fchk=lambda: getattr(self, "_current_fchk", "") or "",
@@ -556,18 +640,8 @@ class OrbitalVisApp(QMainWindow):
                 log_func=self._append_log,
                 parent=self,
             )
-            self.tabs.addTab(self.charge_panel, "")
-
-            # ── Mayer 键级 Tab（整合自 ChargeViewer 的 Bond Order 功能） ──
-            self.bond_order_panel = BondOrderPanel(
-                glw=glw,
-                multiwfn_path=self.paths.get("multiwfn", ""),
-                get_fchk=lambda: getattr(self, "_current_fchk", "") or "",
-                get_multiwfn=_get_mw,
-                log_func=self._append_log,
-                parent=self,
-            )
-            self.tabs.addTab(self.bond_order_panel, "")
+            self.bond_order_panel = self.charge_panel
+            self.tabs.addWidget(self.charge_panel)
 
         # ── NBO 分析 Tab（整合自 NBOViewer） ──
         if _HAS_NBO_VIEWER:
@@ -581,7 +655,7 @@ class OrbitalVisApp(QMainWindow):
                 log_func=self._append_log,
                 parent=self,
             )
-            self.tabs.addTab(self.nbo_panel, "")
+            self.tabs.addWidget(self.nbo_panel)
 
         # ── ESP 表面 Tab（整合自 ESPViewer，第一步：ISO 模式） ──
         self.esp_panel = None
@@ -593,8 +667,9 @@ class OrbitalVisApp(QMainWindow):
                 get_fchk=lambda: getattr(self, "_current_fchk", "") or "",
                 get_multiwfn=_get_mw,
                 parent=self,
+                on_vmd_refresh=self._push_canvas_to_vmd_if_running,
             )
-            self.tabs.addTab(self.esp_panel, "")
+            self.tabs.addWidget(self.esp_panel)
 
         # ── IGMH/IRI 分析 Tab（整合自 IGMH_Toolbox V4） ──
         self.igmh_panel = None
@@ -610,26 +685,89 @@ class OrbitalVisApp(QMainWindow):
                 iso_slider=(getattr(self.cub_canvas, "_iso_sld", None)
                             if self.cub_canvas is not None else None),
             )
-            self.tabs.addTab(self.igmh_panel, "")
+            self.tabs.addWidget(self.igmh_panel)
+            # IGMH 面板 → VMD 控制区 双向同步（δg 等值面 / 不透明度）
+            try:
+                self.igmh_panel.sld_iso.valueChanged.connect(
+                    self._igmh_iso_to_vmd_area)
+                self.igmh_panel.sld_op.valueChanged.connect(
+                    self._igmh_op_to_vmd_area)
+            except Exception:
+                pass
+
+        # ── AIM 拓扑分析 tab（第七个）──
+        self.aim_panel = None
+        if _HAS_AIM_PANEL:
+            glw = self.cub_canvas.glw if self.cub_canvas is not None else None
+            try:
+                self.aim_panel = AIMPanel(
+                    glw=glw,
+                    multiwfn_path=self.paths.get("multiwfn", ""),
+                    get_fchk=lambda: getattr(self, "_current_fchk", "") or "",
+                    get_multiwfn=_get_mw,
+                    get_vmd=lambda: self.paths.get("vmd", "") or "",
+                    get_tachyon=lambda: self.paths.get("tachyon", "") or "",
+                    log_func=self._append_log,
+                    parent=self,
+                )
+                self.tabs.addWidget(self.aim_panel)
+            except Exception:
+                self.aim_panel = None
+
+        # ── ETS-NOCV 分析 tab（第八个）──
+        self.etsnocv_panel = None
+        if _HAS_ETSNOCV_PANEL:
+            glw = self.cub_canvas.glw if self.cub_canvas is not None else None
+            try:
+                self.etsnocv_panel = ETSNOCVPanel(
+                    glw=glw,
+                    multiwfn_path=self.paths.get("multiwfn", ""),
+                    get_fchk=lambda: getattr(self, "_current_fchk", "") or "",
+                    get_multiwfn=_get_mw,
+                    get_vmd=lambda: self.paths.get("vmd", "") or "",
+                    get_tachyon=lambda: self.paths.get("tachyon", "") or "",
+                    log_func=self._append_log,
+                    parent=self,
+                )
+                self.tabs.addWidget(self.etsnocv_panel)
+            except Exception:
+                self.etsnocv_panel = None
+
+        # ── MPP 分子平面性参数分析 tab ──
+        self.mpp_panel = None
+        if _HAS_MPP_PANEL:
+            glw = self.cub_canvas.glw if self.cub_canvas is not None else None
+            try:
+                self.mpp_panel = MPPPanel(
+                    glw=glw,
+                    multiwfn_path=self.paths.get("multiwfn", ""),
+                    get_fchk=lambda: getattr(self, "_current_fchk", "") or "",
+                    get_multiwfn=_get_mw,
+                    on_sync_vmd=self._open_vmd_console,
+                    on_vmd_refresh=self._push_canvas_to_vmd_if_running,
+                    on_set_mol_style=(self.cub_canvas.set_mol_style_name
+                                      if self.cub_canvas is not None else None),
+                    log_func=self._append_log,
+                    parent=self,
+                )
+                self.tabs.addWidget(self.mpp_panel)
+            except Exception:
+                self.mpp_panel = None
 
         scroll_right.setWidget(self.tabs)
-        right_layout.addWidget(scroll_right, stretch=1)
+        # 参数设置区用白色圆角卡片整体包裹
+        right_card = QFrame()
+        right_card.setObjectName("RightCard")
+        rc_l = QVBoxLayout(right_card)
+        rc_l.setContentsMargins(0, 0, 0, 0)
+        rc_l.addWidget(scroll_right)
+        right_layout.addWidget(right_card, stretch=1)
 
-        # ── 画布参数区（等值面 + 球棍模型两组）→ 右侧、tab 下方 ──
-        if self.canvas_params is not None:
-            right_layout.addWidget(self.canvas_params)
-
-        # ── 运行日志（画布下方，与画布参数区互换位置） ──
-        self.grp_log = SciFiGroupBox("")
-        log_layout = QVBoxLayout(self.grp_log)
-        log_layout.setContentsMargins(4, 8, 4, 4)
-        log_layout.setSpacing(2)
+        # ── 运行日志（独立 tab，各分析面板的日志统一汇总到这里） ──
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
         self.log_text.setUndoRedoEnabled(False)
         self.log_text.setLineWrapMode(QTextEdit.WidgetWidth)
-        self.log_text.setMinimumHeight(60)
-        self.log_text.setMaximumHeight(220)
         self.log_text.setStyleSheet("""
             QTextEdit{
                 border:none;
@@ -639,8 +777,7 @@ class OrbitalVisApp(QMainWindow):
                 font-size:16px;
             }
         """)
-        log_layout.addWidget(self.log_text)
-        left_layout.addWidget(self.grp_log)
+        self.tabs.addWidget(self.log_text)
 
         main_splitter.addWidget(left_widget)
         main_splitter.addWidget(right_widget)
@@ -653,49 +790,19 @@ class OrbitalVisApp(QMainWindow):
         self.progress_label.hide()
         main_layout.addWidget(self.progress_label)
 
-        # ESP tab 激活时隐藏右侧下方的画布参数区（等值面/球棍模型）
-        # —— ESP tab 自带完整的显示设置与画布控制，不再需要共用参数区
-        self.tabs.currentChanged.connect(self._on_tab_params_visible)
-        self._on_tab_params_visible(self.tabs.currentIndex())
-
         # VMD 相关功能已停用：可视化全部走左侧 OpenGL 画布
         self._hide_vmd_features()
 
-    def _on_tab_params_visible(self, index):
-        """按当前 tab 切换右侧画布参数区（等值面+球棍模型）显隐。"""
-        if self.canvas_params is None:
-            return
-        is_esp = (self.tabs.widget(index) is getattr(self, "esp_panel", None))
-        self.canvas_params.setVisible(not is_esp)
-
     def _hide_vmd_features(self):
-        """隐藏 VMD 相关 UI（渲染/相位/氢过滤/虚线/双预览/同步 VMD/实时滑杆等）。
+        """VMD 显示辅助开关（1.1 布局）。
 
-        代码全部保留，仅界面隐藏；轨道双击、ESP/IGMH/NBO 等已全部走内置画布。
-        样式下拉框保留（内置画布的球棍/表面风格跟随它）。
+        1.1 起「VMD 渲染」tab 取消，渲染参数/动作按钮已搬到左侧画布下方
+        （VMD 控制台，▾/▸ 折叠）；这里负责隐藏与内嵌画布实时预览重复的
+        实时调节滑杆组。
         """
-        # 样式 tab：隐藏 VMD 渲染参数（相位色 / 分辨率 / 阴影 / 透明渲染 / 线程数）
-        for name in ("btn_pos_color", "btn_neg_color",
-                     "lbl_pos_phase", "lbl_neg_phase",
-                     "lbl_render_res", "var_res",
-                     "lbl_render_shading", "rb_shadow", "rb_noshadow",
-                     "lbl_trans_raster", "var_trans_raster",
-                     "lbl_render_threads", "var_threads"):
-            w = getattr(self, name, None)
-            if w is not None:
-                w.hide()
-        # 实时调节（VMD 等值面/不透明度滑杆）
+        # 实时调节（VMD 等值面/不透明度滑杆）与内嵌画布参数区重复，保持隐藏
         if getattr(self, "grp_live", None) is not None:
             self.grp_live.hide()
-        # 动作按钮组（渲染出图 / 翻转相位 / 氢过滤 / 虚线 / 双预览 / 同步 VMD / H 索引）
-        if getattr(self, "grp_actions", None) is not None:
-            self.grp_actions.hide()
-        # 「样式」tab（原 VMD 操作区所在 tab）整体隐藏
-        # （内置画布沿用默认样式；索引 1 保留占位，其他 tab 索引不受影响）
-        try:
-            self.tabs.setTabVisible(1, False)
-        except Exception:
-            pass
 
     def _build_input_panel(self):
         self.grp_input = SciFiGroupBox("")
@@ -725,8 +832,9 @@ class OrbitalVisApp(QMainWindow):
         self._lang_btn.clicked.connect(self._switch_lang)
         layout.addWidget(self._lang_btn)
 
-        self.btn_paths = QPushButton("⚙️")
+        self.btn_paths = QPushButton(self._tr("btn_paths"))
         self.btn_paths.setObjectName("SmallBtn")
+        self.btn_paths.setMinimumWidth(150)
         self.btn_paths.setCursor(Qt.PointingHandCursor)
         self.btn_paths.setToolTip(self._tr("tab_paths"))
         self.btn_paths.clicked.connect(self._open_paths_dialog)
@@ -785,14 +893,17 @@ class OrbitalVisApp(QMainWindow):
 
         # 风格下拉框（占满可用宽度）
         self.lbl_render_style = QLabel("")
-        self.var_style = _PopupLimitedComboBox(max_popup_height=210, max_visible_items=6)
+        self.var_style = _PopupLimitedComboBox(
+            max_popup_height=210, max_visible_items=6, scroll_bar_always_on=True)
         self.var_style.setIconSize(QtCore.QSize(30, 13))
         self.var_style.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.var_style.setMaximumWidth(480)
         for name in backend.STYLES:
             icon = self._make_style_icon(backend.STYLES[name])
             self.var_style.addItem(icon, f"  {name}")
-        self.var_style.setCurrentIndex(0)
+        # 默认样式 = sob-art（STYLES 第一个键不是 sob-art，需显式定位）
+        _idx = self.var_style.findText("  sob-art")
+        self.var_style.setCurrentIndex(_idx if _idx >= 0 else 0)
         self.var_style.currentTextChanged.connect(self._on_style_changed)
 
         # 正相位颜色按钮
@@ -888,85 +999,151 @@ class OrbitalVisApp(QMainWindow):
         return self.grp_render
 
     def _build_buttons_panel(self):
+        """VMD 控制台操作按钮：单行（渲染出图/翻转相位/隐藏氢/虚线模式/预览/同步到VMD/保留编号）。"""
         self.grp_actions = SciFiGroupBox("")
         layout = QVBoxLayout(self.grp_actions)
         layout.setSpacing(6)
         layout.setContentsMargins(6, 6, 6, 6)
 
-        # 行 1：渲染 / 相位 / 氢过滤 / 虚线
-        row1 = QHBoxLayout()
-        row1.setSpacing(8)
+        row = QHBoxLayout()
+        row.setSpacing(6)
 
         self.btn_run = QPushButton("")
-        self.btn_run.setObjectName("ActionBtn")
+        self.btn_run.setObjectName("ActionBtnSmall")
         self.btn_run.clicked.connect(self._run_cubes)
         self.btn_run.hide()
-        row1.addWidget(self.btn_run)
+        row.addWidget(self.btn_run)
 
         self.btn_preview = QPushButton("")
-        self.btn_preview.setObjectName("ActionBtn")
+        self.btn_preview.setObjectName("ActionBtnSmall")
         self.btn_preview.setEnabled(False)
         self.btn_preview.clicked.connect(self._preview)
         self.btn_preview.hide()
-        row1.addWidget(self.btn_preview)
+        row.addWidget(self.btn_preview)
 
         self.btn_render = QPushButton("")
-        self.btn_render.setObjectName("ActionBtn")
+        self.btn_render.setObjectName("ActionBtnSmall")
         self.btn_render.setEnabled(False)
         self.btn_render.clicked.connect(self._render_view)
-        row1.addWidget(self.btn_render)
+        row.addWidget(self.btn_render)
 
         self.btn_flip_phase = QPushButton("")
-        self.btn_flip_phase.setObjectName("ActionBtn")
+        self.btn_flip_phase.setObjectName("ActionBtnSmall")
         self.btn_flip_phase.setEnabled(False)
         self.btn_flip_phase.clicked.connect(self._on_flip_phase)
-        row1.addWidget(self.btn_flip_phase)
+        row.addWidget(self.btn_flip_phase)
 
         self.btn_h_filter = QPushButton("")
-        self.btn_h_filter.setObjectName("ActionBtn")
+        self.btn_h_filter.setObjectName("ActionBtnSmall")
         self.btn_h_filter.setEnabled(False)
         self.btn_h_filter.clicked.connect(self._toggle_h_filter)
-        row1.addWidget(self.btn_h_filter)
+        row.addWidget(self.btn_h_filter)
 
         self.btn_dash_mode = QPushButton("")
-        self.btn_dash_mode.setObjectName("ActionBtn")
+        self.btn_dash_mode.setObjectName("ActionBtnSmall")
         self.btn_dash_mode.setEnabled(False)
         self.btn_dash_mode.clicked.connect(self._open_dash_bond_dialog)
-        row1.addWidget(self.btn_dash_mode)
-        row1.addStretch()
-        layout.addLayout(row1)
-
-        # 行 2：双预览 / 同步 VMD / H 保留索引
-        row2 = QHBoxLayout()
-        row2.setSpacing(8)
+        row.addWidget(self.btn_dash_mode)
 
         self.btn_preview_both = QPushButton(self._tr("btn_preview_both"))
-        self.btn_preview_both.setObjectName("ActionBtn")
-        self.btn_preview_both.setFixedHeight(48)
+        self.btn_preview_both.setObjectName("ActionBtnSmall")
         self.btn_preview_both.setCursor(Qt.PointingHandCursor)
         self.btn_preview_both.setToolTip(self._tr("btn_preview_both"))
         self.btn_preview_both.clicked.connect(self._preview_both_selected)
-        row2.addWidget(self.btn_preview_both)
+        row.addWidget(self.btn_preview_both)
 
-        # 一键同步：把左侧画布当前场景（分子+等值面+配色+极值点）送进 VMD
-        self.btn_sync_vmd = QPushButton(self._tr("btn_sync_vmd"))
-        self.btn_sync_vmd.setObjectName("ActionBtn")
-        self.btn_sync_vmd.setFixedHeight(48)
-        self.btn_sync_vmd.setCursor(Qt.PointingHandCursor)
-        self.btn_sync_vmd.setToolTip(self._tr("btn_sync_vmd_tip"))
-        self.btn_sync_vmd.clicked.connect(self._sync_canvas_to_vmd)
-        row2.addWidget(self.btn_sync_vmd)
+        # 注：btn_sync_vmd 已作为「同步到VMD」入口移到 tab0（点击弹出嵌入窗口）
 
         self.lbl_h_keep = QLabel("")
-        row2.addWidget(self.lbl_h_keep)
+        self.lbl_h_keep.setToolTip("逗号分隔的 H 原子编号（如 1,3,5-8），留空 = 全部隐藏")
+        row.addWidget(self.lbl_h_keep)
         self.var_h_indices = QLineEdit()
-        self.var_h_indices.setMaximumWidth(160)
+        self.var_h_indices.setMaximumWidth(80)
+        self.var_h_indices.setToolTip("逗号分隔的 H 原子编号（如 1,3,5-8），留空 = 全部隐藏")
         self.var_h_indices.setPlaceholderText("")
-        row2.addWidget(self.var_h_indices)
-        row2.addStretch()
-        layout.addLayout(row2)
+        row.addWidget(self.var_h_indices)
+        row.addStretch()
+        layout.addLayout(row)
+
+        # ── 实时调节（δg等值面 / 不透明度 / 极值点半径 / 数值 / 色标条）──
+        # 并入操作按钮区第二行，滑块拉长并与上方控件对齐
+        layout.addLayout(self._build_vmd_extras())
 
         return self.grp_actions
+
+    def _push_canvas_to_vmd_if_running(self):
+        """VMD 已连接时把更新后的画布场景（ESP/MPP 等）推送到 VMD；未运行则不启动。"""
+        try:
+            sess = getattr(self, "_vmd_session", None)
+            if sess is not None and sess.is_connected():
+                self._sync_canvas_to_vmd()
+        except Exception:
+            pass
+
+    def _build_aim_vmd_panel(self):
+        """AIM 期刊级出图控制区（从 AIM tab 整合到 VMD 控制台）。
+
+        仅 AIM 面板可用时启用；按钮点击后委托给 self.aim_panel 的 AIM 渲染逻辑。
+        """
+        self.grp_aim_vmd = SciFiGroupBox(self._tr("aim_vmd_grp"))
+        self.grp_aim_vmd.setObjectName("AimVmdBox")
+        grp = self.grp_aim_vmd
+        lay = QVBoxLayout(grp)
+        lay.setContentsMargins(12, 6, 12, 10)
+        lay.setSpacing(6)
+
+        row = QHBoxLayout()
+        self.lbl_aim_vmd_style = QLabel(self._tr("aim_vmd_style"))
+        row.addWidget(self.lbl_aim_vmd_style)
+        self.combo_aim_vmd_style = QComboBox()
+        try:
+            from aim_visualize import STYLES as _AIM_STYLES
+        except Exception:
+            _AIM_STYLES = ["sob-art"]
+        for k in _AIM_STYLES:
+            self.combo_aim_vmd_style.addItem(k)
+        if self.combo_aim_vmd_style.count():
+            self.combo_aim_vmd_style.setCurrentText("sob-art")
+        row.addWidget(self.combo_aim_vmd_style, 1)
+        lay.addLayout(row)
+
+        self.lbl_aim_vmd_hint = QLabel(self._tr("aim_vmd_hint"))
+        self.lbl_aim_vmd_hint.setStyleSheet("color:#8899AA; font-size:9pt;")
+        lay.addWidget(self.lbl_aim_vmd_hint)
+
+        btn_row = QHBoxLayout()
+        self.btn_aim_vmd_preview = QPushButton(self._tr("aim_vmd_preview"))
+        self.btn_aim_vmd_preview.setCursor(Qt.PointingHandCursor)
+        self.btn_aim_vmd_preview.clicked.connect(self._aim_vmd_preview)
+        btn_row.addWidget(self.btn_aim_vmd_preview)
+        self.btn_aim_vmd_render = QPushButton(self._tr("aim_vmd_render"))
+        self.btn_aim_vmd_render.setCursor(Qt.PointingHandCursor)
+        self.btn_aim_vmd_render.clicked.connect(self._aim_vmd_render)
+        btn_row.addWidget(self.btn_aim_vmd_render)
+        lay.addLayout(btn_row)
+
+        # 与 VMD 控制台上方的「预览 / 渲染出图」功能类似，默认隐藏。
+        # 控件仍构建（供 _apply_lang_ui 等引用），需要恢复时删除下面这行即可。
+        grp.hide()
+        return grp
+
+    def _aim_vmd_preview(self):
+        """VMD 控制台里的「在 VMD 中预览」（AIM 场景）。"""
+        if not getattr(self, "aim_panel", None):
+            QMessageBox.warning(self, self._tr("msg_title_hint"),
+                                self._tr("msg_aim_unavailable"))
+            return
+        style = self.combo_aim_vmd_style.currentText()
+        self.aim_panel._vmd_preview(style=style)
+
+    def _aim_vmd_render(self):
+        """VMD 控制台里的「渲染当前视角为 PNG」（AIM 场景）。"""
+        if not getattr(self, "aim_panel", None):
+            QMessageBox.warning(self, self._tr("msg_title_hint"),
+                                self._tr("msg_aim_unavailable"))
+            return
+        style = self.combo_aim_vmd_style.currentText()
+        self.aim_panel._vmd_render(style=style)
 
     def _build_live_panel(self):
         self.grp_live = QWidget()
@@ -1011,6 +1188,197 @@ class OrbitalVisApp(QMainWindow):
         layout.setColumnStretch(1, 1)
         layout.setColumnStretch(4, 1)
         return self.grp_live
+
+    def _build_vmd_extras(self):
+        """VMD 实时调节区（并入操作按钮区）：等值面 / δg等值面 / 不透明度 /
+        极值点半径 / 数值标签 / 色标条。每个滑块各占一行，标签/滑块/数值
+        按列对齐，滑块拉长。
+
+        对齐 ESPViewer2 与 IGMH-V4：δg 等值面与不透明度滑块实时控制 VMD
+        （IGMH 场景），默认 0.004 / 0.75，并与 IGMH tab 双向同步。
+        """
+        lay = QGridLayout()
+        lay.setSpacing(6)
+        lay.setColumnStretch(1, 1)   # 滑块列拉伸
+
+        # ── 等值面（轨道/等值面通用，默认 0.05，实时改 Isosurface） ──
+        self.vmd_iso_main_sld = QSlider(Qt.Horizontal)
+        self.vmd_iso_main_sld.setRange(1, 500)        # iso = 值/1000（0.001..0.5）
+        self.vmd_iso_main_sld.setValue(50)            # 默认 0.050
+        self.vmd_iso_main_sld.setToolTip("实时调节轨道/等值面大小（isovalue），立即生效")
+        self.vmd_iso_main_lbl = QLabel("0.050")
+        self.vmd_iso_main_lbl.setMinimumWidth(52)
+        self.vmd_iso_main_sld.valueChanged.connect(self._on_vmd_iso_main)
+        self.vmd_iso_main_cap = QLabel(self._tr("lbl_isovalue"))
+        lay.addWidget(self.vmd_iso_main_cap, 0, 0)
+        lay.addWidget(self.vmd_iso_main_sld, 0, 1)
+        lay.addWidget(self.vmd_iso_main_lbl, 0, 2)
+
+        # ── δg 等值面（IGMH 场景，默认 0.004，对齐 IGMH-V4） ──
+        self.vmd_iso_sld = QSlider(Qt.Horizontal)
+        self.vmd_iso_sld.setRange(1, 2000)           # iso = 值/1000（0.001..2.0）
+        self.vmd_iso_sld.setValue(4)                 # 默认 0.004
+        self.vmd_iso_sld.setToolTip("VMD 中 δg 等值面大小（a.u.），实时生效，与 IGMH 面板同步")
+        self.vmd_iso_lbl = QLabel("0.004")
+        self.vmd_iso_lbl.setMinimumWidth(52)
+        self.vmd_iso_sld.valueChanged.connect(self._on_vmd_iso)
+        self.vmd_dg_cap = QLabel(self._tr("lbl_dg_iso"))
+        lay.addWidget(self.vmd_dg_cap, 1, 0)
+        lay.addWidget(self.vmd_iso_sld, 1, 1)
+        lay.addWidget(self.vmd_iso_lbl, 1, 2)
+
+        # ── 不透明度（IGMH 场景，默认 0.75，对齐 IGMH-V4） ──
+        self.vmd_op_sld = QSlider(Qt.Horizontal)
+        self.vmd_op_sld.setRange(5, 100)             # 不透明度 %
+        self.vmd_op_sld.setValue(75)                 # 默认 0.75
+        self.vmd_op_sld.setToolTip("VMD 中等值面不透明度（%），实时生效，与 IGMH 面板同步")
+        self.vmd_op_lbl = QLabel("0.75")
+        self.vmd_op_lbl.setMinimumWidth(52)
+        self.vmd_op_sld.valueChanged.connect(self._on_vmd_op)
+        self.vmd_op_cap = QLabel(self._tr("lbl_opacity"))
+        lay.addWidget(self.vmd_op_cap, 2, 0)
+        lay.addWidget(self.vmd_op_sld, 2, 1)
+        lay.addWidget(self.vmd_op_lbl, 2, 2)
+
+        # ── 极值点半径（ESP 场景，默认 0.25 Å） ──
+        self.vmd_ext_radius_sld = QSlider(Qt.Horizontal)
+        self.vmd_ext_radius_sld.setRange(5, 100)      # 0.05 .. 1.00 Å
+        self.vmd_ext_radius_sld.setValue(25)          # 默认 0.25
+        self.vmd_ext_radius_sld.setToolTip("VMD 中极值点球半径（Å），实时生效")
+        self.vmd_ext_radius_lbl = QLabel("0.25")
+        self.vmd_ext_radius_lbl.setMinimumWidth(52)
+        self.vmd_ext_radius_sld.valueChanged.connect(self._on_vmd_ext_radius)
+        self.vmd_ext_cap = QLabel(self._tr("lbl_ext_radius"))
+        lay.addWidget(self.vmd_ext_cap, 3, 0)
+        lay.addWidget(self.vmd_ext_radius_sld, 3, 1)
+        lay.addWidget(self.vmd_ext_radius_lbl, 3, 2)
+
+        # ── 复选框行（极值点数值 / 色标条） ──
+        chk_row = QHBoxLayout()
+        chk_row.setSpacing(12)
+        self.vmd_ext_labels_chk = QCheckBox(self._tr("chk_ext_values"))
+        self.vmd_ext_labels_chk.setToolTip("在 VMD 中显示极值点数值（graphics text），实时生效")
+        self.vmd_ext_labels_chk.toggled.connect(self._on_vmd_ext_labels)
+        chk_row.addWidget(self.vmd_ext_labels_chk)
+        self.vmd_colorbar_chk = QCheckBox(self._tr("chk_colorbar"))
+        self.vmd_colorbar_chk.setToolTip("在 VMD 中叠加 ColorScaleBar 色标条（ESP/IGMH 表面），实时生效")
+        self.vmd_colorbar_chk.toggled.connect(self._on_vmd_colorbar)
+        chk_row.addWidget(self.vmd_colorbar_chk)
+        chk_row.addStretch()
+        lay.addLayout(chk_row, 4, 0, 1, 3)
+
+        return lay
+
+    # ── VMD 实时控制（socket 下发 Tcl，无需重新同步） ──
+
+    def _on_vmd_iso_main(self, v):
+        """VMD 等值面滑块：实时修改轨道等值面大小（isovalue）。"""
+        iso = v / 1000.0
+        self.vmd_iso_main_lbl.setText(f"{iso:.3f}")
+        if not self.vmd_port:
+            return
+        # 同步隐藏的 grp_live iso_slider/iso_edit 状态，保持界面一致
+        self.current_iso = iso
+        if hasattr(self, "iso_edit"):
+            self.iso_edit.blockSignals(True)
+            self.iso_edit.setText(f"{iso:.3f}")
+            self.iso_edit.blockSignals(False)
+        if hasattr(self, "iso_slider"):
+            self.iso_slider.blockSignals(True)
+            self.iso_slider.setValue(v)
+            self.iso_slider.blockSignals(False)
+        self._vmd_session.set_isovalue(iso)
+
+    def _on_vmd_iso(self, v):
+        """VMD δg 等值面滑块：改 IGMH 等值面 iso + 同步 IGMH 面板。"""
+        iso = v / 1000.0
+        self.vmd_iso_lbl.setText(f"{iso:.3f}")
+        if self.vmd_port:
+            # IGMH 场景 rep 1 = Isosurface（参考实现：Isosurface iso 1 0 0 1 1）
+            self._send_vmd_cmd(f"mol modstyle 1 top Isosurface {iso:.4f} 1 0 0 1 1")
+        # 同步 IGMH tab（若有）
+        ig = getattr(self, "igmh_panel", None)
+        if ig is not None:
+            ig.sld_iso.blockSignals(True)
+            ig.sld_iso.setValue(v)
+            ig.sld_iso.blockSignals(False)
+            ig._iso_val = iso
+            ig.lbl_iso_val.setText(f"{iso:.3f}")
+            ig.edit_iso.blockSignals(True)
+            ig.edit_iso.setText(f"{iso:.3f}")
+            ig.edit_iso.blockSignals(False)
+
+    def _on_vmd_op(self, v):
+        """VMD 不透明度滑块：改所有等值面材质不透明度 + 同步 IGMH 面板。
+
+        覆盖各场景的等值面材质：
+          - 轨道/ESP 通用场景：_stl_a / _stl_b / _stl_bgr / EdgyGlass
+          - IGMH 场景：_igmh_surf
+        这样无论当前 VMD 是哪种场景，滑块都能生效。
+        """
+        op = v / 100.0
+        self.vmd_op_lbl.setText(f"{op:.2f}")
+        if self.vmd_port:
+            for mat in ("_stl_a", "_stl_b", "_stl_bgr", "EdgyGlass", "_igmh_surf"):
+                self._send_vmd_cmd(f"material change opacity {mat} {op:.3f}")
+        # 同步 IGMH tab（若有）
+        ig = getattr(self, "igmh_panel", None)
+        if ig is not None:
+            ig.sld_op.blockSignals(True)
+            ig.sld_op.setValue(v)
+            ig.sld_op.blockSignals(False)
+            ig.edit_op.blockSignals(True)
+            ig.edit_op.setText(str(v))
+            ig.edit_op.blockSignals(False)
+
+    def _igmh_iso_to_vmd_area(self, v):
+        """IGMH 面板 δg 等值面 → VMD 控制区滑块跟随。"""
+        if hasattr(self, "vmd_iso_sld"):
+            self.vmd_iso_sld.blockSignals(True)
+            self.vmd_iso_sld.setValue(v)
+            self.vmd_iso_sld.blockSignals(False)
+            self.vmd_iso_lbl.setText(f"{v / 1000.0:.3f}")
+
+    def _igmh_op_to_vmd_area(self, v):
+        """IGMH 面板不透明度 → VMD 控制区滑块跟随。"""
+        if hasattr(self, "vmd_op_sld"):
+            self.vmd_op_sld.blockSignals(True)
+            self.vmd_op_sld.setValue(v)
+            self.vmd_op_sld.blockSignals(False)
+            self.vmd_op_lbl.setText(f"{v / 100.0:.2f}")
+
+    def _on_vmd_ext_radius(self, v):
+        self.vmd_ext_radius_lbl.setText(f"{v / 100:.2f}")
+        if self.vmd_port:
+            self._send_vmd_cmd(f"gxnu_ext_spheres {v / 100.0:.3f}")
+
+    def _on_vmd_ext_labels(self, on):
+        if self.vmd_port:
+            self._send_vmd_cmd(f"gxnu_ext_labels {'1' if on else '0'}")
+
+    def _on_vmd_colorbar(self, on):
+        if not self.vmd_port:
+            return
+        # 从画布登记的 bgr 表面取 cmin/cmax/单位；无表面则关闭
+        low = high = 0.0
+        unit = "kcal/mol"
+        try:
+            reg = self.cub_canvas.glw.vmd_scene() or {}
+            for sf in reg.get("surfaces", []):
+                if sf.get("type") == "bgr":
+                    try:
+                        low = float(sf.get("cmin", low))
+                        high = float(sf.get("cmax", high))
+                    except (TypeError, ValueError):
+                        pass
+        except Exception:
+            pass
+        if on:
+            self._send_vmd_cmd(
+                f"gxnu_colorbar 1 {low} {high} {{kcal/mol}} {{ESP}}")
+        else:
+            self._send_vmd_cmd("gxnu_colorbar 0 0 0 {} {}")
+
 
 
     def _build_draw_bond_panel(self, target=None):
@@ -1135,11 +1503,6 @@ class OrbitalVisApp(QMainWindow):
                 self.charge_panel.shutdown()
             except Exception:
                 pass
-        if getattr(self, "bond_order_panel", None) is not None:
-            try:
-                self.bond_order_panel.shutdown()
-            except Exception:
-                pass
         if getattr(self, "nbo_panel", None) is not None:
             try:
                 self.nbo_panel.shutdown()
@@ -1153,6 +1516,21 @@ class OrbitalVisApp(QMainWindow):
         if getattr(self, "igmh_panel", None) is not None:
             try:
                 self.igmh_panel.shutdown()
+            except Exception:
+                pass
+        if getattr(self, "etsnocv_panel", None) is not None:
+            try:
+                self.etsnocv_panel.shutdown()
+            except Exception:
+                pass
+        if getattr(self, "mpp_panel", None) is not None:
+            try:
+                self.mpp_panel.shutdown()
+            except Exception:
+                pass
+        if getattr(self, "aim_panel", None) is not None:
+            try:
+                self.aim_panel.shutdown()
             except Exception:
                 pass
         event.accept()
@@ -1175,24 +1553,117 @@ class OrbitalVisApp(QMainWindow):
             self._dash_dialog._apply_lang()
 
     def _set_tab_texts(self):
-        """设置各 tab 文本并同步分析面板语言（可由新布局子类覆写）。"""
-        self.tabs.setTabText(0, self._tr("tab_setup"))
-        self.tabs.setTabText(1, self._tr("tab_style"))
+        """设置各 tab 文本并同步分析面板语言（可由新布局子类覆写）。
+
+        1.1 起「VMD 渲染」tab 已取消；tab 顺序：0=可视化控制, 1=轨道绘制,
+        2=电荷+键级(合并), 3=NBO, 4=ESP, 5=IGMH, 6=AIM, 7=ETS-NOCV, 8=运行日志。
+        主 tabs 为 West 竖排：文字由自定义 QLabel（横排）承载，见
+        _setup_west_tab_labels()。
+        """
+        if not hasattr(self, "_main_nav_ready"):
+            self._main_nav_ready = True
+            self._setup_main_nav()
         if self.charge_panel is not None:
-            self.tabs.setTabText(2, self._tr("tab_charge"))
             self.charge_panel.set_lang(i18n._CURRENT_LANG)
         if getattr(self, "bond_order_panel", None) is not None:
-            self.tabs.setTabText(3, self._tr("tab_bond_order"))
-            self.bond_order_panel.set_lang(i18n._CURRENT_LANG)
+            # 合并后 bond_order_panel 与 charge_panel 指向同一组合面板，避免重复 set_lang
+            pass
         if getattr(self, "nbo_panel", None) is not None:
-            self.tabs.setTabText(4, self._tr("tab_nbo"))
             self.nbo_panel.set_lang(i18n._CURRENT_LANG)
         if getattr(self, "esp_panel", None) is not None:
-            self.tabs.setTabText(5, self._tr("tab_esp"))
             self.esp_panel.set_lang(i18n._CURRENT_LANG)
         if getattr(self, "igmh_panel", None) is not None:
-            self.tabs.setTabText(6, self._tr("tab_igmh"))
             self.igmh_panel.set_lang(i18n._CURRENT_LANG)
+        if getattr(self, "aim_panel", None) is not None:
+            if hasattr(self.aim_panel, "set_lang"):
+                try:
+                    self.aim_panel.set_lang(i18n._CURRENT_LANG)
+                except Exception:
+                    pass
+        if getattr(self, "etsnocv_panel", None) is not None:
+            if hasattr(self.etsnocv_panel, "set_lang"):
+                try:
+                    self.etsnocv_panel.set_lang(i18n._CURRENT_LANG)
+                except Exception:
+                    pass
+        if getattr(self, "mpp_panel", None) is not None:
+            if hasattr(self.mpp_panel, "set_lang"):
+                try:
+                    self.mpp_panel.set_lang(i18n._CURRENT_LANG)
+                except Exception:
+                    pass
+        # 画布参数区（一键样式/参数/测键长）随语言刷新
+        canvas_panel = getattr(self, "cub_canvas", None)
+        if canvas_panel is not None and hasattr(canvas_panel, "set_lang"):
+            try:
+                canvas_panel.set_lang(i18n._CURRENT_LANG)
+            except Exception:
+                pass
+        # 左侧功能导航条的文字随语言刷新
+        self._sync_main_nav()
+
+    # 功能导航条（画布左侧）的 i18n key（与页面顺序一一对应）
+    _main_tab_keys = ["tab_viz", "tab_setup", "tab_charge_bond", "tab_nbo",
+                      "tab_esp", "tab_igmh", "tab_aim", "tab_etsnocv",
+                      "tab_mpp", "tab_log"]
+
+    def _setup_main_nav(self):
+        """建立画布左侧的功能导航条（QListWidget），并联动右侧页面栈。
+
+        文字横排、宽度固定 110px，9 项全部完整显示；点击项 → 切换
+        QStackedWidget 页面；页面索引变化（如有）也会同步回导航条。
+        """
+        nav = self.main_nav
+        nav.clear()
+        for key in self._main_tab_keys:
+            nav.addItem(self._tr(key))
+        nav.currentRowChanged.connect(self._on_nav_row_changed)
+        # 页面索引变化（如有代码切换页面）→ 同步导航条高亮
+        self.tabs.currentChanged.connect(lambda _i: self._sync_main_nav())
+        self._sync_main_nav()
+
+    def _on_nav_row_changed(self, row):
+        """导航条点击 → 切换右侧页面。"""
+        if 0 <= row < self.tabs.count() and row != self.tabs.currentIndex():
+            self.tabs.setCurrentIndex(row)
+        # 切到轨道页时把 HOMO/LUMO 行定位到表格中间（表格在载入 fchk 时
+        # 尚未显示，填充期的 scrollToItem 不生效，只能在页面可见后做）
+        if 0 <= row < len(self._main_tab_keys) and \
+                self._main_tab_keys[row] == "tab_setup":
+            QTimer.singleShot(0, self._focus_homo_lumo)
+
+    def _focus_homo_lumo(self):
+        """把内嵌轨道表中带 HOMO 标记的行滚动到表格中间、并选中该行。"""
+        tabs = getattr(self, "orbital_tabs", None)
+        if tabs is None:
+            return
+        table = tabs.currentWidget()
+        if table is None:
+            return
+        if table.viewport().height() <= 0:
+            QTimer.singleShot(50, self._focus_homo_lumo)   # 布局未就绪重试
+            return
+        for r in range(table.rowCount()):
+            it = table.item(r, 3)
+            if it is not None and "HOMO" in (it.text() or ""):
+                table.selectRow(r)
+                table.scrollToItem(
+                    table.item(r, 0), QAbstractItemView.PositionAtCenter)
+                return
+
+    def _sync_main_nav(self):
+        """按当前语言刷新导航条文字，并同步高亮到当前页面。"""
+        nav = getattr(self, "main_nav", None)
+        if nav is None:
+            return
+        for i, key in enumerate(self._main_tab_keys):
+            if i < nav.count():
+                nav.item(i).setText(self._tr(key))
+        row = self.tabs.currentIndex()
+        if row >= 0 and nav.currentRow() != row:
+            nav.blockSignals(True)
+            nav.setCurrentRow(row)
+            nav.blockSignals(False)
 
     def _apply_lang_ui(self):
         # Window
@@ -1204,13 +1675,12 @@ class OrbitalVisApp(QMainWindow):
 
         # Group boxes
         if hasattr(self, "btn_paths"):
+            self.btn_paths.setText(self._tr("btn_paths"))
             self.btn_paths.setToolTip(self._tr("tab_paths"))
         self.grp_input.setTitle(self._tr("grp_input"))
-        self.grp_canvas.setTitle(self._tr("grp_canvas"))
         self.grp_orbital.setTitle(self._tr("grp_orbital"))
         self.grp_render.setTitle(self._tr("grp_render"))
         self.grp_actions.setTitle(self._tr("grp_actions"))
-        self.grp_log.setTitle(self._tr("grp_log"))
         # grp_draw_bond now lives in DashBondDialog
 
         # MolCanvas toolbar (now in DashBondDialog)
@@ -1227,12 +1697,23 @@ class OrbitalVisApp(QMainWindow):
         if hasattr(self, 'btn_preview_both'):
             self.btn_preview_both.setText(self._tr("btn_preview_both"))
             self.btn_preview_both.setToolTip(self._tr("btn_preview_both"))
-        if hasattr(self, 'btn_sync_vmd'):
+        if hasattr(self, 'btn_sync_vmd') and self.btn_sync_vmd is not None:
             self.btn_sync_vmd.setText(self._tr("btn_sync_vmd"))
             self.btn_sync_vmd.setToolTip(self._tr("btn_sync_vmd_tip"))
         self.btn_rules.setToolTip(self._tr("orbital_rules_btn"))
         self.btn_rules.setText(self._tr("orbital_rules_btn"))
         self.orbital_tabs.setTabText(self.orbital_tabs.indexOf(self.tab_hint), self._tr("tab_orbit_hint"))
+
+        # VMD 控制台标题
+        if hasattr(self, "_vmd_content"):
+            self._vmd_content.setTitle(self._tr("vmd_console_title"))
+        # AIM 期刊级出图区
+        if hasattr(self, "grp_aim_vmd"):
+            self.grp_aim_vmd.setTitle(self._tr("aim_vmd_grp"))
+            self.lbl_aim_vmd_style.setText(self._tr("aim_vmd_style"))
+            self.lbl_aim_vmd_hint.setText(self._tr("aim_vmd_hint"))
+            self.btn_aim_vmd_preview.setText(self._tr("aim_vmd_preview"))
+            self.btn_aim_vmd_render.setText(self._tr("aim_vmd_render"))
 
         # Render params
         self.lbl_render_style.setText(self._tr("lbl_style"))
@@ -1275,6 +1756,20 @@ class OrbitalVisApp(QMainWindow):
         # Live adjustments
         self.lbl_live_iso.setText(self._tr("lbl_isovalue"))
         self.lbl_live_opacity.setText(self._tr("lbl_opacity"))
+        for cap in ("vmd_iso_main_cap", "vmd_dg_cap", "vmd_op_cap",
+                    "vmd_ext_cap"):
+            w = getattr(self, cap, None)
+            if w is not None:
+                w.setText(self._tr(
+                    {"vmd_iso_main_cap": "lbl_isovalue",
+                     "vmd_dg_cap": "lbl_dg_iso",
+                     "vmd_op_cap": "lbl_opacity",
+                     "vmd_ext_cap": "lbl_ext_radius"}[cap]))
+        for chk, key in (("vmd_ext_labels_chk", "chk_ext_values"),
+                         ("vmd_colorbar_chk", "chk_colorbar")):
+            w = getattr(self, chk, None)
+            if w is not None:
+                w.setText(self._tr(key))
 
         # Hydrogen panel
         self.lbl_h_keep.setText(self._tr("lbl_keep_indices"))
@@ -1284,7 +1779,16 @@ class OrbitalVisApp(QMainWindow):
             self.btn_h_filter.setText(self._tr("btn_hide_h"))
         self.var_h_indices.setPlaceholderText(self._tr("placeholder_h_indices"))
 
-        # Draw bond panel (now in DashBondDialog)
+        # 轨道表表头（已存在的表随语言刷新）
+        headers = [self._tr(k) for k in ("dlg_orbital_col_energy_au",
+                                         "dlg_orbital_col_energy_ev",
+                                         "dlg_orbital_col_occ",
+                                         "dlg_orbital_col_tag")]
+        for attr in ("orbital_table_alpha", "orbital_table_beta"):
+            t = getattr(self, attr, None)
+            if t is not None:
+                for c, txt in enumerate(headers):
+                    t.horizontalHeaderItem(c).setText(txt)
 
         # Progress
         self.progress_label.setText(self._tr("progress_ready"))
@@ -1618,7 +2122,8 @@ class OrbitalVisApp(QMainWindow):
         # ── 开壳层：创建并填充 β 表 ──
         if is_open and beta_rows:
             self.orbital_table_beta = self._make_orbital_table()
-            self.orbital_tabs.addTab(self.orbital_table_beta, "β 轨道")
+            self.orbital_tabs.addTab(self.orbital_table_beta,
+                                     i18n.tr("tab_beta"))
             self._populate_table(self.orbital_table_beta, beta_rows, is_open, n_b, orb_sign=-1)
 
         # 提示 tab（假标签）始终固定到最右端
@@ -1723,7 +2228,7 @@ class OrbitalVisApp(QMainWindow):
         row = table.currentRow()
         if row < 0:
             QMessageBox.warning(self, self._tr("msg_title_hint"),
-                                "请先选中一个轨道 / Please select an orbital first")
+                                self._tr("msg_select_orbital_first"))
             return
         it = table.item(row, 0)
         if not it:
@@ -1764,8 +2269,7 @@ class OrbitalVisApp(QMainWindow):
             return
 
         QMessageBox.warning(self, self._tr("msg_title_hint"),
-                            "请先选中一个轨道，或在画布中可视化轨道后再点此按钮 / "
-                            "Please select an orbital or render one in the canvas first")
+                            self._tr("msg_select_orbital_vis"))
 
     def _auto_preview_orbital(self, orb_str, target="vmd"):
         """选中轨道后：删旧 cube → 生成新 cube → 送到画布或 VMD。
@@ -1930,6 +2434,135 @@ class OrbitalVisApp(QMainWindow):
 
     # ── 一键同步：画布场景 → VMD ────────────────────────────
 
+    def _ext_vmd_radius(self):
+        """VMD 极值点球半径（来自画布下方 VMD 区域滑块；回退 ESP 面板值）。"""
+        try:
+            sld = getattr(self, "vmd_ext_radius_sld", None)
+            if sld is not None:
+                return sld.value() / 100.0
+        except Exception:
+            pass
+        try:
+            if self.esp_panel is not None and hasattr(self.esp_panel, "sld_ext_radius"):
+                return self.esp_panel.sld_ext_radius.value() / 100.0
+        except Exception:
+            pass
+        return 0.25
+
+    def _ext_vmd_labels_on(self):
+        """VMD 极值点数值标签开关。"""
+        try:
+            chk = getattr(self, "vmd_ext_labels_chk", None)
+            if chk is not None:
+                return bool(chk.isChecked())
+        except Exception:
+            pass
+        try:
+            if self.esp_panel is not None and hasattr(self.esp_panel, "chk_ext_labels"):
+                return bool(self.esp_panel.chk_ext_labels.isChecked())
+        except Exception:
+            pass
+        return False
+
+    def _ext_vmd_unit(self):
+        """VMD 极值点数值单位（跟随 ESP 面板）。"""
+        try:
+            if self.esp_panel is not None and hasattr(self.esp_panel, "_unit"):
+                return str(self.esp_panel._unit)
+        except Exception:
+            pass
+        return "kcal/mol"
+
+    def _ext_vmd_colorbar(self, surfaces):
+        """VMD 色标条参数：仅当有 bgr（ESP/IGMH）表面且开关开启时返回。"""
+        has_bgr = any(sf.get("type") == "bgr" for sf in surfaces)
+        try:
+            chk = getattr(self, "vmd_colorbar_chk", None)
+            show = bool(chk.isChecked()) if chk is not None else False
+        except Exception:
+            show = False
+        if not (has_bgr and show):
+            return None
+        low = high = 0.0
+        unit = "kcal/mol"
+        for sf in surfaces:
+            if sf.get("type") == "bgr":
+                try:
+                    low = float(sf.get("cmin", low))
+                    high = float(sf.get("cmax", high))
+                except (TypeError, ValueError):
+                    pass
+        return {"show": True, "low": low, "high": high, "unit": unit,
+                "label": "ESP"}
+
+    # ── VMD 控制台弹出窗口 ─────────────────────────────────────
+    def _clear_analysis(self):
+        """「清空样式」：清空画布上全部分析效果并联动各分析面板。
+        保留分子与渲染样式设置；各面板调用容错，个别异常不影响整体。"""
+        glw = self.cub_canvas.glw if self.cub_canvas is not None else None
+        if glw is not None:
+            try:
+                glw.clear_analysis()
+            except Exception:
+                pass
+        if getattr(self, "esp_panel", None) is not None:
+            try:
+                self.esp_panel._clear_canvas()
+                self.esp_panel._extrema_pts = []
+            except Exception:
+                pass
+        if getattr(self, "igmh_panel", None) is not None:
+            try:
+                self.igmh_panel._clear_canvas()
+            except Exception:
+                pass
+        if getattr(self, "aim_panel", None) is not None:
+            try:
+                self.aim_panel.clear_canvas()
+            except Exception:
+                pass
+
+    def _open_vmd_console(self):
+        """弹出独立的 VMD 控制台窗口，并把画布场景同步到 VMD（VMD 独立窗口）。
+
+        VMD 本身不嵌入（保持独立窗口）；仅把「VMD 控制台」按钮组放进一个
+        可弹出的独立窗口。窗口不设 parent（QWidget(None) + Qt.Window），
+        使其成为完全独立的顶层窗口，不随主窗口最小化/最大化。
+        控制台窗口不设 WA_DeleteOnClose，close() 默认即隐藏而非销毁，
+        _vmd_content 始终保持有效，避免二次引用崩溃。
+        """
+        if self._vmd_console_win is None:
+            win = QWidget(None)
+            win.setWindowFlags(Qt.Window)
+            win.setWindowTitle(self._tr("vmd_console_title"))
+            win.resize(760, 620)
+            # 独立窗口不继承主窗口样式表，需单独应用主题 QSS
+            win.setStyleSheet(LIGHT_QSS)
+            lay = QVBoxLayout(win)
+            lay.setContentsMargins(8, 8, 8, 8)
+            lay.setSpacing(6)
+            if getattr(self, "_vmd_content", None) is not None:
+                lay.addWidget(self._vmd_content)
+            self._vmd_console_win = win
+
+        self._vmd_console_win.show()
+        self._vmd_console_win.raise_()
+        self._vmd_console_win.activateWindow()
+
+        # 同步画布场景到 VMD（独立窗口）
+        self._sync_canvas_to_vmd()
+
+    def _close_vmd_console(self):
+        """主窗口退出前关闭控制台窗口（避免无 parent 的孤儿窗口阻止退出）。"""
+        win = getattr(self, "_vmd_console_win", None)
+        if win is not None:
+            try:
+                win.close()   # 仅隐藏，不销毁
+                win.deleteLater()
+            except Exception:
+                pass
+            self._vmd_console_win = None
+
     def _sync_canvas_to_vmd(self):
         """把左侧画布当前场景（分子 + 等值面 + 配色 + 极值点）同步到 VMD。
 
@@ -1940,7 +2573,8 @@ class OrbitalVisApp(QMainWindow):
         VMD 已运行时走 socket 刷新，否则启动新进程。
         """
         if not self._canvas_ready():
-            QMessageBox.warning(self, "提示", "OpenGL 画布不可用")
+            QMessageBox.warning(self, self._tr("msg_title_hint"),
+                                self._tr("msg_gl_unavailable"))
             return
         glw = self.cub_canvas.glw
 
@@ -1955,7 +2589,7 @@ class OrbitalVisApp(QMainWindow):
             QMessageBox.warning(self, "提示", self._tr("msg_sync_no_molecule"))
             return
         conv = 0.529177210903
-        xyz_lines = [f"{len(raw)}", "OrbitalViewer canvas sync"]
+        xyz_lines = [f"{len(raw)}", "MolStudio canvas sync"]
         for anum, x, y, z in raw:
             sym = ELEMENT_SYMBOLS.get(anum, "X")
             xyz_lines.append(f"{sym:2s} {x * conv:.6f} {y * conv:.6f} {z * conv:.6f}")
@@ -1965,8 +2599,13 @@ class OrbitalVisApp(QMainWindow):
         reg = glw.vmd_scene() or {}
         surfaces = []
         for sf in reg.get("surfaces", []):
-            if sf.get("type") == "orbital":
+            st = sf.get("type")
+            if st == "orbital":
                 if sf.get("vol") and os.path.isfile(sf["vol"]):
+                    surfaces.append(dict(sf))
+            elif st == "pqr":
+                # MPP：PQR 电荷着色表面（无 vol/color_vol，只有 pqr 文件）
+                if sf.get("pqr") and os.path.isfile(sf["pqr"]):
                     surfaces.append(dict(sf))
             else:
                 if (sf.get("vol") and os.path.isfile(sf["vol"])
@@ -2019,9 +2658,62 @@ class OrbitalVisApp(QMainWindow):
             else:
                 keep_h = []
 
-        # ── 极值点（Bohr → Å） ──
-        extrema = [(x * conv, y * conv, z * conv, kind)
-                   for (x, y, z, kind) in (getattr(glw, "_extrema_pts", []) or [])]
+        # ── 极值点（Bohr → Å，含数值） ──
+        # 坐标/种类在 _extrema_pts（(x,y,z,kind)，Bohr）；数值在 _extrema_vals
+        #（与 _extrema_pts 对齐，显示单位跟随 ESP 面板 _unit）
+        ext_pts = list(getattr(glw, "_extrema_pts", []) or [])
+        ext_vals = list(getattr(glw, "_extrema_vals", []) or [])
+        unit = self._ext_vmd_unit()
+        extrema = []
+        ext_values = []
+        for i, (x, y, z, kind) in enumerate(ext_pts):
+            extrema.append((float(x) * conv, float(y) * conv,
+                            float(z) * conv, kind))
+            try:
+                v = float(ext_vals[i]) if i < len(ext_vals) else 0.0
+            except (TypeError, ValueError):
+                v = 0.0
+            ext_values.append((v, unit))
+        if not extrema:
+            # 兼容旧数据：_extrema_pts 里可能直接带数值（5 元组）
+            for item in (getattr(glw, "_extrema_pts", []) or []):
+                if len(item) >= 5:
+                    try:
+                        x, y, z, kind, v = (float(item[0]), float(item[1]),
+                                             float(item[2]), item[3], float(item[4]))
+                        extrema.append((x * conv, y * conv, z * conv, kind))
+                        ext_values.append((v, unit))
+                    except (TypeError, ValueError):
+                        pass
+
+        # ── AIM 临界点 / 键径（Bohr → Å，颜色/类型随画布 AIM overlay） ──
+        # glw._aim_cps = [(x, y, z, (r,g,b), serial, cp_type)]，世界帧 Bohr；
+        # _aim_path_pts = [(x, y, z)] 世界帧 Bohr；半径属性单位 Å
+        aim_cps = []
+        for item in (getattr(glw, "_aim_cps", []) or []):
+            try:
+                ax, ay, az = float(item[0]), float(item[1]), float(item[2])
+            except (TypeError, ValueError, IndexError):
+                continue
+            col = tuple(float(c) for c in item[3][:3]) if len(item) > 3 else None
+            serial = int(item[4]) if len(item) > 4 else 0
+            ct = str(item[5]) if len(item) > 5 else "N"
+            aim_cps.append((ax * conv, ay * conv, az * conv, col, serial, ct))
+        aim_paths = []
+        for p in (getattr(glw, "_aim_path_pts", []) or []):
+            try:
+                aim_paths.append((float(p[0]) * conv, float(p[1]) * conv,
+                                  float(p[2]) * conv))
+            except (TypeError, ValueError, IndexError):
+                continue
+        aim_overlay = None
+        if aim_cps or aim_paths:
+            aim_overlay = {
+                "cps": aim_cps,
+                "paths": aim_paths,
+                "cp_radius": getattr(glw, "_aim_cp_radius", None),
+                "path_radius": getattr(glw, "_aim_path_radius", None),
+            }
 
         # ── 不透明度 ──
         op = None
@@ -2031,6 +2723,19 @@ class OrbitalVisApp(QMainWindow):
                 op = sp["opacity"]
         except Exception:
             op = None
+
+        # IGMH 场景：δg 等值面 / 不透明度以画布左下方 VMD 控制区滑块为准
+        #（默认 0.004 / 0.75，对齐 IGMH-V4），同步覆盖场景值
+        for sf in surfaces:
+            if sf.get("kind") == "igmh":
+                try:
+                    sf["iso"] = self.vmd_iso_sld.value() / 1000.0
+                except Exception:
+                    pass
+                try:
+                    op = self.vmd_op_sld.value() / 100.0
+                except Exception:
+                    pass
 
         # 球棍配色方案：ESP 场景登记 atom_color="Name"（对齐 ESPViewer2），其余默认 Element
         atom_color = "Element"
@@ -2046,8 +2751,13 @@ class OrbitalVisApp(QMainWindow):
             "atom_groups": atom_groups,
             "keep_h": keep_h,
             "extrema": extrema,
+            "ext_values": ext_values,
+            "ext_radius": self._ext_vmd_radius(),
+            "ext_show_labels": self._ext_vmd_labels_on(),
+            "colorbar": self._ext_vmd_colorbar(surfaces),
             "opacity": op,
             "atom_color": atom_color,
+            "aim_overlay": aim_overlay,
         }
 
         exe = self._get_paths()["vmd"]
@@ -2083,7 +2793,8 @@ class OrbitalVisApp(QMainWindow):
             self._vmd_style_applied = style_name
 
         # ── 状态复位（iso 取第一个表面；无表面用画布当前 iso） ──
-        labels = [os.path.basename(sf["vol"]) for sf in surfaces]
+        labels = [str(sf.get("label") or os.path.basename(sf.get("vol") or sf.get("pqr") or ""))
+                  for sf in surfaces]
         first_iso = 0.05
         if surfaces:
             try:
@@ -2093,6 +2804,12 @@ class OrbitalVisApp(QMainWindow):
         self.current_iso = abs(first_iso)
         self.current_opacity = op
         self._vmd_orbital_labels = labels
+        # 清理已不在场景中的轨道翻转状态（避免残留导致错位）
+        try:
+            self._vmd_orbital_flips = {
+                k: v for k, v in self._vmd_orbital_flips.items() if k in labels}
+        except Exception:
+            pass
         self._vmd_session._vmd_state["rep_pos"] = 1
         self._vmd_session._vmd_state["rep_neg"] = 2
         self._vmd_session._current_isovalue = self.current_iso
@@ -2254,8 +2971,17 @@ class OrbitalVisApp(QMainWindow):
         # 若用户未指定 tachyon，则自动检测 VMD 目录下的版本
         tachyon = tachyon or find_tachyon(os.path.dirname(vmd or self.paths["vmd"]))
         self.paths["tachyon"] = tachyon
-        backend.save_config(
-            self.paths["multiwfn"], self.paths["vmd"], tachyon)
+        try:
+            backend.save_config(
+                self.paths["multiwfn"], self.paths["vmd"], tachyon)
+        except Exception as e:
+            # 打包版配置文件写在 exe 同目录；目录只读或被杀软拦截时
+            # 写入会失败。弹窗提示而不是放任异常静默闪退。
+            QMessageBox.warning(
+                self, self._tr("msg_title_hint"),
+                self._tr("msg_paths_save_fail", err=e,
+                         cfg=backend.CONFIG_FILE))
+            return
         self._append_log(self._tr("log_paths_saved",
                                   mw=self.paths["multiwfn"],
                                   vmd=self.paths["vmd"]))
@@ -2300,9 +3026,8 @@ class OrbitalVisApp(QMainWindow):
             return
         # 载入新分子时清空电荷分析状态与左侧画布上的电荷着色 / 键级选中
         if getattr(self, "charge_panel", None) is not None:
-            self.charge_panel.reset_charge_view()
-        if getattr(self, "bond_order_panel", None) is not None:
-            self.bond_order_panel.reset_view_state()
+            # ChargeBondPanel.reset_view_state 会同时清空电荷着色与键级选中
+            self.charge_panel.reset_view_state()
         if getattr(self, "nbo_panel", None) is not None:
             self.nbo_panel.reset_view_state()
         if getattr(self, "esp_panel", None) is not None:
@@ -2427,8 +3152,14 @@ class OrbitalVisApp(QMainWindow):
                 x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
             except ValueError:
                 continue
+            # 元素序号：兼容 "C"/"cl"/"Cl" 及直接写原子序数两种 XYZ 写法，
+            # 缺失时回退 0（避免 GL 画布按 0 号占位色渲染成黑色）。
+            if symbol.isdigit():
+                an = int(symbol)
+            else:
+                an = _SYMBOL_TO_AN.get(symbol.capitalize(), 0)
             center += 1
-            atoms.append((center, symbol, 0, (x, y, z)))
+            atoms.append((center, symbol, an, (x, y, z)))
         bonds = get_bonds_from_fchk(atoms) if atoms else []
         return atoms, bonds
 
@@ -2819,7 +3550,8 @@ class OrbitalVisApp(QMainWindow):
             return
 
         if not _HAS_GL_VIEWER:
-            QMessageBox.warning(self, "提示", "需要安装 PyOpenGL: pip install PyOpenGL")
+            QMessageBox.warning(self, self._tr("msg_title_hint"),
+                                self._tr("msg_need_pyopengl"))
             return
 
         path = self.var_path.text().strip()
@@ -2843,10 +3575,10 @@ class OrbitalVisApp(QMainWindow):
             # 如果有多个，用对话框选择
             from PyQt5.QtWidgets import QListWidget
             dlg = QDialog(self)
-            dlg.setWindowTitle("选择轨道")
+            dlg.setWindowTitle(self._tr("dlg_select_orb_gl"))
             dlg.resize(500, 400)
             dlg_layout = QVBoxLayout(dlg)
-            dlg_layout.addWidget(QLabel("选择要在 OpenGL 中预览的轨道："))
+            dlg_layout.addWidget(QLabel(self._tr("lbl_select_orb_gl")))
             list_widget = QListWidget()
             for i, c in enumerate(all_cubes):
                 list_widget.addItem(os.path.basename(c))
@@ -2971,56 +3703,101 @@ class OrbitalVisApp(QMainWindow):
             self._append_log(self._tr("log_vmd_error").format(e))
 
     def _render_view(self):
-        if not self.vmd_port or not self.vmd_render_dir:
-            QMessageBox.warning(self, self._tr("msg_title_hint"),
-                                self._tr("msg_preview_first"))
-            return
+        """VMD 控制台『渲染出图』：后台 Tachyon 渲染当前 VMD 视角为 PNG。
 
-        out = self._get_out_dir()
-        os.makedirs(out, exist_ok=True)
-
-        _, _, _, style_name, resolution, shade_mode = self._get_params()
-        exe_paths = self._get_paths()
-
-        output_png = None
-        if self.vmd_cube_path:
-            cube_stem = os.path.splitext(os.path.basename(self.vmd_cube_path))[0]
-            fchk_name = cube_stem.rsplit("_MO", 1)[0]
-            orbital = self._get_orbitals()
-            orbital_str = ",".join(orbital) if orbital else "unknown"
-            output_png = os.path.join(out, f"{fchk_name}_MO{orbital_str}.png") if out else None
-        elif self.vmd_multi_cubes and self.vmd_multi_cubes[0][0]:
-            cube_stem = os.path.splitext(os.path.basename(self.vmd_multi_cubes[0][0]))[0]
-            fchk_name = cube_stem.rsplit("_MO", 1)[0]
-            orbitals = self._get_orbitals()
-            orbital_suffix = "_".join(orbitals) if orbitals else "multi"
-            output_png = os.path.join(out, f"{fchk_name}_MO{orbital_suffix}.png") if out else None
-
-        trans_mode = {0: "raster3d", 1: "vmd", 2: "orig"}.get(
-            self.var_trans_raster.currentIndex(), None)
+        注意：PyQt5 中未捕获的 Qt 槽异常会直接 fail-fast 终止整个程序（闪退），
+        因此本方法整体 try/except，任何错误都写入运行日志并恢复按钮。
+        """
         try:
-            threads = int(self.var_threads.text().strip())
-        except (ValueError, AttributeError):
-            threads = 8
+            if not self.vmd_port or not self.vmd_render_dir:
+                QMessageBox.warning(self, self._tr("msg_title_hint"),
+                                    self._tr("msg_preview_first"))
+                return
 
-        self.btn_render.setEnabled(False)
-        self.render_worker = RenderWorker(
-            self.vmd_port, self.vmd_render_dir, output_png,
-            exe_paths["tachyon"], resolution, style_name,
-            shade_mode, trans_mode, threads)
-        self.render_worker.log_signal.connect(self._append_log)
-        self.render_worker.finished_signal.connect(self._on_render_done)
-        self.render_worker.start()
+            # ETS-NOCV 等面板自带文件选择器，主输入行可能为空：
+            # os.makedirs("") 会抛 FileNotFoundError → 槽异常 → 闪退，
+            # 故空目录回退到 VMD 渲染目录（已由 build_scene_tcl 创建）。
+            out = self._get_out_dir()
+            if not out:
+                out = self.vmd_render_dir
+            if out:
+                try:
+                    os.makedirs(out, exist_ok=True)
+                except OSError:
+                    out = self.vmd_render_dir
+                    os.makedirs(out, exist_ok=True)
+
+            _, _, _, style_name, resolution, shade_mode = self._get_params()
+            exe_paths = self._get_paths()
+
+            output_png = None
+            if self.vmd_cube_path:
+                cube_stem = os.path.splitext(os.path.basename(self.vmd_cube_path))[0]
+                fchk_name = cube_stem.rsplit("_MO", 1)[0]
+                orbital = self._get_orbitals()
+                orbital_str = ",".join(orbital) if orbital else "unknown"
+                output_png = os.path.join(out, f"{fchk_name}_MO{orbital_str}.png") if out else None
+            elif self.vmd_multi_cubes and self.vmd_multi_cubes[0][0]:
+                cube_stem = os.path.splitext(os.path.basename(self.vmd_multi_cubes[0][0]))[0]
+                fchk_name = cube_stem.rsplit("_MO", 1)[0]
+                orbitals = self._get_orbitals()
+                orbital_suffix = "_".join(orbitals) if orbitals else "multi"
+                output_png = os.path.join(out, f"{fchk_name}_MO{orbital_suffix}.png") if out else None
+            elif getattr(self, "etsnocv_panel", None) is not None:
+                # ETS-NOCV：没有 vmd_cube_path，用面板当前 NOCV cube 命名
+                #（存到 cube 所在目录，即工作目录）
+                cub = getattr(self.etsnocv_panel, "_current_cube", None)
+                if cub and os.path.isfile(cub):
+                    stem = os.path.splitext(os.path.basename(cub))[0]
+                    d = os.path.dirname(cub)
+                    if d and os.path.isdir(d):
+                        output_png = os.path.join(d, f"{stem}.png")
+
+            trans_mode = {0: "raster3d", 1: "vmd", 2: "orig"}.get(
+                self.var_trans_raster.currentIndex(), None)
+            try:
+                threads = int(self.var_threads.text().strip())
+            except (ValueError, AttributeError):
+                threads = 8
+
+            self.btn_render.setEnabled(False)
+            self.render_worker = RenderWorker(
+                self.vmd_port, self.vmd_render_dir, output_png,
+                exe_paths["tachyon"], resolution, style_name,
+                shade_mode, trans_mode, threads)
+            self.render_worker.log_signal.connect(self._append_log)
+            self.render_worker.finished_signal.connect(self._on_render_done)
+            self.render_worker.start()
+        except Exception as e:
+            self.btn_render.setEnabled(True)
+            try:
+                self._append_log(f"渲染出图失败: {e}")
+            except Exception:
+                pass
 
     def _on_render_done(self, png_path):
         self.btn_render.setEnabled(True)
         if png_path and os.path.exists(png_path):
-            os.startfile(png_path)
+            try:
+                os.startfile(png_path)
+            except OSError as e:
+                try:
+                    self._append_log(f"无法打开渲染结果: {e}")
+                except Exception:
+                    pass
 
     def _stop(self):
         self.running = False
         if hasattr(self, 'worker') and self.worker.isRunning():
             self.worker.stop()
+
+    def closeEvent(self, event):
+        """主窗口退出前关闭无 parent 的 VMD 控制台窗口，避免孤儿窗口。"""
+        try:
+            self._close_vmd_console()
+        except Exception:
+            pass
+        super().closeEvent(event)
 
     # ── Hydrogen Filter ──
 
@@ -3039,22 +3816,27 @@ class OrbitalVisApp(QMainWindow):
                     # VMD index 是 0-based，画布编号是 1-based，需要减1
                     vmd_indices = [str(i - 1) for i in keep_indices]
                     idx_str = " ".join(vmd_indices)
-                    sel_str = f"not element H or (element H and index {idx_str})"
+                    # pqr 分子 element 属性为空，氢判断用 (element H or name H) 兜底
+                    sel_str = ("not (element H or name H) or "
+                               f"((element H or name H) and index {idx_str})")
                 except ValueError:
-                    sel_str = "not element H"
+                    sel_str = "not (element H or name H)"
             else:
-                sel_str = "not element H"
-            cmd = (
-                f'foreach mid [molinfo list] {{'
-                f'  mol modselect 0 $mid "{sel_str}"'
-                f'}}'
-            )
+                sel_str = "not (element H or name H)"
+            # 注意：VMD socket 服务器用 gets 逐行读命令，多行 Tcl 会只执行
+            # 第一行（报 missing close brace）。必须拼成单行（分号分隔）。
+            inner = 'mol modselect $r $mid "' + sel_str + '"'
+            cmd = ('foreach mid [molinfo list] {set nr [molinfo $mid get numreps]; '
+                   'for {set r 0} {$r < $nr} {incr r} {' + inner + '}}')
             self._send_vmd_cmd(cmd)
             self._append_log(self._tr("log_hide_h_done"))
         else:
             self._h_hidden = False
             self.btn_h_filter.setText(self._tr("btn_hide_h"))
-            cmd = 'foreach mid [molinfo list] { mol modselect 0 $mid all }'
+            cmd = (
+                'foreach mid [molinfo list] {set nr [molinfo $mid get numreps]; '
+                'for {set r 0} {$r < $nr} {incr r} {mol modselect $r $mid all}}'
+            )
             self._send_vmd_cmd(cmd)
             self._append_log(self._tr("log_show_h_done"))
 
@@ -3580,26 +4362,53 @@ class OrbitalVisApp(QMainWindow):
         self._sync_dash_to_canvas()
 
     def _on_flip_phase(self):
-        """翻转等值面相位：交换 rep_pos / rep_neg 的 isovalue 符号。"""
+        """翻转等值面相位：单轨道直接翻；多轨道（如 NBO 叠加）弹出选择——
+        翻转所选轨道 / 翻转全部（per-orbital 独立追踪相位状态）。"""
         if not self.vmd_port or self.current_iso is None:
             self._append_log("翻转相位失败 (VMD 未连接或无当前 isovalue)")
             return
-        rp = self._vmd_state["rep_pos"]
-        rn = self._vmd_state["rep_neg"]
-        iso_before = self.current_iso
-        self.current_iso = -self.current_iso
-        iso = self.current_iso
-        self._append_log(f"  [DEBUG FLIP] iso_before={iso_before} iso_after={iso} "
-                         f"rp={rp} rn={rn} vmd_port={self.vmd_port}")
+        labels = list(getattr(self, "_vmd_orbital_labels", []) or [])
+        if len(labels) <= 1:
+            # 单轨道：直接翻转
+            self._flip_orbital(0, labels[0] if labels else "轨道")
+            return
+        # 多轨道：弹出选择（轨道列表 + 翻转全部）
+        items = labels + [self._tr("flip_all")]
+        item, ok = QInputDialog.getItem(
+            self, self._tr("btn_flip_phase"), self._tr("flip_choose"),
+            items, 0, False)
+        if not ok:
+            return
+        if item == self._tr("flip_all"):
+            for i, lab in enumerate(labels):
+                self._flip_orbital(i, lab, log=False)
+            self._append_log(self._tr("log_flip_all", n=len(labels)))
+        else:
+            try:
+                i = labels.index(item)
+            except ValueError:
+                return
+            self._flip_orbital(i, item)
 
+    def _flip_orbital(self, i, label, log=True):
+        """翻转第 i 个轨道（volset=i，+iso rep=2i+1，-iso rep=2i+2）的相位。
+
+        per-orbital 状态记录在 _vmd_orbital_flips（键=标签），重复点击可来回翻转；
+        current_iso 始终为正的绝对值（与等值面滑杆一致）。
+        """
+        flips = self._vmd_orbital_flips
+        flips[label] = not flips.get(label, False)
+        iso = abs(float(self.current_iso))
+        rp = 2 * i + 1
+        rn = 2 * i + 2
+        rp_val = -iso if flips[label] else iso
+        rn_val = iso if flips[label] else -iso
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(5)
             sock.connect(("127.0.0.1", self.vmd_port))
-            cmd1 = f"mol modstyle {rp} top Isosurface {iso} 0 0 0 1 1"
-            cmd2 = f"mol modstyle {rn} top Isosurface {-iso} 0 0 0 1 1"
-            self._append_log(f"  [DEBUG FLIP] → VMD: {cmd1}")
-            self._append_log(f"  [DEBUG FLIP] → VMD: {cmd2}")
+            cmd1 = f"mol modstyle {rp} top Isosurface {rp_val} {i} 0 0 1 1"
+            cmd2 = f"mol modstyle {rn} top Isosurface {rn_val} {i} 0 0 1 1"
             sock.sendall((cmd1 + "\n").encode("utf-8"))
             try:
                 resp1 = sock.recv(4096).decode("utf-8", errors="replace").strip()
@@ -3612,10 +4421,10 @@ class OrbitalVisApp(QMainWindow):
                 resp2 = "(timeout)"
             sock.close()
             ok = "ERROR" not in (resp1 + resp2)
-            self._append_log(
-                self._tr("log_flip", iso=iso) if ok
-                else f"翻转相位失败: resp1={resp1} resp2={resp2}"
-            )
+            if log:
+                self._append_log(
+                    self._tr("log_flip_one", label=label) if ok
+                    else f"翻转相位失败: resp1={resp1} resp2={resp2}")
         except Exception as e:
             self._append_log(f"翻转相位失败 (连接): {e}")
 

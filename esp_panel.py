@@ -33,13 +33,36 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QComboBox, QCheckBox, QSlider, QRadioButton, QTextEdit, QFileDialog,
     QMessageBox, QFrame, QDoubleSpinBox, QDialog, QFormLayout, QSpinBox,
-    QDialogButtonBox, QScrollArea, QGridLayout, QGroupBox,
+    QDialogButtonBox, QScrollArea, QGridLayout, QGroupBox, QProgressBar,
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QCursor
 from file_dialogs import open_file, open_files, save_file, existing_directory
 
 from marching_cubes import read_cube, compute_bounding_sphere, marching_cubes, _trilinear
+
+# ── 进度解析（移植自 ESPViewer2/esp_surface_gui.py） ──
+_PROGRESS_PATTERNS = [
+    (re.compile(r'(\d+(?:\.\d+)?)\s*%', re.IGNORECASE), 'pct'),
+    (re.compile(r'(\d+)\s*/\s*(\d+)', re.IGNORECASE), 'frac'),
+]
+
+
+def _parse_progress(line):
+    """从 Multiwfn 输出行提取进度。
+
+    Returns (value: float 0.0-1.0 or None, msg: str)。
+    """
+    for pat, kind in _PROGRESS_PATTERNS:
+        m = pat.search(line)
+        if m:
+            if kind == 'pct':
+                return min(float(m.group(1)) / 100.0, 1.0), line.strip()
+            elif kind == 'frac':
+                num, den = int(m.group(1)), int(m.group(2))
+                if den > 0:
+                    return min(num / den, 1.0), line.strip()
+    return None, line.strip()
 from ovcanvas._glwidget import (
     merge_iso_surfaces, ANGSTROM_TO_BOHR,
     SHININESS_PRESETS, SHININESS_DEFAULT,
@@ -53,10 +76,28 @@ from esp_viewer import (
 import numpy as np
 import matplotlib
 matplotlib.use("Qt5Agg")
+# matplotlib 图表支持中文：默认字体链加入微软雅黑（否则中文标题/轴标签显示方块）。
+# 仅影响 matplotlib 绘制的图（面积分布等），Qt 界面文字不受影响。
+matplotlib.rcParams["font.sans-serif"] = [
+    "Microsoft YaHei", "SimHei", "PingFang SC", "Noto Sans CJK SC",
+    "DejaVu Sans"]
+matplotlib.rcParams["axes.unicode_minus"] = False
 import matplotlib.pyplot as plt
 from matplotlib import colors as mcolors
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as _FigureCanvas
 from matplotlib.figure import Figure as _MplFigure
+
+
+# ── 子对话框 i18n（构造时按当前语言求值；key = 中文原文）──
+_CV_EN = {'ESP 面积分布 – 分区设置': 'ESP Area Distribution – Bin Settings', '最小值 (kcal/mol):': 'Min (kcal/mol):', '最大值 (kcal/mol):': 'Max (kcal/mol):', '分区数:': 'Bins:', '单位提示: 1 eV = 23.06 kcal/mol; 1 Hartree = 627.51 kcal/mol': 'Units: 1 eV = 23.06 kcal/mol; 1 Hartree = 627.51 kcal/mol', 'ESP 表面分区面积分布': 'ESP Area Distribution', '标题与坐标轴': 'Title & Axes', 'X 轴范围': 'X Range', '样式设置': 'Style', '标注': 'Annotations', '字号设置': 'Font Sizes', '多文件': 'Multi-file', '输出': 'Output', '标题': 'Title', 'X 轴标签': 'X label', 'Y 轴标签': 'Y label', 'Y 轴数据': 'Y data', '最小值': 'Min', '最大值': 'Max', '配色 (colormap)': 'Colormap', '透明度': 'Opacity', '刻度字号': 'Tick font', '数值字号': 'Value font', '标题字号': 'Title font', '轴标签字号': 'Axis label font', '文件': 'File', '图宽 (inch)': 'Width (inch)', '图高 (inch)': 'Height (inch)', '自定义范围': 'Custom range', '网格线': 'Grid', '图例': 'Legend', '标记最高/最低点': 'Mark max/min points', '水平参考线': 'Horizontal ref. line', '显示柱顶数值': 'Show bar values', '叠加模式': 'Overlay mode', '面积 (Å²)': 'Area (Å²)', '百分比 (%)': 'Percent (%)', '柱状图': 'Bar', '折线图': 'Line', '导出 CSV': 'Export CSV', '保存图片': 'Save Image', '关闭': 'Close', '提示': 'Notice', '导出失败': 'Export Failed'}
+
+def _cv(text):
+    """子对话框文本翻译：zh 原样返回，en 查 _CV_EN（无条目返回原文）。"""
+    import i18n as _i18n
+    if _i18n._CURRENT_LANG == "zh":
+        return text
+    return _CV_EN.get(text, text)
+
 
 # ── Multiwfn 命令模板（移植自 ESPViewer multiwfn_runner.py） ──
 # ISO: 生成 density.cub 与 totesp.cub
@@ -204,7 +245,9 @@ class EspWorker(QThread):
     """ESP 管线：Multiwfn cube/极值点 → 提取表面 → 合并（可选）。"""
     finished = pyqtSignal(object)   # result dict
     error = pyqtSignal(str)
-    progress = pyqtSignal(str)
+    progress = pyqtSignal(str)      # 原始输出行（进运行日志）
+    progress_val = pyqtSignal(int)  # 总体进度 0-100（进度条）
+    stage_msg = pyqtSignal(str)     # 简短计算信息（进度条旁标签）
 
     def __init__(self, fchk_list, mw_exe, mode, isolevel, vmin, vmax,
                  cmap, auto_range):
@@ -218,6 +261,7 @@ class EspWorker(QThread):
         self.cmap = cmap
         self.auto_range = auto_range
         self._proc = None
+        self._file_idx = 0        # 当前处理文件下标（进度映射用）
 
     def kill(self):
         if self._proc is not None and self._proc.poll() is None:
@@ -226,7 +270,8 @@ class EspWorker(QThread):
             except Exception:
                 pass
 
-    def _run_multiwfn(self, cmd_string, work_dir, fch_name, extra=""):
+    def _run_multiwfn(self, cmd_string, work_dir, fch_name, extra="",
+                      stage_lo=0.0, stage_hi=0.85):
         cmd_file = os.path.join(work_dir, "_mw_cmd.txt")
         with open(cmd_file, "w", encoding="ascii") as f:
             f.write(cmd_string)
@@ -235,6 +280,9 @@ class EspWorker(QThread):
             cmd, shell=True, cwd=work_dir,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, encoding="utf-8", errors="replace", bufsize=1)
+        n_files = max(len(self.fchk_list), 1)
+        file_base = self._file_idx / n_files
+        span = stage_hi - stage_lo
         out_lines = []
         for line in self._proc.stdout:
             out_lines.append(line)
@@ -242,6 +290,13 @@ class EspWorker(QThread):
             if len(stripped) > 100:
                 stripped = stripped[:97] + "..."
             self.progress.emit(stripped)
+            pct, _ = _parse_progress(stripped)
+            if pct is not None:
+                frac = stage_lo + span * pct
+                self.progress_val.emit(int((file_base + frac / n_files) * 100))
+                self.stage_msg.emit(
+                    "[%d/%d] %d%%" % (self._file_idx + 1, n_files,
+                                      int(pct * 100)))
         self._proc.wait()
         return self._proc.returncode, "".join(out_lines)
 
@@ -252,13 +307,15 @@ class EspWorker(QThread):
         density_path = os.path.join(arch_dir, "density.cub")
         esp_path = os.path.join(arch_dir, "ESP.cub")
         if not (os.path.exists(density_path) and os.path.exists(esp_path)):
+            self.stage_msg.emit(f"运行 Multiwfn 生成 density/ESP cube（{stem}）…")
             self.progress.emit(f"运行 Multiwfn 生成 density/ESP cube（{stem}）…")
             tmp = tempfile.mkdtemp(prefix="esp_")
             try:
                 fch_name = "sys1.fch"
                 shutil.copy2(fchk, os.path.join(tmp, fch_name))
                 rc, _ = self._run_multiwfn(
-                    CMD_ESPISO, tmp, fch_name, f"-ESPrhoiso {ESPRHOISO}")
+                    CMD_ESPISO, tmp, fch_name, f"-ESPrhoiso {ESPRHOISO}",
+                    stage_lo=0.0, stage_hi=0.85)
                 if rc not in (0, 24):
                     raise RuntimeError(f"Multiwfn 退出码 {rc}")
                 d_src = os.path.join(tmp, "density.cub")
@@ -274,17 +331,28 @@ class EspWorker(QThread):
                 except OSError:
                     pass
         else:
+            self.stage_msg.emit(f"复用已归档 cube：{os.path.basename(arch_dir)}")
             self.progress.emit(f"复用已归档 cube：{os.path.basename(arch_dir)}")
+        n_files = max(len(self.fchk_list), 1)
+        file_base = self._file_idx / n_files
+        self.progress_val.emit(int((file_base + 0.85 / n_files) * 100))
         return read_cube(density_path), read_cube(esp_path)
 
     def _run_extrema(self, fchk):
         """跑 CMD_ESPEXT，返回 [(kind, x, y, z, value)] Å 或 []。"""
+        # ext 单独模式无 cube 生成阶段：极值点占满整个文件切片
+        if self.mode == "ext":
+            lo, hi = 0.0, 0.95
+        else:  # all：cube 阶段已占 [0, 0.85]
+            lo, hi = 0.85, 0.95
+        self.stage_msg.emit("运行 Multiwfn 极值点分析 …")
         self.progress.emit("运行 Multiwfn 极值点分析 …")
         tmp = tempfile.mkdtemp(prefix="espext_")
         try:
             fch_name = "sys1.fch"
             shutil.copy2(fchk, os.path.join(tmp, fch_name))
-            rc, _ = self._run_multiwfn(CMD_ESPEXT, tmp, fch_name)
+            rc, _ = self._run_multiwfn(CMD_ESPEXT, tmp, fch_name,
+                                       stage_lo=lo, stage_hi=hi)
             if rc not in (0, 24):
                 raise RuntimeError(f"Multiwfn 退出码 {rc}")
             pdb = os.path.join(tmp, "surfanalysis.pdb")
@@ -304,11 +372,17 @@ class EspWorker(QThread):
         try:
             surfs = []
             first_density = None
-            for fchk in self.fchk_list:
+            n_files = max(len(self.fchk_list), 1)
+            for file_idx, fchk in enumerate(self.fchk_list):
+                self._file_idx = file_idx
+                self.stage_msg.emit(
+                    "[%d/%d] %s" % (self._file_idx + 1, n_files,
+                                    os.path.basename(fchk)))
                 if self.mode in ("iso", "pt", "all", "merge"):
                     density, esp = self._ensure_cubes(fchk)
                     if first_density is None:
                         first_density = density
+                    self.stage_msg.emit("提取 ESP 表面 …")
                     self.progress.emit("提取 ESP 表面 …")
                     surf, _ = extract_esp_surface(
                         density, esp,
@@ -319,9 +393,15 @@ class EspWorker(QThread):
                         self.progress.emit("该体系密度等值面为空，跳过")
                         continue
                     surfs.append(surf)
+                    # 表面提取阶段：本文件切片内 0.85 → 0.97
+                    self.progress_val.emit(
+                        int((self._file_idx + 0.97 / n_files) * 100))
                 if self.mode in ("ext", "all"):
                     pts = self._run_extrema(fchk)
                     result["extrema"] = pts
+                # 本文件完成：切片结束
+                self.progress_val.emit(
+                    int((self._file_idx + 1) / n_files * 100))
             if surfs:
                 if len(surfs) == 1:
                     result["surf"] = surfs[0]
@@ -560,12 +640,14 @@ class EspPanel(QWidget):
     """ESP 表面面板：fchk → Multiwfn cube/极值点 → 左画布渲染（ISO/PT/EXT/ALL）。"""
 
     def __init__(self, glw=None, multiwfn_path="", get_fchk=None, parent=None,
-                 get_multiwfn=None):
+                 get_multiwfn=None, on_vmd_refresh=None):
         super().__init__(parent)
         self.lang = "zh"
         self.glw = glw
         self.multiwfn_path = multiwfn_path or ""
         self._get_fchk = get_fchk or (lambda: None)
+        # VMD 刷新回调（主窗口注入：检测/自动范围等改变范围后刷新已连接的 VMD）
+        self._on_vmd_refresh = on_vmd_refresh
         # Multiwfn 路径统一走主窗口 ⚙️ 路径设置（实时读取）
         self._get_mw = (get_multiwfn if callable(get_multiwfn)
                         else (lambda: multiwfn_path or ""))
@@ -680,6 +762,30 @@ class EspPanel(QWidget):
         h.addWidget(self.btn_clear)
         h.addStretch()
         bv.addLayout(h)
+
+        # 计算进度条 + 计算信息（移植自 ESPViewer2/esp_surface_gui.py）
+        prog_row = QWidget()
+        ph = QHBoxLayout(prog_row)
+        ph.setContentsMargins(0, 0, 0, 0)
+        ph.setSpacing(6)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setStyleSheet(
+            "QProgressBar { border: none; border-radius: 6px;"
+            " background: #E2E8F0; height: 14px;"
+            " color: #1E293B; font-size: 9pt; text-align: center; }"
+            "QProgressBar::chunk { border-radius: 6px;"
+            " background: qlineargradient(x1:0, y1:0, x2:1, y2:0,"
+            " stop:0 #3E8E7E, stop:1 #1565C0); }")
+        self.progress_bar.hide()
+        ph.addWidget(self.progress_bar, stretch=1)
+        self.lbl_esp_info = QLabel()
+        self.lbl_esp_info.setStyleSheet("color: #64748B; font-size: 9pt;")
+        self.lbl_esp_info.hide()
+        ph.addWidget(self.lbl_esp_info)
+        bv.addWidget(prog_row)
 
         # 载入 cub 文件夹（直接可视化已归档 cube，无需重跑 Multiwfn）
         cub_row = QWidget()
@@ -830,6 +936,14 @@ class EspPanel(QWidget):
         self.combo_cmap = QComboBox()
         self.combo_cmap.addItems(list(ESP_CMAPS.keys()))
         self.combo_cmap.setCurrentText("彩虹 Turbo")
+        # 切换配色：色标条立即换色；已生成过表面则防抖后自动重提取着色
+        #（免手点「生成 ESP 表面」）。连接须放在 setCurrentText 之后，
+        # 避免初始化期间 addItems/setCurrentText 触发一次。
+        self._cmap_debounce = QTimer(self)
+        self._cmap_debounce.setSingleShot(True)
+        self._cmap_debounce.setInterval(250)
+        self._cmap_debounce.timeout.connect(self._rerender_surface)
+        self.combo_cmap.currentTextChanged.connect(self._on_cmap_changed)
         ph2.addWidget(self.combo_cmap)
         self.lbl_op = QLabel()
         ph2.addWidget(self.lbl_op)
@@ -1231,8 +1345,9 @@ class EspPanel(QWidget):
         if folder:
             self._load_cubdir(folder)
 
-    def _load_cubdir(self, folder):
-        """在 folder 里配对 density*.cub / ESP*.cub，直接渲染等值面（不跑 Multiwfn）。"""
+    def _load_cubdir(self, folder, rerender=True):
+        """在 folder 里配对 density*.cub / ESP*.cub，直接渲染等值面（不跑 Multiwfn）。
+        rerender=False 时仅登记 cub 配对（不立即重渲染），供生成完成后自动载入用。"""
         import glob as _glob
         dens = sorted(_glob.glob(os.path.join(folder, "density*.cub")))
         esps = sorted(_glob.glob(os.path.join(folder, "ESP*.cub")))
@@ -1270,11 +1385,31 @@ class EspPanel(QWidget):
         self._loaded_cub_pairs = pairs
         self.edit_cubdir.setText(folder)
         self._log(self._t("load_cub_ok", n=len(pairs)))
+        if not rerender:
+            return
         try:
             self._rerender_surface()
         except Exception as e:  # noqa
             QMessageBox.warning(self, self._t("load_cubdir"),
                                 self._t("load_cub_fail", err=str(e)))
+
+    def _auto_fill_cubdir(self):
+        """生成 ESP 完成后：把归档 cub 目录自动填入「载入 cub 文件夹」并自动载入，
+        后续调样式/配色直接复用归档 cube，无需重跑 Multiwfn。
+        仅单个分子时自动载入（多分子 merge 的 cub 分散在多个目录，不自动载入）。"""
+        lst = getattr(self, "_last_fchk_list", None) or []
+        if len(lst) != 1:
+            return
+        fchk = lst[0]
+        if not os.path.exists(fchk):
+            return
+        d, e = self._cube_paths_for(fchk)
+        if not (os.path.exists(d) and os.path.exists(e)):
+            return
+        try:
+            self._load_cubdir(os.path.dirname(d), rerender=False)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _current_cube_paths(self):
         """返回当前 cube 源 (fchk_or_None, density, esp) 路径对列表。
@@ -1307,6 +1442,8 @@ class EspPanel(QWidget):
         glw._cube = first_density
         glw._pos_surf = surf
         glw._neg_surf = None
+        # 通知画布：表面带 ESP 顶点连续着色（一键样式/相位色操作不得平铺覆盖）
+        glw._surf_vcolor = True
         if first_density is not None:
             ctr, r = compute_bounding_sphere(first_density)
             glw.cam.set_center_zoom(ctr, r)
@@ -1389,6 +1526,12 @@ class EspPanel(QWidget):
                                  lo=self._au_to_display(lo_au),
                                  hi=self._au_to_display(hi_au),
                                  unit=self._unit))
+        # 通知主窗口：范围已更新 → 若 VMD 已连接则刷新 VMD 显示
+        if callable(self._on_vmd_refresh):
+            try:
+                self._on_vmd_refresh()
+            except Exception:
+                pass
 
     def _export_png(self):
         """按当前 DPI（可透明背景）导出画布为 PNG。"""
@@ -1463,6 +1606,14 @@ class EspPanel(QWidget):
         self.glw.set_color_scale(lo, hi, unit=unit,
                                  show=self.chk_cs.isChecked())
 
+    def _on_cmap_changed(self, _cmap=None):
+        """切换配色：色标条立即换色；已生成 cube 则防抖后自动重提取表面
+        （表面颜色与色标条一起变，无需再点「生成 ESP 表面」）。
+        还没生成过 → 静默跳过，生成时自然带上新配色。"""
+        self._sync_color_scale()
+        if self._current_cube_paths():
+            self._cmap_debounce.start()
+
     def _on_unit_changed(self, unit_text):
         """切换能量单位（kcal/mol ↔ a.u.），编辑框数值同步换算。"""
         if unit_text == self._unit:
@@ -1508,6 +1659,12 @@ class EspPanel(QWidget):
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.progress.connect(self._log)
+        self._worker.progress_val.connect(self.progress_bar.setValue)
+        self._worker.stage_msg.connect(self.lbl_esp_info.setText)
+        self.progress_bar.show()
+        self.lbl_esp_info.show()
+        self.progress_bar.setValue(0)
+        self.lbl_esp_info.setText("准备中 …")
         self._worker.start()
 
     def _on_done(self, result):
@@ -1520,6 +1677,9 @@ class EspPanel(QWidget):
 
         if glw is None:
             self._set_status("画布不可用")
+            self.progress_bar.setValue(100)
+            self.progress_bar.hide()
+            self.lbl_esp_info.hide()
             return
 
         # 表面 / 点云
@@ -1584,6 +1744,15 @@ class EspPanel(QWidget):
         else:
             self._set_status(self._t("empty"))
 
+        # 生成完成后：把归档 cub 目录自动填入「载入 cub 文件夹」并自动载入，
+        # 之后调样式/配色直接复用归档 cube，无需重跑 Multiwfn。
+        self._auto_fill_cubdir()
+
+        # 完成后：进度条走满后隐藏
+        self.progress_bar.setValue(100)
+        self.progress_bar.hide()
+        self.lbl_esp_info.hide()
+
     def _register_vmd_scene(self, iso, vmin, vmax, cmap):
         """登记 VMD 同步场景；失败只影响「同步到 VMD」，不影响 ESP 显示。"""
         try:
@@ -1619,6 +1788,8 @@ class EspPanel(QWidget):
         self.btn_generate.setEnabled(True)
         self._set_status("错误: " + str(msg))
         self._log("错误: " + str(msg))
+        self.progress_bar.hide()
+        self.lbl_esp_info.hide()
 
     # ── 面积分布图 ──
     def _run_area_chart(self):
@@ -1731,7 +1902,7 @@ class BinSettingsDialog(QDialog):
 
     def __init__(self, parent=None, lo=-25.0, hi=22.0, n=15):
         super().__init__(parent)
-        self.setWindowTitle("ESP 面积分布 – 分区设置")
+        self.setWindowTitle(_cv("ESP 面积分布 – 分区设置"))
         self.resize(320, 200)
         lay = QFormLayout(self)
         self.edit_lo = QDoubleSpinBox()
@@ -1745,9 +1916,9 @@ class BinSettingsDialog(QDialog):
         self.edit_n = QSpinBox()
         self.edit_n.setRange(2, 250)
         self.edit_n.setValue(n)
-        lay.addRow("最小值 (kcal/mol):", self.edit_lo)
-        lay.addRow("最大值 (kcal/mol):", self.edit_hi)
-        lay.addRow("分区数:", self.edit_n)
+        lay.addRow(_cv("最小值 (kcal/mol):"), self.edit_lo)
+        lay.addRow(_cv("最大值 (kcal/mol):"), self.edit_hi)
+        lay.addRow(_cv("分区数:"), self.edit_n)
         lay.addRow(QLabel("单位提示: 1 eV = 23.06 kcal/mol; "
                           "1 Hartree = 627.51 kcal/mol"))
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -1776,7 +1947,7 @@ class AreaChartDialog(QDialog):
 
     def __init__(self, parent=None, results=None, unit_label="kcal/mol"):
         super().__init__(parent)
-        self.setWindowTitle("ESP 表面分区面积分布")
+        self.setWindowTitle(_cv("ESP 表面分区面积分布"))
         self.resize(1180, 720)
         # results: [(name, [(center, area, pct), ...]), ...]
         self.all_data = list(results or [])
@@ -1811,52 +1982,52 @@ class AreaChartDialog(QDialog):
         right.setContentsMargins(0, 0, 0, 0)
         right.setSpacing(10)
 
-        # 卡片：标题与坐标轴
-        title_box = QGroupBox("标题与坐标轴")
+        # 卡片：标题与坐标轴（默认英文，可改成中文；matplotlib 已配中文字体）
+        title_box = QGroupBox(_cv("标题与坐标轴"))
         title_box.setStyleSheet(self._GROUP_STYLE)
         title_gl = QGridLayout()
         title_gl.setContentsMargins(12, 8, 12, 12)
         title_gl.setVerticalSpacing(8)
         title_gl.setHorizontalSpacing(10)
         title_gl.setColumnStretch(1, 1)
-        title_gl.addWidget(QLabel("标题"), 0, 0)
-        self.title_edit = QLineEdit("ESP 表面分区面积分布")
+        title_gl.addWidget(QLabel(_cv("标题")), 0, 0)
+        self.title_edit = QLineEdit("ESP Area Distribution")
         title_gl.addWidget(self.title_edit, 0, 1)
-        title_gl.addWidget(QLabel("X 轴标签"), 1, 0)
+        title_gl.addWidget(QLabel(_cv("X 轴标签")), 1, 0)
         self.xlabel_edit = QLineEdit(f"ESP ({unit_label})")
         title_gl.addWidget(self.xlabel_edit, 1, 1)
-        title_gl.addWidget(QLabel("Y 轴标签"), 2, 0)
-        self.ylabel_edit = QLineEdit("表面积 (Å²)")
+        title_gl.addWidget(QLabel(_cv("Y 轴标签")), 2, 0)
+        self.ylabel_edit = QLineEdit("Surface Area (Å²)")
         title_gl.addWidget(self.ylabel_edit, 2, 1)
-        title_gl.addWidget(QLabel("Y 轴数据"), 3, 0)
+        title_gl.addWidget(QLabel(_cv("Y 轴数据")), 3, 0)
         self._y_mode_combo = QComboBox()
-        self._y_mode_combo.addItems(["面积 (Å²)", "百分比 (%)"])
+        self._y_mode_combo.addItems([_cv("面积 (Å²)"), _cv("百分比 (%)")])
         title_gl.addWidget(self._y_mode_combo, 3, 1)
         self._align_grid_labels(title_gl)
         title_box.setLayout(title_gl)
         right.addWidget(title_box)
 
         # 卡片：X 轴范围
-        xrange_box = QGroupBox("X 轴范围")
+        xrange_box = QGroupBox(_cv("X 轴范围"))
         xrange_box.setStyleSheet(self._GROUP_STYLE)
         data_gl = QGridLayout()
         data_gl.setContentsMargins(12, 8, 12, 12)
         data_gl.setVerticalSpacing(8)
         data_gl.setHorizontalSpacing(10)
         data_gl.setColumnStretch(1, 1)
-        data_gl.addWidget(QLabel("最小值"), 0, 0)
+        data_gl.addWidget(QLabel(_cv("最小值")), 0, 0)
         self._xmin_spin = QDoubleSpinBox()
         self._xmin_spin.setRange(-100, 100)
         self._xmin_spin.setValue(-25.0)
         self._xmin_spin.setDecimals(1)
         data_gl.addWidget(self._xmin_spin, 0, 1)
-        data_gl.addWidget(QLabel("最大值"), 1, 0)
+        data_gl.addWidget(QLabel(_cv("最大值")), 1, 0)
         self._xmax_spin = QDoubleSpinBox()
         self._xmax_spin.setRange(-100, 100)
         self._xmax_spin.setValue(22.0)
         self._xmax_spin.setDecimals(1)
         data_gl.addWidget(self._xmax_spin, 1, 1)
-        self._xrange_cb = QCheckBox("自定义范围")
+        self._xrange_cb = QCheckBox(_cv("自定义范围"))
         self._xrange_cb.stateChanged.connect(self._refresh_chart)
         data_gl.addWidget(self._xrange_cb, 2, 0, 1, 2)
         self._align_grid_labels(data_gl)
@@ -1864,27 +2035,27 @@ class AreaChartDialog(QDialog):
         right.addWidget(xrange_box)
 
         # 卡片：样式设置
-        style_box = QGroupBox("样式设置")
+        style_box = QGroupBox(_cv("样式设置"))
         style_box.setStyleSheet(self._GROUP_STYLE)
         style_gl = QGridLayout()
         style_gl.setContentsMargins(12, 8, 12, 12)
         style_gl.setVerticalSpacing(8)
         style_gl.setHorizontalSpacing(10)
         style_gl.setColumnStretch(1, 1)
-        self._grid_cb = QCheckBox("网格线")
+        self._grid_cb = QCheckBox(_cv("网格线"))
         self._grid_cb.setChecked(False)
         self._grid_cb.stateChanged.connect(self._refresh_chart)
         style_gl.addWidget(self._grid_cb, 0, 0)
-        self._legend_cb = QCheckBox("图例")
+        self._legend_cb = QCheckBox(_cv("图例"))
         self._legend_cb.setChecked(True)
         self._legend_cb.stateChanged.connect(self._refresh_chart)
         style_gl.addWidget(self._legend_cb, 0, 1)
-        style_gl.addWidget(QLabel("配色 (colormap)"), 1, 0)
+        style_gl.addWidget(QLabel(_cv("配色 (colormap)")), 1, 0)
         self._cmap_combo = QComboBox()
         self._cmap_combo.addItems(["BWR", "Jet", "Viridis", "RdBu", "coolwarm", "Spectral"])
         self._cmap_combo.currentIndexChanged.connect(self._refresh_chart)
         style_gl.addWidget(self._cmap_combo, 1, 1)
-        style_gl.addWidget(QLabel("透明度"), 2, 0)
+        style_gl.addWidget(QLabel(_cv("透明度")), 2, 0)
         alpha_row = QHBoxLayout()
         self._alpha_slider = QSlider(Qt.Horizontal)
         self._alpha_slider.setRange(10, 100)
@@ -1902,18 +2073,18 @@ class AreaChartDialog(QDialog):
         right.addWidget(style_box)
 
         # 卡片：标注
-        anno_box = QGroupBox("标注")
+        anno_box = QGroupBox(_cv("标注"))
         anno_box.setStyleSheet(self._GROUP_STYLE)
         anno_gl = QGridLayout()
         anno_gl.setContentsMargins(12, 8, 12, 12)
         anno_gl.setVerticalSpacing(8)
         anno_gl.setHorizontalSpacing(10)
         anno_gl.setColumnStretch(1, 1)
-        self._mark_peak_cb = QCheckBox("标记最高/最低点")
+        self._mark_peak_cb = QCheckBox(_cv("标记最高/最低点"))
         self._mark_peak_cb.setChecked(False)
         self._mark_peak_cb.stateChanged.connect(self._refresh_chart)
         anno_gl.addWidget(self._mark_peak_cb, 0, 0, 1, 2)
-        self._hline_cb = QCheckBox("水平参考线")
+        self._hline_cb = QCheckBox(_cv("水平参考线"))
         self._hline_cb.setChecked(False)
         self._hline_cb.stateChanged.connect(self._refresh_chart)
         anno_gl.addWidget(self._hline_cb, 1, 0)
@@ -1932,42 +2103,42 @@ class AreaChartDialog(QDialog):
         right.addWidget(anno_box)
 
         # 卡片：字号设置
-        font_box = QGroupBox("字号设置")
+        font_box = QGroupBox(_cv("字号设置"))
         font_box.setStyleSheet(self._GROUP_STYLE)
         font_gl = QGridLayout()
         font_gl.setContentsMargins(12, 8, 12, 12)
         font_gl.setVerticalSpacing(8)
         font_gl.setHorizontalSpacing(10)
         font_gl.setColumnStretch(1, 1)
-        font_gl.addWidget(QLabel("刻度字号"), 0, 0)
+        font_gl.addWidget(QLabel(_cv("刻度字号")), 0, 0)
         self.tick_fs_spin = QSpinBox()
         self.tick_fs_spin.setRange(6, 20)
         self.tick_fs_spin.setValue(9)
         self.tick_fs_spin.setFixedWidth(90)
         self.tick_fs_spin.valueChanged.connect(self._refresh_chart)
         font_gl.addWidget(self.tick_fs_spin, 0, 1)
-        font_gl.addWidget(QLabel("数值字号"), 1, 0)
+        font_gl.addWidget(QLabel(_cv("数值字号")), 1, 0)
         self.bar_fs_spin = QSpinBox()
         self.bar_fs_spin.setRange(5, 18)
         self.bar_fs_spin.setValue(7)
         self.bar_fs_spin.setFixedWidth(90)
         self.bar_fs_spin.valueChanged.connect(self._refresh_chart)
         font_gl.addWidget(self.bar_fs_spin, 1, 1)
-        font_gl.addWidget(QLabel("标题字号"), 2, 0)
+        font_gl.addWidget(QLabel(_cv("标题字号")), 2, 0)
         self.title_fs_spin = QSpinBox()
         self.title_fs_spin.setRange(8, 24)
         self.title_fs_spin.setValue(14)
         self.title_fs_spin.setFixedWidth(90)
         self.title_fs_spin.valueChanged.connect(self._refresh_chart)
         font_gl.addWidget(self.title_fs_spin, 2, 1)
-        font_gl.addWidget(QLabel("轴标签字号"), 3, 0)
+        font_gl.addWidget(QLabel(_cv("轴标签字号")), 3, 0)
         self.label_fs_spin = QSpinBox()
         self.label_fs_spin.setRange(6, 20)
         self.label_fs_spin.setValue(12)
         self.label_fs_spin.setFixedWidth(90)
         self.label_fs_spin.valueChanged.connect(self._refresh_chart)
         font_gl.addWidget(self.label_fs_spin, 3, 1)
-        self._show_bar_val_cb = QCheckBox("显示柱顶数值")
+        self._show_bar_val_cb = QCheckBox(_cv("显示柱顶数值"))
         self._show_bar_val_cb.setChecked(True)
         self._show_bar_val_cb.stateChanged.connect(self._refresh_chart)
         font_gl.addWidget(self._show_bar_val_cb, 4, 0, 1, 2)
@@ -1977,23 +2148,23 @@ class AreaChartDialog(QDialog):
 
         # 卡片：多文件
         if len(self.all_data) > 1:
-            mf_box = QGroupBox("多文件")
+            mf_box = QGroupBox(_cv("多文件"))
             mf_box.setStyleSheet(self._GROUP_STYLE)
             mf_gl = QGridLayout()
             mf_gl.setContentsMargins(12, 8, 12, 12)
             mf_gl.setVerticalSpacing(8)
             mf_gl.setHorizontalSpacing(10)
             mf_gl.setColumnStretch(1, 1)
-            mf_gl.addWidget(QLabel("文件"), 0, 0)
+            mf_gl.addWidget(QLabel(_cv("文件")), 0, 0)
             self.file_combo = QComboBox()
             self.file_combo.addItems([d[0] for d in self.all_data])
             self.file_combo.currentIndexChanged.connect(self._on_file_changed)
             mf_gl.addWidget(self.file_combo, 0, 1)
-            self._overlay_cb = QCheckBox("叠加模式")
+            self._overlay_cb = QCheckBox(_cv("叠加模式"))
             self._overlay_cb.stateChanged.connect(self._on_overlay_toggled)
             mf_gl.addWidget(self._overlay_cb, 1, 0)
             self._chart_type_combo = QComboBox()
-            self._chart_type_combo.addItems(["柱状图", "折线图"])
+            self._chart_type_combo.addItems([_cv("柱状图"), _cv("折线图")])
             self._chart_type_combo.setEnabled(False)
             self._chart_type_combo.currentIndexChanged.connect(self._on_chart_type_changed)
             mf_gl.addWidget(self._chart_type_combo, 1, 1)
@@ -2002,7 +2173,7 @@ class AreaChartDialog(QDialog):
             right.addWidget(mf_box)
 
         # 卡片：输出
-        out_box = QGroupBox("输出")
+        out_box = QGroupBox(_cv("输出"))
         out_box.setStyleSheet(self._GROUP_STYLE)
         out_gl = QGridLayout()
         out_gl.setContentsMargins(12, 8, 12, 12)
@@ -2016,14 +2187,14 @@ class AreaChartDialog(QDialog):
         self._dpi_spin.setSingleStep(50)
         self._dpi_spin.setFixedWidth(90)
         out_gl.addWidget(self._dpi_spin, 0, 1)
-        out_gl.addWidget(QLabel("图宽 (inch)"), 1, 0)
+        out_gl.addWidget(QLabel(_cv("图宽 (inch)")), 1, 0)
         self._fig_w_spin = QDoubleSpinBox()
         self._fig_w_spin.setRange(3, 20)
         self._fig_w_spin.setValue(7)
         self._fig_w_spin.setDecimals(1)
         self._fig_w_spin.setFixedWidth(90)
         out_gl.addWidget(self._fig_w_spin, 1, 1)
-        out_gl.addWidget(QLabel("图高 (inch)"), 2, 0)
+        out_gl.addWidget(QLabel(_cv("图高 (inch)")), 2, 0)
         self._fig_h_spin = QDoubleSpinBox()
         self._fig_h_spin.setRange(3, 20)
         self._fig_h_spin.setValue(7)
@@ -2039,11 +2210,11 @@ class AreaChartDialog(QDialog):
         # 底部按钮
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        csv_btn = QPushButton("导出 CSV")
+        csv_btn = QPushButton(_cv("导出 CSV"))
         csv_btn.setCursor(QCursor(Qt.PointingHandCursor))
         csv_btn.clicked.connect(self._export_csv)
         btn_row.addWidget(csv_btn)
-        save_btn = QPushButton("保存图片")
+        save_btn = QPushButton(_cv("保存图片"))
         save_btn.setCursor(QCursor(Qt.PointingHandCursor))
         save_btn.setStyleSheet(
             "QPushButton { background: #1E88E5; color: white; font-weight: bold; "
@@ -2051,7 +2222,7 @@ class AreaChartDialog(QDialog):
             "QPushButton:hover { background: #1976D2; }")
         save_btn.clicked.connect(self._save_chart)
         btn_row.addWidget(save_btn)
-        close_btn = QPushButton("关闭")
+        close_btn = QPushButton(_cv("关闭"))
         close_btn.setCursor(QCursor(Qt.PointingHandCursor))
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(close_btn)
@@ -2326,7 +2497,7 @@ class AreaChartDialog(QDialog):
             default_name = os.path.splitext(self.all_data[0][0])[0] + "_esp_area.csv"
         else:
             default_name = "esp_area_all.csv"
-        path, _ = save_file(self, "导出 CSV", default_name, "CSV (*.csv)")
+        path, _ = save_file(self, _cv("导出 CSV"), default_name, "CSV (*.csv)")
         if not path:
             return
         try:
@@ -2345,7 +2516,7 @@ class AreaChartDialog(QDialog):
     def _save_chart(self):
         default_name = os.path.splitext(self.all_data[self.current_idx][0])[0] + "_esp_area.png"
         path, _ = save_file(
-            self, "保存图片", default_name,
+            self, _cv("保存图片"), default_name,
             "PNG (*.png);;JPEG (*.jpg);;PDF (*.pdf)")
         if path:
             try:

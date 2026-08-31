@@ -53,6 +53,19 @@ $null
 # 测试/示例数据与临时脚本（不入库）
 *.chg
 *.cub
-_*.py
-_*.cub
+/_*.py
+/_*.cub
 layout_sketch.html
+
+# 调试/临时构建产物（不入库）
+/_build_sim/
+/_build_tiny/
+/_dist_sim/
+/_dist_tiny/
+/_splash_frames/
+FadeSim.spec
+TinyApp.spec
+/_vdw_test.txt
+dsh_dates.txt
+debug-vdw-shell-bond-black.md
+color_wheel_demos.py

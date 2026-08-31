@@ -21,12 +21,12 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QComboBox,
     QPushButton, QSlider, QGroupBox, QFileDialog, QMessageBox,
     QGridLayout, QCheckBox, QSizePolicy, QToolButton, QFrame, QColorDialog,
-    QListView, QDialog, QSpinBox,
+    QListView, QDialog, QSpinBox, QGraphicsDropShadowEffect, QApplication,
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPointF
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPointF, QRectF
 from PyQt5.QtGui import (
-    QDoubleValidator, QColor, QRadialGradient,
-    QPainter, QPen, QBrush,
+    QDoubleValidator, QIntValidator, QColor, QRadialGradient,
+    QPainter, QPen, QBrush, QPainterPath, QRegion,
 )
 
 from ._glwidget import (
@@ -37,6 +37,154 @@ from ._glwidget import (
 from file_dialogs import open_file, save_file
 from marching_cubes import read_cube, relative_iso_threshold
 from ._colorwheel import ColorWheelWidget
+import i18n
+
+# ── 画布参数区 i18n ──
+# key = 中文原文（构造处直接传原文，zh 模式原样显示），value = 英文。
+_CV_EN = {
+    # 一键样式 / 分子显示 / 导出行
+    "一键样式:": "Styles:",
+    "分子显示:": "Display:",
+    "隐藏氢原子": "Hide hydrogens",
+    "保留H编号:": "Keep H:",
+    "如 1,3,5-8": "e.g. 1,3,5-8",
+    "显示原子编号": "Show atom index",
+    "显示元素符号": "Show element symbols",
+    "键长标注": "Bond Labels",
+    "清除": "Clear",
+    "清空样式": "Clear analysis",
+    "同步到VMD": "Sync to VMD",
+    "透明背景": "Transparent BG",
+    "截图": "Snapshot",
+    "导出图片": "Export Image",
+    "重置视角": "Reset View",
+    "参数": "Parameters",
+    # 参数区行标签
+    "等值面配色:": "Iso color:",
+    "光照:": "Lighting:",
+    "原子配色:": "Atom colors:",
+    "光泽:": "Shininess:",
+    "选中标记:": "Sel. marker:",
+    "呼吸:": "Pulse:",
+    "等值面大小:": "Isovalue:",
+    "透明度:": "Transparency:",
+    "层数:": "Layers:",
+    "网格精度:": "Grid:",
+    "粗细:": "Width:",
+    "色轮:": "Wheel:",
+    "相位配色:": "Phase scheme:",
+    "正相位:": "Pos:",
+    "负相位:": "Neg:",
+    "灯光:": "Lights:",
+    "样式:": "Preset:",
+    # 等值面组控件
+    "等值面描边": "Isosurface outline",
+    "描边颜色:": "Outline color:",
+    "颜色": "Color",
+    "重置": "Reset",
+    "启用色轮配色": "Wheel drives colors",
+    "翻转相位": "Flip Phase",
+    "光源设置…": "Lights…",
+    "保存…": "Save…",
+    "载入…": "Load…",
+    "二十面体": "Icosahedron",
+    "透明球": "Ghost sphere",
+    "圆环": "Ring",
+    "光晕": "Glow",
+    "低 (1)": "Low (1)",
+    "中 (2)": "Med (2)",
+    "高 (3)": "High (3)",
+    # 光照下拉显示名（_LIGHTING_OPTIONS）
+    "IboView 三光": "IboView 3-light",
+    "单光 · Houk": "1-light · Houk",
+    "单光 · 柔和": "1-light · Soft matte",
+    "单光 · 微妙": "1-light · Subtle",
+    "单光 · 平面": "1-light · Flat",
+    "单光 · Chem311": "1-light · Chem311",
+    "单光 · 苹果液态": "1-light · Apple liquid",
+    "单光 · 纸感": "1-light · Paper matte",
+    "单光 · 高级": "1-light · Premium",
+    "单光 · 粘土": "1-light · Clay",
+    "单光 · 玻璃": "1-light · Glass",
+    "单光 · 霓虹": "1-light · Neon",
+    "单光 · 墨线": "1-light · Ink flat",
+    "单光 · GaussView": "1-light · GaussView",
+    "双光源": "Two lights",
+    "四光源": "Four lights",
+    # 原子配色下拉显示名（MOL_STYLE_DISPLAY）
+    "CPK (按元素)": "CPK (by element)",
+    "VMD (碳金色)": "VMD (gold carbon)",
+    "单色白": "Monochrome white",
+    "灰度出版": "Grayscale (print)",
+    "霓虹": "Neon",
+    "GaussView": "GaussView",
+    "HoukMol": "HoukMol",
+    "SobArt (Chem311)": "SobArt (Chem311)",
+    "Vcube (VMD 风格)": "Vcube (VMD style)",
+    "相近色 (±25°)": "Analogous (±25°)",
+    "同色相·不同饱和": "Same hue, diff. sat.",
+    "互补色 (180°)": "Complementary (180°)",
+    " 层": " layers",
+    # 折叠组标题
+    "显示 / 等值面": "Display / Isosurface",
+    "球棍模型": "Ball & Stick",
+    # 球棍模型组
+    "原子半径:": "Atom radius:",
+    "范德华半径": "vdW radii",
+    "vdW 外壳": "vdW shell",
+    "仅选中片段": "Selected frags only",
+    "外壳描边": "Shell outline",
+    "片段:": "Frags:",
+    "原子编号, 如 1-12,15": "atom indices, e.g. 1-12,15",
+    "外壳透明度:": "Shell opacity:",
+    "外壳描边粗细:": "Shell outline w:",
+    "vdW 半径:": "vdW radius:",
+    "化学键:": "Bonds:",
+    "键收腰:": "Bond waist:",
+    "十字圆环:": "Cross rings:",
+    "显示": "Show",
+    "圆环设置…": "Ring settings…",
+    "虚线大小:": "Dash size:",
+    "虚线间隔:": "Dash spacing:",
+    "原子描边:": "Atom outline:",
+    "启用": "Enable",
+    "描边粗细:": "Outline width:",
+    "背景色:": "Background:",
+    "选择…": "Pick…",
+    "景深雾化": "Depth fade",
+    "未安装 PyOpenGL，画布不可用。\n请运行: pip install PyOpenGL PyOpenGL-accelerate":
+        "PyOpenGL not installed — canvas unavailable.\nRun: pip install PyOpenGL PyOpenGL-accelerate",
+    "渲染器初始化中…": "Renderer initializing…",
+    # RingControlDialog
+    "十字圆环控制": "Cross Ring Control",
+    "环 A 方位角:": "Ring A azimuth:",
+    "环 A 俯仰角:": "Ring A elevation:",
+    "环 B 方位角:": "Ring B azimuth:",
+    "环 B 俯仰角:": "Ring B elevation:",
+    "锁定方位（锁定当前角度，分子旋转时圆环不变）":
+        "Lock orientation (rings keep angle while molecule rotates)",
+    "环带粗细:": "Ring band width:",
+    "重置默认": "Reset defaults",
+    "关闭": "Close",
+    "灯%d": "Light %d",
+    # LightControlDialog
+    "光源控制": "Light Control",
+    "光源数量:": "Light count:",
+    "方位角:": "Azimuth:",
+    "俯仰角:": "Elevation:",
+    "光晕(整体):": "Glow (global):",
+    "各灯光晕:": "Per-light glow:",
+    "保存设置…": "Save…",
+    "载入设置…": "Load…",
+}
+
+
+def _cv(text):
+    """画布参数区文本翻译：zh 原样返回，en 查 _CV_EN（无条目返回原文）。"""
+    if i18n._CURRENT_LANG == "zh":
+        return text
+    return _CV_EN.get(text, text)
+
 
 # 光照/渲染效果轴（与「原子配色」轴正交）：
 # 显示名 → 渐变类型名（"" = IboView 三光，即 u_MvGrad=0；光泽由「光泽」下拉框独立控制）
@@ -163,46 +311,46 @@ class RingControlDialog(QDialog):
     def __init__(self, glw, parent=None):
         super().__init__(parent)
         self.glw = glw
-        self.setWindowTitle("十字圆环控制")
+        self.setWindowTitle(_cv("十字圆环控制"))
         self.setMinimumWidth(360)
         f = QGridLayout(self)
         f.setVerticalSpacing(8)
 
-        f.addWidget(QLabel("环 A 方位角:"), 0, 0)
+        f.addWidget(QLabel(_cv("环 A 方位角:")), 0, 0)
         self.sl_az1 = QSlider(Qt.Horizontal)
         self.sl_az1.setRange(0, 360)
         self.sl_az1.setValue(90)
         self.sl_az1.valueChanged.connect(self._apply)
         f.addWidget(self.sl_az1, 0, 1)
 
-        f.addWidget(QLabel("环 A 俯仰角:"), 1, 0)
+        f.addWidget(QLabel(_cv("环 A 俯仰角:")), 1, 0)
         self.sl_tilt1 = QSlider(Qt.Horizontal)
         self.sl_tilt1.setRange(0, 90)
         self.sl_tilt1.setValue(71)
         self.sl_tilt1.valueChanged.connect(self._apply)
         f.addWidget(self.sl_tilt1, 1, 1)
 
-        f.addWidget(QLabel("环 B 方位角:"), 2, 0)
+        f.addWidget(QLabel(_cv("环 B 方位角:")), 2, 0)
         self.sl_az2 = QSlider(Qt.Horizontal)
         self.sl_az2.setRange(0, 360)
         self.sl_az2.setValue(205)
         self.sl_az2.valueChanged.connect(self._apply)
         f.addWidget(self.sl_az2, 2, 1)
 
-        f.addWidget(QLabel("环 B 俯仰角:"), 3, 0)
+        f.addWidget(QLabel(_cv("环 B 俯仰角:")), 3, 0)
         self.sl_tilt2 = QSlider(Qt.Horizontal)
         self.sl_tilt2.setRange(0, 90)
         self.sl_tilt2.setValue(0)
         self.sl_tilt2.valueChanged.connect(self._apply)
         f.addWidget(self.sl_tilt2, 3, 1)
 
-        self.chk_lock = QCheckBox("锁定方位（锁定当前角度，分子旋转时圆环不变）")
+        self.chk_lock = QCheckBox(_cv("锁定方位（锁定当前角度，分子旋转时圆环不变）"))
         self.chk_lock.setChecked(False)
         self.chk_lock.setToolTip("勾选后把当前圆环角度冻结；分子怎么旋转圆环都不再改变")
         self.chk_lock.toggled.connect(self._apply)
         f.addWidget(self.chk_lock, 4, 0, 1, 2)
 
-        f.addWidget(QLabel("环带粗细:"), 5, 0)
+        f.addWidget(QLabel(_cv("环带粗细:")), 5, 0)
         self.sl_w = QSlider(Qt.Horizontal)
         self.sl_w.setRange(2, 20)          # 0.02 .. 0.20 环带半宽
         self.sl_w.setValue(7)              # 默认 0.07
@@ -213,13 +361,13 @@ class RingControlDialog(QDialog):
         f.addWidget(self._w_lbl, 5, 2)
 
         btns = QHBoxLayout()
-        b_reset = QPushButton("重置默认")
+        b_reset = QPushButton(_cv("重置默认"))
         b_reset.clicked.connect(self._reset)
-        b_save = QPushButton("保存…")
+        b_save = QPushButton(_cv("保存…"))
         b_save.clicked.connect(self._save)
-        b_load = QPushButton("载入…")
+        b_load = QPushButton(_cv("载入…"))
         b_load.clicked.connect(self._load)
-        b_close = QPushButton("关闭")
+        b_close = QPushButton(_cv("关闭"))
         b_close.clicked.connect(self.accept)
         btns.addWidget(b_reset)
         btns.addWidget(b_save)
@@ -413,7 +561,7 @@ class LightControlDialog(QDialog):
     def __init__(self, glw, parent=None):
         super().__init__(parent)
         self.glw = glw
-        self.setWindowTitle("光源控制")
+        self.setWindowTitle(_cv("光源控制"))
         self.setMinimumWidth(430)
         lay = QHBoxLayout(self)
         self.sphere = LightSphereWidget(glw)
@@ -422,7 +570,7 @@ class LightControlDialog(QDialog):
         right = QVBoxLayout()
         right.setSpacing(4)
 
-        right.addWidget(QLabel("光源数量:"))
+        right.addWidget(QLabel(_cv("光源数量:")))
         self.sl_cnt = QSlider(Qt.Horizontal)
         self.sl_cnt.setRange(1, 4)
         self.sl_cnt.valueChanged.connect(self._apply)
@@ -430,19 +578,19 @@ class LightControlDialog(QDialog):
         self._cnt_lbl = QLabel("3")
         right.addWidget(self._cnt_lbl)
 
-        right.addWidget(QLabel("方位角:"))
+        right.addWidget(QLabel(_cv("方位角:")))
         self.sl_az = QSlider(Qt.Horizontal)
         self.sl_az.setRange(-180, 180)
         self.sl_az.valueChanged.connect(self._apply)
         right.addWidget(self.sl_az)
 
-        right.addWidget(QLabel("俯仰角:"))
+        right.addWidget(QLabel(_cv("俯仰角:")))
         self.sl_el = QSlider(Qt.Horizontal)
         self.sl_el.setRange(-90, 90)
         self.sl_el.valueChanged.connect(self._apply)
         right.addWidget(self.sl_el)
 
-        right.addWidget(QLabel("光晕(整体):"))
+        right.addWidget(QLabel(_cv("光晕(整体):")))
         self.sl_glow = QSlider(Qt.Horizontal)
         self.sl_glow.setRange(10, 300)          # 0.1 .. 3.0
         self.sl_glow.valueChanged.connect(self._apply)
@@ -451,13 +599,13 @@ class LightControlDialog(QDialog):
         right.addWidget(self._glow_lbl)
 
         # 每盏灯独立光晕（仅显示当前生效的灯；数量改变时自动显隐）
-        right.addWidget(QLabel("各灯光晕:"))
+        right.addWidget(QLabel(_cv("各灯光晕:")))
         glow_grid = QGridLayout()
         glow_grid.setContentsMargins(0, 0, 0, 0)
         glow_grid.setSpacing(4)
         self._glow_i_lbls, self._glow_i_sliders, self._glow_i_vals = [], [], []
         for i in range(4):
-            lbl = QLabel("灯%d" % (i + 1))
+            lbl = QLabel(_cv("灯%d") % (i + 1))
             lbl.setAlignment(Qt.AlignHCenter)
             glow_grid.addWidget(lbl, 0, i)
             sl = QSlider(Qt.Horizontal)
@@ -474,15 +622,15 @@ class LightControlDialog(QDialog):
         right.addLayout(glow_grid)
 
         btns = QHBoxLayout()
-        b_reset = QPushButton("重置")
+        b_reset = QPushButton(_cv("重置"))
         b_reset.clicked.connect(self._reset)
-        b_save = QPushButton("保存设置…")
+        b_save = QPushButton(_cv("保存设置…"))
         b_save.setToolTip("把当前光源设置（数量/方向/光晕）保存为 JSON 文件")
         b_save.clicked.connect(self._save)
-        b_load = QPushButton("载入设置…")
+        b_load = QPushButton(_cv("载入设置…"))
         b_load.setToolTip("从 JSON 文件载入光源设置并应用")
         b_load.clicked.connect(self._load)
-        b_close = QPushButton("关闭")
+        b_close = QPushButton(_cv("关闭"))
         b_close.clicked.connect(self.accept)
         btns.addWidget(b_reset)
         btns.addWidget(b_save)
@@ -632,28 +780,95 @@ class LightControlDialog(QDialog):
         self.sync_from_glw()
 
 
-class _LimitedStyleCombo(QComboBox):
-    """QComboBox 子类：重写 showPopup，强制把下拉弹出窗口固定在一个
-    较低的高度，超出部分用滚动条浏览。
+class LimitedPopupComboBox(QComboBox):
+    """下拉弹出窗口限高、且严格贴合选框的 QComboBox。
 
-    Qt 默认的弹出容器（QComboBoxPrivateContainer）计算高度时不一定遵守
-    view 的 maximumHeight，setMaxVisibleItems 对自定义 view 也未必生效；
-    只有直接把弹出窗口 setFixedHeight 才是跨版本都可靠的方案（与 VMD
-    那种短小的 Representation 下拉框行为一致）。
+    与原生 QComboBox 相比解决了两个问题：
+
+    1. **限高**：条目过多时弹出窗口最多 ``max_popup_height`` 像素高，其余
+       靠滚动条浏览；条目不足时保持内容高度，不在下方拖出一片空白。
+    2. **贴合选框**：Qt 是在 ``showPopup()`` 内部按「弹出窗口当时的高度」
+       把它对齐到选框下沿的。因此若在 ``super().showPopup()`` 之后再改
+       尺寸，Qt **不会**重新定位——向上弹出时高度一缩小，弹出窗口底边与
+       选框顶边之间就会裂开一条缝；高度被撑大时则反过来压住选框。所以
+       必须在改完尺寸后按**最终高度**重新对齐一次（上下方向也一并自行
+       判断，详见 :meth:`_popup_pos`）。
+
+    参数:
+        max_popup_height: 弹出窗口最大高度（像素）。
+        max_visible_items: >0 时同时设置一次可见条目数。
+        scroll_bar_always_on: True 时垂直滚动条常显（条目很多时更直观）。
     """
-    def __init__(self, max_popup_height=220, parent=None):
+
+    def __init__(self, max_popup_height=220, max_visible_items=0,
+                 scroll_bar_always_on=False, parent=None):
         super().__init__(parent)
-        self._popup_height = max_popup_height
-        view = QListView()
+        self._popup_height = int(max_popup_height)
+        view = QListView(self)
         view.setUniformItemSizes(True)
-        view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)  # type: ignore[attr-defined]
-        view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore[attr-defined]
+        view.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOn if scroll_bar_always_on
+            else Qt.ScrollBarAsNeeded)  # type: ignore[attr-defined]
+        view.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff)  # type: ignore[attr-defined]
         self.setView(view)
+        if max_visible_items:
+            self.setMaxVisibleItems(int(max_visible_items))
 
     def showPopup(self):
         super().showPopup()
-        popup = self.view().window()
-        popup.setFixedHeight(self._popup_height)
+        popup = self.view().window()      # QComboBoxPrivateContainer
+
+        # 尺寸：矮内容贴合内容高度，高内容限高滚动。
+        h = min(popup.height(), self._popup_height)
+        # 宽度至少等于选框宽度：Qt 默认会把弹出收缩到内容文字宽度，
+        # 导致弹出列表比选框窄、看起来错位。
+        w = max(popup.width(), self.width())
+
+        anchor = self.mapToGlobal(self.rect().topLeft())
+        x, y = self._popup_pos(anchor, w, h)
+        popup.setGeometry(x, y, w, h)
+
+    def _popup_pos(self, anchor, w, h):
+        """按最终尺寸算出弹出窗口左上角坐标，使其紧贴选框边缘。
+
+        优先向下弹（顶边贴选框底边）；下方放不下则向上弹（底边贴选框
+        顶边）；两边都放不下时贴住空间较大的一侧并钳进可用区域。
+
+        这里不沿用 Qt 的上下判断：实测短列表在贴近屏幕底部时，Qt 会把
+        弹出窗口放在选框下方并溢出屏幕外，再简单钳制回来就会压住选框。
+        """
+        x = anchor.x()
+        y = anchor.y() + self.height()          # 向下弹：顶边贴选框底边
+        avail = self._available_geometry(anchor)
+        if avail is None:
+            return x, y
+
+        if y + h > avail.bottom():              # 下方放不下
+            upward = anchor.y() - h             # 向上弹：底边贴选框顶边
+            if upward >= avail.top():
+                y = upward
+            elif (avail.bottom() - y) >= (anchor.y() - avail.top()):
+                y = max(avail.top(), avail.bottom() - h)
+            else:
+                y = avail.top()
+
+        # 水平方向同样钳进屏幕，避免多屏/贴右边界时越界
+        x = max(avail.left(), min(x, avail.right() - w))
+        return x, y
+
+    @staticmethod
+    def _available_geometry(pos):
+        """取 pos 所在屏幕的可用区域（不含任务栏）；取不到时返回 None。"""
+        try:
+            scr = QApplication.screenAt(pos) or QApplication.primaryScreen()
+            return scr.availableGeometry() if scr is not None else None
+        except Exception:
+            return None
+
+
+# 旧名保留，便于既有代码/外部脚本继续引用
+_LimitedStyleCombo = LimitedPopupComboBox
 
 
 # 画布区配色 —— 与 theme.LIGHT_QSS 浅色科技风保持一致。
@@ -726,11 +941,25 @@ QFrame#CubParams QGroupBox {
     padding: 10px 10px 8px 10px;
 }
 
-/* 一键样式行：画布正下方常驻，白底 + 上下细分隔线 */
+/* GL 画布容器：背景白；圆角形状由 setMask 提供 */
+QFrame#CubCanvasFrame {
+    background: #FFFFFF;
+}
+
+/* 一键样式 + 分子显示：外层圆角矩形卡片（浅色渐变 + 细边框 + 投影） */
+QWidget#CubStyleWrap {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #FFFFFF, stop:1 #F1F5FB);
+    border: 1px solid #D5DEE9;
+    border-radius: 12px;
+}
+
+/* 一键样式 + 分子显示：圆角卡片，浅色渐变底纹 + 细边框 */
 QWidget#CubStyleBar {
-    background-color: #FFFFFF;
-    border-top: 1px solid #CBD5E1;
-    border-bottom: 1px solid #CBD5E1;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #FFFFFF, stop:1 #F1F5FB);
+    border: 1px solid #D5DEE9;
+    border-radius: 10px;
 }
 
 QWidget#CubStyleBar QLabel {
@@ -754,6 +983,7 @@ class CubCanvasPanel(QWidget):
     """
 
     statusChanged = pyqtSignal(str)
+    paramsChanged = pyqtSignal()   # 参数区某个折叠组展开/收起时发出（主窗口据此对齐底部横带）
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -761,17 +991,23 @@ class CubCanvasPanel(QWidget):
         self.setStyleSheet(_CANVAS_QSS)
         self.setAcceptDrops(True)
 
+        # i18n：登记 (widget, 中文原文, 方法名)，切语言时逐个刷新
+        self._cv_reg = []
         self._gl_ok = _ensure_pyopengl()
         self._cube_paths = []
         self._loaded_path = None
+        # 「同步到VMD」回调（由主窗口注入；None=画布独立使用时无动作）
+        self.on_sync_vmd = None
+        # 「清空样式」回调（由主窗口注入联动各分析面板；None=仅清画布）
+        self.on_clear_analysis = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
         if not self._gl_ok:
-            tip = QLabel("未安装 PyOpenGL，画布不可用。\n"
-                         "请运行: pip install PyOpenGL PyOpenGL-accelerate")
+            tip = QLabel(_cv("未安装 PyOpenGL，画布不可用。\n"
+                             "请运行: pip install PyOpenGL PyOpenGL-accelerate"))
             tip.setAlignment(Qt.AlignCenter)
             tip.setStyleSheet("color:#94A3B8; font-size:10pt; background:#F5F6FA;")
             root.addWidget(tip)
@@ -780,16 +1016,49 @@ class CubCanvasPanel(QWidget):
 
         root.addWidget(self._build_toolbar())
 
-        # GL 画布：无边框，直接铺满
-        self.glw = CubGLWidget(self)
+        # GL 画布：包进圆角矩形容器（CubCanvasFrame）。
+        # 圆角通过对「容器 frame」做 setMask 实现（而非对 glw 做 mask）。
+        # 关键：mask 只裁掉 frame 窗口形状，内部 glw（native 子窗口）在矩形
+        # 区域内仍可正常接收鼠标事件，因此拖动旋转不受影响。
+        self._canvas_frame = QFrame(self)
+        self._canvas_frame.setObjectName("CubCanvasFrame")
+        self._canvas_frame.setFrameShape(QFrame.NoFrame)
+        cf_lay = QVBoxLayout(self._canvas_frame)
+        cf_lay.setContentsMargins(0, 0, 0, 0)
+        cf_lay.setSpacing(0)
+
+        self.glw = CubGLWidget(self._canvas_frame)
         self.glw.set_status_callback(self._set_status)
+        # vdW 片段集合变化（框选/点选归入、清除）→ 自动回填片段输入框
+        self.glw.add_vdw_fragment_changed_cb(self._on_vdw_frag_set_changed)
         self.glw.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.glw.setMinimumSize(320, 240)
         self.glw.setStyleSheet("border: none; background: transparent;")
-        root.addWidget(self.glw, stretch=1)
+        cf_lay.addWidget(self.glw, stretch=1)
 
-        # 一键样式：画布正下方常驻一行（sob-art / IBOVIEW / HoukMol）
-        root.addWidget(self._build_style_bar())
+        # 容器尺寸变化时同步圆角遮罩
+        self._canvas_frame.resizeEvent = self._on_canvas_frame_resize
+
+        root.addWidget(self._canvas_frame, stretch=1)
+
+        # 首次布局完成后应用圆角遮罩（确保初始即圆角）
+        QTimer.singleShot(0, self._apply_canvas_mask)
+
+        # 一键样式 + 分子显示：圆角矩形卡片（置于画布正下方）
+        self._style_wrap = QWidget()
+        self._style_wrap.setObjectName("CubStyleWrap")
+        sw = QHBoxLayout(self._style_wrap)
+        sw.setContentsMargins(10, 8, 10, 8)
+        sw.setSpacing(0)
+        sw.addWidget(self._build_style_bar())
+        root.addWidget(self._style_wrap)
+
+        # 圆角矩形投影
+        _sw_shadow = QGraphicsDropShadowEffect(self._style_wrap)
+        _sw_shadow.setBlurRadius(12)
+        _sw_shadow.setOffset(0, 2)
+        _sw_shadow.setColor(QColor(15, 23, 42, 40))
+        self._style_wrap.setGraphicsEffect(_sw_shadow)
 
         self._params = self._build_params()
         self._params.setVisible(True)
@@ -800,7 +1069,94 @@ class CubCanvasPanel(QWidget):
         self._status_lbl.hide()
         root.addWidget(self._status_lbl)
 
+    def _apply_canvas_mask(self):
+        """对画布容器做圆角遮罩（裁掉四角；内部 glw 仍可正常接收鼠标）。"""
+        r = self._canvas_frame.contentsRect()
+        radius = 14
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(r), radius, radius)
+        region = QRegion(path.toFillPolygon().toPolygon())
+        self._canvas_frame.setMask(region)
+
+    def _on_canvas_frame_resize(self, event):
+        """容器尺寸变化时同步圆角遮罩。"""
+        QFrame.resizeEvent(self._canvas_frame, event)
+        self._apply_canvas_mask()
+
     # ── UI 构建 ────────────────────────────────────────────────
+    # ── i18n ──
+    def _cv_bind(self, widget, text, method="setText"):
+        """登记控件文本（中文原文），切语言时按 _CV_EN 刷新并返回译文。"""
+        self._cv_reg.append((widget, text, method))
+        return _cv(text)
+
+    def set_lang(self, lang):
+        """主窗口切换语言时调用（i18n._CURRENT_LANG 已更新）。"""
+        self._apply_lang()
+
+    def _apply_lang(self):
+        for w, text, method in self._cv_reg:
+            try:
+                getattr(w, method)(_cv(text))
+            except RuntimeError:
+                pass   # 控件已被销毁
+        # 选中标记下拉：整体重填并保持选中项
+        if getattr(self, "_sel_marker_cb", None) is not None:
+            idx = self._sel_marker_cb.currentIndex()
+            self._sel_marker_cb.blockSignals(True)
+            self._sel_marker_cb.clear()
+            self._sel_marker_cb.addItems(
+                [_cv(t) for t in ("二十面体", "透明球", "圆环", "光晕")])
+            self._sel_marker_cb.setCurrentIndex(idx)
+            self._sel_marker_cb.blockSignals(False)
+        # 网格精度下拉
+        if getattr(self, "_grid_quality_cb", None) is not None:
+            idx = self._grid_quality_cb.currentIndex()
+            self._grid_quality_cb.blockSignals(True)
+            self._grid_quality_cb.clear()
+            self._grid_quality_cb.addItems(
+                [_cv(t) for t in ("低 (1)", "中 (2)", "高 (3)")])
+            self._grid_quality_cb.setCurrentIndex(idx)
+            self._grid_quality_cb.blockSignals(False)
+        # 相位配色方案下拉
+        if getattr(self, "_phase_scheme_cmb", None) is not None:
+            idx = self._phase_scheme_cmb.currentIndex()
+            self._phase_scheme_cmb.blockSignals(True)
+            self._phase_scheme_cmb.clear()
+            self._phase_scheme_cmb.addItems(
+                [_cv(t) for t in ("相近色 (±25°)", "同色相·不同饱和",
+                                  "互补色 (180°)")])
+            self._phase_scheme_cmb.setCurrentIndex(idx)
+            self._phase_scheme_cmb.blockSignals(False)
+        # 深度剥离层数后缀
+        if getattr(self, "_dp_layers_spin", None) is not None:
+            self._dp_layers_spin.setSuffix(_cv(" 层"))
+        # 光照下拉（_on_lighting 按 index 取值，重填安全）
+        if getattr(self, "_light_cb", None) is not None:
+            idx = self._light_cb.currentIndex()
+            self._light_cb.blockSignals(True)
+            self._light_cb.clear()
+            self._light_cb.addItems(
+                [_cv(name) for name, _ in _LIGHTING_OPTIONS])
+            self._light_cb.setCurrentIndex(idx)
+            self._light_cb.blockSignals(False)
+        # 原子配色下拉（_on_mol_style 按 index 取值，重填安全）
+        if getattr(self, "_mol_style_cb", None) is not None:
+            idx = self._mol_style_cb.currentIndex()
+            self._mol_style_cb.blockSignals(True)
+            self._mol_style_cb.clear()
+            self._mol_style_cb.addItems([_cv(t) for t in MOL_STYLE_DISPLAY])
+            self._mol_style_cb.setCurrentIndex(idx)
+            self._mol_style_cb.blockSignals(False)
+        # 折叠组标题（▸/▾ 状态保留）
+        for btn, title in getattr(self, "_fold_titles", []):
+            sym = "▾" if btn.isChecked() else "▸"
+            btn.setText(f"{sym} {_cv(title)}")
+        # 「参数 ▴/▾」折叠按钮
+        if getattr(self, "_more_btn", None) is not None:
+            sym = "▴" if self._more_btn.isChecked() else "▾"
+            self._more_btn.setText(f"{_cv('参数')} {sym}")
+
     def _build_toolbar(self):
         bar = QWidget()
         bar.setObjectName("CubToolBar")
@@ -814,7 +1170,7 @@ class CubCanvasPanel(QWidget):
 
         h.addStretch()
         self._more_btn = QToolButton()
-        self._more_btn.setText("参数 ▴")
+        self._more_btn.setText(f"{_cv('参数')} ▴")
         self._more_btn.setCheckable(True)
         self._more_btn.setChecked(True)
         self._more_btn.setToolTip("展开等值面 / 显示 / 球棍 / 导出参数")
@@ -824,17 +1180,26 @@ class CubCanvasPanel(QWidget):
         return bar
 
     def _build_style_bar(self):
-        """一键样式行：画布正下方常驻（sob-art / IBOVIEW / HoukMol / IQmol）
-        + 分子显示辅助（隐藏氢 / 保留 H 编号 / 原子标签）。"""
+        """一键样式 + 分子显示：圆角卡片（画布正下方）。
+
+        卡片观感：浅色渐变底纹 + 圆角 + 细边框 + 柔和投影。
+        """
         bar = QWidget()
         bar.setObjectName("CubStyleBar")
+        sh = QGraphicsDropShadowEffect(bar)
+        sh.setBlurRadius(14)
+        sh.setOffset(0, 2)
+        sh.setColor(QColor(30, 50, 80, 40))
+        bar.setGraphicsEffect(sh)
         v = QVBoxLayout(bar)
-        v.setContentsMargins(8, 2, 8, 2)
-        v.setSpacing(4)
+        v.setContentsMargins(14, 10, 14, 10)
+        v.setSpacing(8)
 
         h = QHBoxLayout()
         h.setSpacing(6)
-        h.addWidget(QLabel("一键样式:"))
+        self._lbl_styles = QLabel()
+        self._lbl_styles.setText(self._cv_bind(self._lbl_styles, "一键样式:"))
+        h.addWidget(self._lbl_styles)
         self._style_sob_btn = QPushButton("sob-art")
         self._style_sob_btn.setObjectName("SmallBtn")
         self._style_sob_btn.setToolTip("一键应用默认样式 sob-art（含手动摆放的光源方向）")
@@ -852,41 +1217,111 @@ class CubCanvasPanel(QWidget):
         h.addWidget(self._style_hm_btn)
         self._style_iq_btn = QPushButton("IQmol")
         self._style_iq_btn.setObjectName("SmallBtn")
-        self._style_iq_btn.setToolTip("一键应用默认样式 IQmol（CPK 双光 + 每灯独立光晕 + 红蓝相位）")
+        self._style_iq_btn.setToolTip("一键应用默认样式 IQmol（CPK 双光 + 每灯独立光晕 + 红蓝相位 + 原子配色 GaussView）")
         self._style_iq_btn.clicked.connect(self._apply_iqmol_style)
         h.addWidget(self._style_iq_btn)
+        self._clear_analysis_btn = QPushButton()
+        self._clear_analysis_btn.setText(self._cv_bind(self._clear_analysis_btn, "清空样式"))
+        self._clear_analysis_btn.setObjectName("SmallBtn")
+        self._clear_analysis_btn.setToolTip(
+            "清空画布上的等值面、临界点、极值点等全部分析效果（保留分子与渲染样式）")
+        self._clear_analysis_btn.clicked.connect(self._on_clear_analysis_clicked)
+        h.addWidget(self._clear_analysis_btn)
         h.addStretch()
+        # 键长标注（从第二行移入第一行行尾）
+        self._measure_btn = QPushButton()
+        self._measure_btn.setText(self._cv_bind(self._measure_btn, "键长标注"))
+        self._measure_btn.setObjectName("SmallBtn")
+        self._measure_btn.setCheckable(True)
+        self._measure_btn.setCursor(Qt.PointingHandCursor)
+        self._measure_btn.setToolTip(
+            "键长标注：开启后依次点击两个原子，键长（Å，两位小数）显示在两点"
+            "连线中点；可连续标注多条。再次点击本按钮退出，标注保留。")
+        self._measure_btn.toggled.connect(self._on_measure_mode)
+        h.addWidget(self._measure_btn)
+        self._measure_clear_btn = QPushButton()
+        self._measure_clear_btn.setText(self._cv_bind(self._measure_clear_btn, "清除"))
+        self._measure_clear_btn.setObjectName("SmallBtn")
+        self._measure_clear_btn.setToolTip("清除全部键长标注")
+        self._measure_clear_btn.clicked.connect(self._on_measure_clear)
+        h.addWidget(self._measure_clear_btn)
         v.addLayout(h)
 
-        # ── 分子显示辅助行 ──
+        # ── 分子显示辅助行（第二行） ──
         h2 = QHBoxLayout()
-        h2.setSpacing(6)
-        self._hide_h_chk = QCheckBox("隐藏氢原子")
+        h2.setSpacing(10)
+        lbl_disp = QLabel()
+        lbl_disp.setText(self._cv_bind(lbl_disp, "分子显示:"))
+        h2.addWidget(lbl_disp)
+        self._hide_h_chk = QCheckBox()
+        self._hide_h_chk.setText(self._cv_bind(self._hide_h_chk, "隐藏氢原子"))
         self._hide_h_chk.setToolTip("隐藏所有氢原子（球体/键/标签均不显示）")
         self._hide_h_chk.toggled.connect(self._on_hide_hydrogens)
         h2.addWidget(self._hide_h_chk)
-
-        h2.addWidget(QLabel("保留H编号:"))
+        lbl_keep = QLabel()
+        lbl_keep.setText(self._cv_bind(lbl_keep, "保留H编号:"))
+        h2.addWidget(lbl_keep)
         self._keep_h_edit = QLineEdit("")
-        self._keep_h_edit.setPlaceholderText("如 1,3,5-8")
+        self._keep_h_edit.setPlaceholderText(
+            self._cv_bind(self._keep_h_edit, "如 1,3,5-8", "setPlaceholderText"))
         self._keep_h_edit.setMaximumWidth(90)
         self._keep_h_edit.setToolTip("隐藏氢时仍显示的 H 原子编号（1-based，逗号/连字符范围）")
         self._keep_h_edit.editingFinished.connect(self._on_keep_h_edited)
         h2.addWidget(self._keep_h_edit)
-
-        self._lbl_idx_chk = QCheckBox("显示原子编号")
+        self._lbl_idx_chk = QCheckBox()
+        self._lbl_idx_chk.setText(self._cv_bind(self._lbl_idx_chk, "显示原子编号"))
         self._lbl_idx_chk.setToolTip("在每个原子旁显示分子内编号（1, 2, 3 …）")
         self._lbl_idx_chk.toggled.connect(self._on_atom_label_idx)
         h2.addWidget(self._lbl_idx_chk)
-
-        self._lbl_sym_chk = QCheckBox("显示元素符号")
+        self._lbl_sym_chk = QCheckBox()
+        self._lbl_sym_chk.setText(self._cv_bind(self._lbl_sym_chk, "显示元素符号"))
         self._lbl_sym_chk.setToolTip("在每个原子旁显示元素符号（H, C, N, O …）")
         self._lbl_sym_chk.toggled.connect(self._on_atom_label_sym)
         h2.addWidget(self._lbl_sym_chk)
         h2.addStretch()
         v.addLayout(h2)
 
+        # ── 同步到 VMD + 导出图片（第三行） ──
+        h3 = QHBoxLayout()
+        h3.setSpacing(6)
+        self._sync_vmd_btn = QPushButton()
+        self._sync_vmd_btn.setText(self._cv_bind(self._sync_vmd_btn, "同步到VMD"))
+        self._sync_vmd_btn.setObjectName("SmallBtn")
+        self._sync_vmd_btn.setCursor(Qt.PointingHandCursor)
+        self._sync_vmd_btn.setToolTip("把当前画布场景同步到 VMD，并弹出 VMD 控制台窗口")
+        self._sync_vmd_btn.clicked.connect(self._on_sync_vmd_clicked)
+        h3.addWidget(self._sync_vmd_btn)
+        h3.addSpacing(12)
+        # ── 导出图片（DPI + 透明背景） ──
+        h3.addWidget(QLabel("DPI:"))
+        self._dpi_edit = QLineEdit("600")
+        self._dpi_edit.setValidator(QDoubleValidator(50, 2400, 0))
+        self._dpi_edit.setMaximumWidth(56)
+        h3.addWidget(self._dpi_edit)
+        self._transparent_chk = QCheckBox()
+        self._transparent_chk.setText(self._cv_bind(self._transparent_chk, "透明背景"))
+        self._transparent_chk.setToolTip("导出 PNG 时背景透明（背景 alpha=0，参照 IboView）")
+        h3.addWidget(self._transparent_chk)
+        btn_sc = QPushButton(self._cv_bind(QPushButton(), "截图"))
+        btn_sc.setObjectName("SmallBtn")
+        btn_sc.clicked.connect(self._screenshot)
+        h3.addWidget(btn_sc)
+        btn_ex = QPushButton(self._cv_bind(QPushButton(), "导出图片"))
+        btn_ex.setObjectName("SmallBtn")
+        btn_ex.clicked.connect(self._export_image)
+        h3.addWidget(btn_ex)
+        h3.addStretch()
+        v.addLayout(h3)
+
         return bar
+
+    def _on_sync_vmd_clicked(self):
+        """「同步到VMD」按钮：转发给主窗口注入的回调。"""
+        if callable(self.on_sync_vmd):
+            try:
+                self.on_sync_vmd()
+            except Exception:
+                pass
 
     def _build_params(self):
         box = QFrame()
@@ -900,62 +1335,117 @@ class CubCanvasPanel(QWidget):
             self._bg_rgba = (1.0, 1.0, 1.0, 1.0)
 
         # 显示 / 等值面（原「显示」与「等值面」两组合并为一组；标题移到折叠按钮）
+        #
+        # 布局方式：纵向堆叠「行容器」。原先用的是 6 列 QGridLayout，各行
+        # 跨越的列数不一致（3 列 / 6 列混用），且标签列宽取决于该列最长的
+        # 文案，导致各行控件的左边缘和行宽都对不齐（实测行宽有 434 与 638
+        # 两种，「呼吸」复选框比它的标签低 7px）。改成「每行一个 HBox +
+        # 行首标签统一宽度」后，各行左右边缘自然对齐成两条直线。
         gi = QGroupBox("")
-        il = QGridLayout(gi)
-        il.setContentsMargins(8, 6, 8, 6)
-        il.setSpacing(4)
-        # 让滑块所在列（第1列）横向拉伸，使等值面大小/透明度滑块更长
-        il.setColumnStretch(1, 1)
+        gl = QVBoxLayout(gi)
+        gl.setContentsMargins(8, 6, 8, 6)
+        gl.setSpacing(8)
 
-        # ── 显示：风格 / 分子 / 光泽 / 重置视角 ──
-        il.addWidget(QLabel("风格:"), 0, 0)
-        self._style_cb = _LimitedStyleCombo(max_popup_height=220)
+        # 行首标签统一宽度，保证各行控件左边缘成一条线。
+        # 取最长标签「等值面大小:」的实测宽度，短标签靠右对齐补空。
+        LBL_W = 110
+
+        def _lbl(text, tip=None):
+            """行首标签：等宽、右对齐。"""
+            lb = QLabel(_cv(text))
+            self._cv_reg.append((lb, text, "setText"))
+            lb.setMinimumWidth(LBL_W)
+            lb.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            if tip:
+                lb.setToolTip(tip)
+            return lb
+
+        def _slbl(text, tip=None):
+            """行内次要标签：不占固定宽度，紧贴所修饰的控件。"""
+            lb = QLabel(_cv(text))
+            self._cv_reg.append((lb, text, "setText"))
+            lb.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            if tip:
+                lb.setToolTip(tip)
+            return lb
+
+        def _row(*items):
+            """生成一行。元素可以是：
+
+            * 控件 —— 按自身 sizeHint 排布；
+            * ``(控件, stretch)`` —— 参与拉伸，同行多个拉伸控件按因子平分
+              剩余宽度（用于让并排的下拉框等宽、右边缘对齐）；
+            * ``None`` —— 弹性空白，把后面的控件推到行尾；
+            * ``int`` —— 固定间距（像素）。
+            """
+            w = QWidget()
+            h = QHBoxLayout(w)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(8)
+            for it in items:
+                if it is None:
+                    h.addStretch(1)
+                elif isinstance(it, int):
+                    h.addSpacing(it)
+                elif isinstance(it, tuple):
+                    h.addWidget(it[0], it[1])
+                else:
+                    h.addWidget(it)
+            return w
+
+        # ── 第 1 行：等值面配色 ──
+        self._style_cb = LimitedPopupComboBox(max_popup_height=220)
         self._style_cb.addItems(STYLE_DISPLAY)
         self._style_cb.setMinimumWidth(170)
-        il.addWidget(self._style_cb, 0, 1)
 
-        # 光照 / 渲染效果（轴二，与「原子配色」轴正交）
-        il.addWidget(QLabel("光照:"), 0, 2)
-        self._light_cb = _LimitedStyleCombo(max_popup_height=220)
-        self._light_cb.addItems([name for name, _ in _LIGHTING_OPTIONS])
+        self._light_cb = LimitedPopupComboBox(max_popup_height=220)
+        self._light_cb.addItems(
+            [_cv(name) for name, _ in _LIGHTING_OPTIONS])
         self._light_cb.setMinimumWidth(140)
         self._light_cb.setToolTip(
             "光照/渲染效果（独立于原子配色）：IboView 三光 / MolViewer 单光 / 双光 / 四光")
-        il.addWidget(self._light_cb, 0, 3, 1, 3)
 
-        il.addWidget(QLabel("原子配色:"), 1, 0)
-        self._mol_style_cb = _LimitedStyleCombo(max_popup_height=200)
-        self._mol_style_cb.addItems(MOL_STYLE_DISPLAY)
+        # ── 第 3 行：原子配色 ──
+        self._mol_style_cb = LimitedPopupComboBox(max_popup_height=200)
+        self._mol_style_cb.addItems([_cv(t) for t in MOL_STYLE_DISPLAY])
         self._mol_style_cb.setMinimumWidth(120)
         self._mol_style_cb.setToolTip("原子按元素配色方案（独立于光照），只改颜色不改材质")
-        il.addWidget(self._mol_style_cb, 1, 1)
 
-        il.addWidget(QLabel("光泽:"), 2, 0)
         self._shiny_cb = QComboBox()
         self._shiny_cb.addItems(list(SHININESS_PRESETS.keys()))
         self._shiny_cb.setMinimumWidth(120)
         self._shiny_cb.setCurrentText(SHININESS_DEFAULT)
         self._shiny_cb.setToolTip("IboView 光泽预设：调节原子与等值面的 Phong 高光")
-        il.addWidget(self._shiny_cb, 2, 1)
 
-        il.addWidget(QLabel("选中标记:"), 2, 2)
+        # ── 第 5 行：选中标记 ──
         self._sel_marker_cb = QComboBox()
-        self._sel_marker_cb.addItems(["二十面体", "透明球", "圆环", "光晕"])
-        self._sel_marker_cb.setMaximumWidth(100)
+        self._sel_marker_cb.addItems(
+            [_cv(t) for t in ("二十面体", "透明球", "圆环", "光晕")])
         self._sel_marker_cb.setToolTip("选中原子时的标记形状：二十面体 / 透明球 / 圆环 / 光晕")
-        il.addWidget(self._sel_marker_cb, 2, 3)
 
-        il.addWidget(QLabel("呼吸:"), 2, 4)
         self._sel_pulse_chk = QCheckBox()
         self._sel_pulse_chk.setToolTip("选中标记半径 ±12% 正弦呼吸动画")
         self._sel_pulse_chk.toggled.connect(self._on_sel_pulse)
-        il.addWidget(self._sel_pulse_chk, 2, 5)
 
-        self._btn_reset_view = QPushButton("重置视角")
+        self._btn_reset_view = QPushButton(
+            self._cv_bind(QPushButton(), "重置视角"))
         self._btn_reset_view.setObjectName("SmallBtn")
         self._btn_reset_view.setToolTip("重置相机视角（居中并铺满分子/等值面）")
         self._btn_reset_view.clicked.connect(self._reset_view)
-        il.addWidget(self._btn_reset_view, 3, 0, 1, 2)
+
+        # 每个下拉独占一行、占满整行宽度，避免文案被压缩截断
+        gl.addWidget(_row(_lbl("等值面配色:"), (self._style_cb, 1)))
+        # ── 第 2 行：光照 ──
+        gl.addWidget(_row(_lbl("光照:"), (self._light_cb, 1)))
+        # ── 第 3 行：原子配色 ──
+        gl.addWidget(_row(_lbl("原子配色:"), (self._mol_style_cb, 1)))
+        # ── 第 4 行：光泽 ──
+        gl.addWidget(_row(_lbl("光泽:"), (self._shiny_cb, 1)))
+        # ── 第 5 行：选中标记（下拉占满整行）──
+        gl.addWidget(_row(_lbl("选中标记:"), (self._sel_marker_cb, 1)))
+        # ── 第 6 行：呼吸 / 重置视角（按钮留足宽度）──
+        gl.addWidget(_row(_lbl("呼吸:"), self._sel_pulse_chk, None,
+                          self._btn_reset_view))
 
         # 先创建全部控件再连接信号，避免初始化 addItems 触发回调时
         # 访问尚未创建的控件（如 _on_style 会读取 _mol_style_cb）
@@ -971,58 +1461,61 @@ class CubCanvasPanel(QWidget):
         self._on_shiny(self._shiny_cb.currentIndex())
         self._on_sel_marker(self._sel_marker_cb.currentIndex())
 
+        # ── IboView 相对阈值：界面不展示，但逻辑与实例都保留 ──
+        # 这几个控件不加入任何布局，只挂到 gi 上作为父对象（否则没有 parent
+        # 的控件会变成游离的顶层窗口）。此前是先进布局再 hide()，白占着网格
+        # 行号、让行序难以阅读；现在行号与可见行一一对应。
         self._rel_chk = QCheckBox(
-            f"IboView 相对阈值 ({IBOVIEW_DEFAULTS['IsoThreshold']:.0f}%)")
+            f"IboView 相对阈值 ({IBOVIEW_DEFAULTS['IsoThreshold']:.0f}%)", gi)
         self._rel_chk.setToolTip(
             "勾选后按 IboView IsoThreshold 语义取等值面：\n"
             "选取使 |data| 累积权重达到指定百分比的等值面。\n"
             "取消勾选则使用下方的绝对 isovalue（cube 文件原始单位）。")
         self._rel_chk.toggled.connect(self._on_rel_mode)
-        il.addWidget(self._rel_chk, 4, 0, 1, 3)
+        self._rel_chk.hide()
 
-        il.addWidget(QLabel("百分比:"), 5, 0)
-        self._rel_sld = QSlider(Qt.Horizontal)
+        self._rel_pct_lbl = QLabel("百分比:", gi)
+        self._rel_pct_lbl.hide()
+
+        self._rel_sld = QSlider(Qt.Horizontal, gi)
         self._rel_sld.setRange(50, 99)
         self._rel_sld.setValue(int(IBOVIEW_DEFAULTS['IsoThreshold']))
         self._rel_sld.setEnabled(False)
         self._rel_sld.valueChanged.connect(self._on_rel_slider)
-        il.addWidget(self._rel_sld, 5, 1)
-        self._rel_lbl = QLabel(f"{IBOVIEW_DEFAULTS['IsoThreshold']:.0f}%")
-        self._rel_lbl.setMinimumWidth(44)
-        il.addWidget(self._rel_lbl, 5, 2)
-
-        # 隐藏相对阈值相关控件（用户不需要；仍保留逻辑，默认未勾选）
-        self._rel_chk.hide()
-        self._rel_lbl.hide()  # 第5行“百分比:”标签
-        _rel_pct_lbl = il.itemAtPosition(5, 0)
-        if _rel_pct_lbl is not None:
-            _rel_pct_lbl.widget().hide()
         self._rel_sld.hide()
 
-        il.addWidget(QLabel("等值面大小:"), 6, 0)
+        self._rel_lbl = QLabel(f"{IBOVIEW_DEFAULTS['IsoThreshold']:.0f}%", gi)
+        self._rel_lbl.setMinimumWidth(44)
+        self._rel_lbl.hide()
+
+        # ── 第 7 行：等值面大小（滑块 + 数值输入框）──
         self._iso_sld = QSlider(Qt.Horizontal)
-        self._iso_sld.setRange(5, 2000)         # iso = 值/1000（0.005..2.0，含 IRI 的 1.0，与校验器下限一致）
+        self._iso_sld.setRange(1, 2000)         # iso = 值/1000（0.001..2.0，含 IGMH 的 0.004 与 IRI 的 1.0）
         self._iso_sld.setValue(50)
         self._iso_sld.setMinimumWidth(200)
         self._iso_sld.valueChanged.connect(self._on_iso_slider)
-        il.addWidget(self._iso_sld, 6, 1)
         self._iso_edit = QLineEdit("0.050")
-        self._iso_edit.setValidator(QDoubleValidator(0.005, 2.0, 4))
+        self._iso_edit.setValidator(QDoubleValidator(0.001, 2.0, 4))
         self._iso_edit.setMaximumWidth(64)
         self._iso_edit.editingFinished.connect(self._on_iso_edit)
-        il.addWidget(self._iso_edit, 6, 2)
 
-        il.addWidget(QLabel("透明度:"), 7, 0)
+        # ── 第 8 行：透明度（滑块 + 精确输入框，与等值面行上下对齐）──
         self._op_sld = QSlider(Qt.Horizontal)
         self._op_sld.setRange(0, 100)
         # 滑块值直接表示“透明度(%)”，与 opacity 互补：opacity = 1 - 值/100
         self._op_sld.setValue(int((1.0 - IBOVIEW_DEFAULTS['OrbitalOpacity']) * 100))
         self._op_sld.setMinimumWidth(200)
         self._op_sld.valueChanged.connect(self._on_op)
-        il.addWidget(self._op_sld, 7, 1)
-        self._op_lbl = QLabel("20%")
-        self._op_lbl.setMinimumWidth(40)
-        il.addWidget(self._op_lbl, 7, 2)
+        self._op_edit = QLineEdit("20")
+        self._op_edit.setValidator(QIntValidator(0, 100))
+        self._op_edit.setMaximumWidth(64)
+        self._op_edit.setToolTip("透明度 0-100%（精确输入）")
+        self._op_edit.editingFinished.connect(self._on_op_edit)
+
+        gl.addWidget(_row(_lbl("等值面大小:"), (self._iso_sld, 1),
+                          self._iso_edit))
+        gl.addWidget(_row(_lbl("透明度:"), (self._op_sld, 1),
+                          self._op_edit))
 
         self._dp_chk = QCheckBox("Depth peeling")
         self._dp_chk.setChecked(True)
@@ -1039,160 +1532,149 @@ class CubCanvasPanel(QWidget):
             "显示越完整，代价是每层多一遍渲染、速度变慢")
         self._dp_layers_spin.valueChanged.connect(self._on_dp_layers)
 
-        # Depth peeling 与 网格精度 放同一行（HBox 统一间距）
-        dp_row = QWidget()
-        dpl = QHBoxLayout(dp_row)
-        dpl.setContentsMargins(0, 0, 0, 0)
-        dpl.setSpacing(8)
-        dpl.addWidget(self._dp_chk)
-        dpl.addWidget(self._dp_layers_spin)
-        dpl.addStretch(1)
-        dpl.addWidget(QLabel("网格精度:"))
+        # ── 第 9 行：Depth peeling / 网格精度 ──
         self._grid_quality_cb = QComboBox()
-        self._grid_quality_cb.addItems(["低 (1)", "中 (2)", "高 (3)"])
+        self._grid_quality_cb.addItems(
+            [_cv(t) for t in ("低 (1)", "中 (2)", "高 (3)")])
         self._grid_quality_cb.setCurrentIndex(1)
         self._grid_quality_cb.setToolTip("生成轨道 cube 的网格密度：1=稀疏，2=中等，3=精细")
         self._grid_quality_cb.setMaximumWidth(110)
-        dpl.addWidget(self._grid_quality_cb)
-        il.addWidget(dp_row, 8, 0, 1, 3)
 
-        # 等值面剪影描边（独立开关 + 粗细滑块；MolViewer 带 rim 的预设会自动勾选）
-        outline_row = QWidget()
-        orl = QHBoxLayout(outline_row)
-        orl.setContentsMargins(0, 0, 0, 0)
-        orl.setSpacing(6)
-        self._orb_outline_chk = QCheckBox("等值面描边")
+        # ── 第 10 行：等值面剪影描边（独立开关 + 粗细滑块；
+        #    MolViewer 带 rim 的预设会自动勾选）──
+        self._orb_outline_chk = QCheckBox()
+        self._orb_outline_chk.setText(self._cv_bind(self._orb_outline_chk, "等值面描边"))
         self._orb_outline_chk.setToolTip(
             "在等值面剪影边缘叠加细描边（颜色由 MolViewer 预设或默认深色决定）")
         self._orb_outline_chk.toggled.connect(self._on_orb_outline)
-        orl.addWidget(self._orb_outline_chk)
-        self._orb_outline_lbl = QLabel("粗细:")
-        orl.addWidget(self._orb_outline_lbl)
+        self._orb_outline_lbl = QLabel()
+        self._orb_outline_lbl.setText(self._cv_bind(self._orb_outline_lbl, "粗细:"))
         self._orb_outline_sld = QSlider(Qt.Horizontal)
-        self._orb_outline_sld.setRange(1, 30)          # 0.01 .. 0.30 窄带阈值
+        self._orb_outline_sld.setRange(1, 99)          # 0.01 .. 0.99（glw 侧 clamp 上限）
         self._orb_outline_sld.setValue(8)              # 默认 0.08
-        self._orb_outline_sld.setMaximumWidth(140)
+        self._orb_outline_sld.setMaximumWidth(220)
         self._orb_outline_sld.valueChanged.connect(self._on_orb_outline_width)
-        orl.addWidget(self._orb_outline_sld)
         self._orb_outline_val = QLabel("0.08")
         self._orb_outline_val.setMinimumWidth(34)
-        orl.addWidget(self._orb_outline_val)
         # 描边颜色（默认黑色），按钮色块显示当前颜色
         self._orb_outline_color = (0.0, 0.0, 0.0)
-        self._orb_outline_color_btn = QPushButton("颜色")
+        # 描边颜色：无文字色块，与相位行色块同款圆角矩形
+        self._orb_outline_color_btn = QPushButton()
         self._orb_outline_color_btn.setObjectName("SmallBtn")
-        self._orb_outline_color_btn.setMaximumWidth(56)
+        self._orb_outline_color_btn.setFixedSize(26, 26)
         self._orb_outline_color_btn.setToolTip("设置等值面描边颜色（默认黑色）")
         self._orb_outline_color_btn.clicked.connect(self._on_orb_outline_color)
-        self._orb_outline_color_btn.setStyleSheet(
-            "QPushButton { background-color: rgb(0,0,0); color: #ffffff;"
-            " border: 1px solid #9AA7B8; border-radius: 3px; padding: 2px 6px; }")
-        orl.addWidget(self._orb_outline_color_btn)
-        orl.addStretch()
-        il.addWidget(outline_row, 9, 0, 1, 3)
+        self._style_swatch(self._orb_outline_color_btn, self._orb_outline_color)
 
-        # 色轮 / 重置 / 启用色轮配色 / 相位色 统一放一行（HBox 保证间距一致）
-        wheel_row = QWidget()
-        wl = QHBoxLayout(wheel_row)
-        wl.setContentsMargins(0, 0, 0, 0)
-        wl.setSpacing(12)  # 统一间隙，避免 grid 列宽不一导致的拥挤/错位
+        gl.addWidget(_row(self._dp_chk, _slbl("层数:"), self._dp_layers_spin, 16,
+                          _lbl("网格精度:"), (self._grid_quality_cb, 1)))
+        # 描边行：紧凑排列，去掉行尾弹性空白（色块变小，无需推右对齐）
+        gl.addWidget(_row(self._orb_outline_chk, _slbl("粗细:"),
+                          self._orb_outline_sld, self._orb_outline_val,
+                          _slbl("描边颜色:"), self._orb_outline_color_btn))
 
-        wl.addWidget(QLabel("色轮:"))
+        # ── 第 11 行：色轮 / 重置 / 启用色轮配色 ──
+        # 相位配色方案另起一行（见下），本行只留色轮、重置、启用勾选，
+        # 弹性空白把勾选推到行尾，不再挤占文字空间。
         self._color_wheel = ColorWheelWidget(size=84)
         self._color_wheel.setToolTip("拖动旋转色轮：转一圈循环改变等值面配色")
         self._color_wheel.hueChanged.connect(self._on_wheel_hue)
-        wl.addWidget(self._color_wheel)
 
-        self._wheel_btn = QPushButton("重置")
+        self._wheel_btn = QPushButton()
+        self._wheel_btn.setText(self._cv_bind(self._wheel_btn, "重置"))
         self._wheel_btn.setObjectName("SmallBtn")
         self._wheel_btn.setMaximumWidth(54)
         self._wheel_btn.setToolTip("恢复样式默认配色")
         self._wheel_btn.clicked.connect(self._on_wheel_reset)
-        wl.addWidget(self._wheel_btn)
 
         # 启用色轮：默认关闭，避免覆盖样式（style）里的正/负相位配色
         self._wheel_enabled = False
-        self._wheel_en_chk = QCheckBox("启用色轮配色")
+        self._wheel_en_chk = QCheckBox()
+        self._wheel_en_chk.setText(self._cv_bind(self._wheel_en_chk, "启用色轮配色"))
         self._wheel_en_chk.setToolTip("勾选后由色轮控制正/负相位颜色；否则沿用样式默认配色")
         self._wheel_en_chk.toggled.connect(self._on_wheel_toggle)
-        wl.addWidget(self._wheel_en_chk)
         self._color_wheel.setEnabled(False)
 
-        # 相位配色模式：互补色（IboView scheme2）/ 相近色（IboView 默认 scheme0）
-        wl.addWidget(QLabel("相位色:"))
-        self._phase_mode_btn = QPushButton("互补色")
-        self._phase_mode_btn.setObjectName("SmallBtn")
-        self._phase_mode_btn.setMaximumWidth(110)
-        self._phase_mode_btn.setToolTip("点击切换：互补色（±180°） / 相近色（IboView 默认 ±25°）")
-        self._phase_mode_btn.clicked.connect(self._on_phase_mode_toggle)
-        wl.addWidget(self._phase_mode_btn)
-        self._phase_complementary = True  # True=互补色, False=相近色
+        # 相位配色方案（移植自 IboView 全套）：
+        #   0 相近色（scheme0）：正/负相位 = Hue ± 25°，S=0.6 V=1.0（IboView 默认）
+        #   1 同色相·不同饱和（scheme1）：正 S=0.6，负 S=0.35，同 Hue
+        #   2 互补色（scheme2）：负相位 = Hue + 180°
+        self._phase_scheme_cmb = QComboBox()
+        self._phase_scheme_cmb.setObjectName("SmallCombo")
+        self._phase_scheme_cmb.addItems(
+            [_cv(t) for t in ("相近色 (±25°)", "同色相·不同饱和",
+                              "互补色 (180°)")])
+        self._phase_scheme_cmb.setCurrentIndex(2)  # 默认互补色，保持原行为
+        self._phase_scheme_cmb.setToolTip(
+            "选择等值面正/负相位配色方案（移植自 IboView）")
+        self._phase_scheme_cmb.currentIndexChanged.connect(self._on_phase_scheme_changed)
+        self._phase_scheme = self._phase_scheme_cmb.currentIndex()
 
-        il.addWidget(wheel_row, 10, 0, 1, 6)
-
-        # 翻转相位：交换正/负相位颜色（IboView chkBox_FlipPhase 的等价实现）
+        # ── 第 13 行：翻转相位 + 正/负相位色块选色 ──
         self._phase_flipped = False
-        self._flip_phase_btn = QPushButton("翻转相位")
+        self._flip_phase_btn = QPushButton()
+        self._flip_phase_btn.setText(self._cv_bind(self._flip_phase_btn, "翻转相位"))
         self._flip_phase_btn.setObjectName("SmallBtn")
         self._flip_phase_btn.setToolTip("交换正/负相位颜色（等价 IboView 翻转相位，几何不变）")
         self._flip_phase_btn.clicked.connect(self._on_flip_phase)
-        il.addWidget(self._flip_phase_btn, 11, 0, 1, 3)
 
-        # 正/负相位色块选色：直接点击指定各相位颜色
-        phase_row = QWidget()
-        ppl = QHBoxLayout(phase_row)
-        ppl.setContentsMargins(0, 0, 0, 0)
-        ppl.setSpacing(6)
-        ppl.addWidget(QLabel("正相位:"))
-        self._phase_pos_btn = QPushButton("色块")
+        # 正/负相位选色按钮：去掉「色块」文字，固定为圆形色块
+        self._phase_pos_btn = QPushButton()
         self._phase_pos_btn.setObjectName("SmallBtn")
+        self._phase_pos_btn.setFixedSize(26, 26)
         self._phase_pos_btn.setToolTip("点击选择正相位等值面颜色")
         self._phase_pos_btn.clicked.connect(lambda: self._on_pick_phase_color("pos"))
-        ppl.addWidget(self._phase_pos_btn)
-        ppl.addSpacing(10)
-        ppl.addWidget(QLabel("负相位:"))
-        self._phase_neg_btn = QPushButton("色块")
+        self._phase_neg_btn = QPushButton()
         self._phase_neg_btn.setObjectName("SmallBtn")
+        self._phase_neg_btn.setFixedSize(26, 26)
         self._phase_neg_btn.setToolTip("点击选择负相位等值面颜色")
         self._phase_neg_btn.clicked.connect(lambda: self._on_pick_phase_color("neg"))
-        ppl.addWidget(self._phase_neg_btn)
-        ppl.addStretch()
-        il.addWidget(phase_row, 12, 0, 1, 6)
-        self._sync_phase_swatches()
 
-        # 灯光手动微调（方位/俯仰；在 IboView Phong 模式即 vcube 预设下生效）
-        light_row = QWidget()
-        ll = QHBoxLayout(light_row)
-        ll.setContentsMargins(0, 0, 0, 0)
-        ll.setSpacing(6)
-        ll.addWidget(QLabel("灯光:"))
-        self._light_btn = QPushButton("光源设置…")
+        # ── 第 14 行：灯光（光源控制面板）──
+        self._light_btn = QPushButton()
+        self._light_btn.setText(self._cv_bind(self._light_btn, "光源设置…"))
         self._light_btn.setObjectName("SmallBtn")
+        # 最小宽度保证「光源设置…」完整显示，不被行布局压缩成省略号
+        # （9pt 下文字宽约 85px + 左右 padding 24 + 边框 2 ≈ 111，留 25px 余量）
+        self._light_btn.setMinimumWidth(136)
         self._light_btn.setToolTip(
             "弹出光源控制面板：左侧球体实时预览光点，右侧调整数量/方向/光晕")
         self._light_btn.clicked.connect(self._open_light_dialog)
-        ll.addWidget(self._light_btn)
-        ll.addStretch()
-        il.addWidget(light_row, 13, 0, 1, 6)
 
-        # 样式保存 / 载入（一键样式 sob-art/IBOVIEW/HoukMol 已移至画布下方常驻行）
-        style_io_row = QWidget()
-        sio = QHBoxLayout(style_io_row)
-        sio.setContentsMargins(0, 0, 0, 0)
-        sio.setSpacing(6)
-        sio.addWidget(QLabel("样式:"))
-        self._style_save_btn = QPushButton("保存…")
+        # 相位行用两段弹性空白把「翻转相位 / 正相位 / 负相位」均匀铺开，
+        # 右边缘同样与其余各行对齐
+        # 色轮行（单行布局）：启用色轮配色 + 色轮 + 相位配色下拉 + 重置
+        # 下拉占中间弹性宽度，「重置」按钮固定在行尾
+        gl.addWidget(_row(self._wheel_en_chk, self._color_wheel,
+                          _slbl("相位配色:"), (self._phase_scheme_cmb, 1),
+                          self._wheel_btn))
+        # 三组（翻转相位 / 正相位 / 负相位）用等量弹性空白均匀铺开，
+        # 标签用行内次要标签紧凑贴着色块，避免 110px 行首标签带来的错位
+        gl.addWidget(_row(self._flip_phase_btn, None,
+                          _slbl("正相位:"), self._phase_pos_btn, None,
+                          _slbl("负相位:"), self._phase_neg_btn))
+        self._sync_phase_swatches()
+        # ── 第 14 行（续）：灯光 + 样式保存 / 载入 ──
+        # （一键样式 sob-art/IBOVIEW/HoukMol 已移至画布下方常驻行）
+        self._style_save_btn = QPushButton()
+        self._style_save_btn.setText(self._cv_bind(self._style_save_btn, "保存…"))
         self._style_save_btn.setObjectName("SmallBtn")
+        # 最小宽度保证「保存…」完整显示（留余量，与「光源设置…」视觉一致）
+        self._style_save_btn.setMinimumWidth(92)
         self._style_save_btn.setToolTip("把当前样式（配色/光照/描边/透明度/相位色等）保存为 JSON 文件")
         self._style_save_btn.clicked.connect(self._save_style)
-        sio.addWidget(self._style_save_btn)
-        self._style_load_btn = QPushButton("载入…")
+        self._style_load_btn = QPushButton()
+        self._style_load_btn.setText(self._cv_bind(self._style_load_btn, "载入…"))
         self._style_load_btn.setObjectName("SmallBtn")
+        # 最小宽度保证「载入…」完整显示（留余量，与「光源设置…」视觉一致）
+        self._style_load_btn.setMinimumWidth(92)
         self._style_load_btn.setToolTip("从 JSON 文件载入样式并应用")
         self._style_load_btn.clicked.connect(self._load_style)
-        sio.addWidget(self._style_load_btn)
-        sio.addStretch()
-        il.addWidget(style_io_row, 14, 0, 1, 6)
+
+        # 「灯光」靠左、「样式」靠右，中间弹性空白分隔
+        gl.addWidget(_row(_lbl("灯光:"), self._light_btn, None,
+                          _lbl("样式:"), self._style_save_btn,
+                          self._style_load_btn))
 
         # ── 折叠容器：按钮控制组展开/收起（默认收起） ──
         def _collapsible_col(title):
@@ -1216,13 +1698,18 @@ class CubCanvasPanel(QWidget):
         def _wire_toggle(btn, group, title):
             def _tog(on):
                 group.setVisible(on)
-                btn.setText(f"{'▾' if on else '▸'} {title}")
+                btn.setText(f"{'▾' if on else '▸'} {_cv(title)}")
+                self.paramsChanged.emit()
             btn.toggled.connect(_tog)
 
-        col_iso, self._btn_toggle_iso, cl_iso = _collapsible_col("显示 / 等值面")
+        col_iso, self._btn_toggle_iso, cl_iso = _collapsible_col(
+            _cv("显示 / 等值面"))
         cl_iso.addWidget(gi, 1)
         _wire_toggle(self._btn_toggle_iso, gi, "显示 / 等值面")
+        self._fold_titles = [(self._btn_toggle_iso, "显示 / 等值面")]
         gi.setVisible(False)   # 默认收起
+        # 横向 Ignored：忽略内容固有宽度，与球棍模型列严格等宽（各占一半）
+        col_iso.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         outer.addWidget(col_iso, stretch=1)
 
         # 球棍模型（标题移到折叠按钮）
@@ -1233,7 +1720,9 @@ class CubCanvasPanel(QWidget):
         # 与等值面组一致：滑块所在列（第1列）横向拉伸
         bl.setColumnStretch(1, 1)
 
-        bl.addWidget(QLabel("原子半径:"), 0, 0)
+        self._lbl_atom_r = QLabel()
+        self._lbl_atom_r.setText(self._cv_bind(self._lbl_atom_r, "原子半径:"))
+        bl.addWidget(self._lbl_atom_r, 0, 0)
         self._atom_scale_sld = QSlider(Qt.Horizontal)
         self._atom_scale_sld.setRange(20, 400)
         self._atom_scale_sld.setValue(168)
@@ -1248,7 +1737,9 @@ class CubCanvasPanel(QWidget):
 
         self._outline_color = (0.0, 0.0, 0.0)   # 默认黑边
 
-        bl.addWidget(QLabel("化学键:"), 1, 0)
+        self._lbl_bond = QLabel()
+        self._lbl_bond.setText(self._cv_bind(self._lbl_bond, "化学键:"))
+        bl.addWidget(self._lbl_bond, 1, 0)
         self._bond_scale_sld = QSlider(Qt.Horizontal)
         self._bond_scale_sld.setRange(20, 400)
         self._bond_scale_sld.setValue(200)
@@ -1262,7 +1753,9 @@ class CubCanvasPanel(QWidget):
         bl.addWidget(self._bond_scale_edit, 1, 2)
 
         # ── 键收腰 ──
-        bl.addWidget(QLabel("键收腰:"), 2, 0)
+        self._lbl_thinning = QLabel()
+        self._lbl_thinning.setText(self._cv_bind(self._lbl_thinning, "键收腰:"))
+        bl.addWidget(self._lbl_thinning, 2, 0)
         self._thinning_sld = QSlider(Qt.Horizontal)
         self._thinning_sld.setRange(20, 100)   # 0.20 .. 1.00 (1.0 = 不收腰)
         self._thinning_sld.setValue(72)
@@ -1275,27 +1768,145 @@ class CubCanvasPanel(QWidget):
         self._thinning_edit.editingFinished.connect(self._on_thinning_edit)
         bl.addWidget(self._thinning_edit, 2, 2)
 
+        # ── vdW 外壳子分组：把所有 vdW 相关控件集中、整齐排列（放网格下方） ──
+        vdw_grp = QGroupBox(_cv("vdW 外壳"))
+        vl = QGridLayout(vdw_grp)
+        vl.setContentsMargins(8, 6, 8, 6)
+        vl.setSpacing(4)
+        vl.setColumnStretch(1, 1)
+
+        # 开关行（四个复选框一行）
+        self._vdw_mode_chk = QCheckBox()
+        self._vdw_mode_chk.setText(self._cv_bind(self._vdw_mode_chk, "范德华半径"))
+        self._vdw_mode_chk.setToolTip(
+            "开启后原子直接以范德华半径（Bondi 1964 表）显示，而非默认绘制半径")
+        self._vdw_mode_chk.stateChanged.connect(self._on_vdw_mode)
+        vl.addWidget(self._vdw_mode_chk, 0, 0)
+
+        self._vdw_shell_chk = QCheckBox()
+        self._vdw_shell_chk.setText(self._cv_bind(self._vdw_shell_chk, "vdW 外壳"))
+        self._vdw_shell_chk.setToolTip(
+            "在正常球棍模型之上叠加半透明范德华半径球壳（元素色，体现空间包围）")
+        self._vdw_shell_chk.stateChanged.connect(self._on_vdw_shell)
+        vl.addWidget(self._vdw_shell_chk, 0, 1)
+
+        self._vdw_outline_chk = QCheckBox()
+        self._vdw_outline_chk.setText(self._cv_bind(self._vdw_outline_chk, "外壳描边"))
+        self._vdw_outline_chk.setToolTip("vdW 球面剪影描边（独立于原子描边，单独控制）")
+        self._vdw_outline_chk.stateChanged.connect(self._on_vdw_outline)
+        vl.addWidget(self._vdw_outline_chk, 0, 2)
+
+        # 「仅选中片段」子开关：外壳只覆盖框选/点选的原子片段
+        self._vdw_sel_only_chk = QCheckBox()
+        self._vdw_sel_only_chk.setText(self._cv_bind(self._vdw_sel_only_chk, "仅选中片段"))
+        self._vdw_sel_only_chk.setToolTip(
+            "IGMH 片段式：Shift+左键拖框框选原子归入片段（增量），"
+            "vdW 外壳只画片段内的原子。片段集合持久保留——清除画布选中、"
+            "取消高亮都不影响已加的壳；右键菜单或「清除」按钮可清空片段")
+        self._vdw_sel_only_chk.setEnabled(False)   # 外壳未开启时不可用
+        self._vdw_sel_only_chk.stateChanged.connect(self._on_vdw_sel_only)
+        vl.addWidget(self._vdw_sel_only_chk, 0, 3)
+        # 外壳开关联动「仅选中片段」可用性
+        self._vdw_shell_chk.toggled.connect(self._vdw_sel_only_chk.setEnabled)
+
+        # vdW 半径比例
+        self._lbl_vdw_r = QLabel()
+        self._lbl_vdw_r.setText(self._cv_bind(self._lbl_vdw_r, "vdW 半径:"))
+        vl.addWidget(self._lbl_vdw_r, 1, 0)
+        self._vdw_scale_sld = QSlider(Qt.Horizontal)
+        self._vdw_scale_sld.setRange(50, 200)    # 0.50x ~ 2.00x（Bondi 表值 × 比例）
+        self._vdw_scale_sld.setValue(100)        # 默认 1.00x（真实 vdW 半径）
+        self._vdw_scale_sld.setMinimumWidth(200)
+        self._vdw_scale_sld.setToolTip("缩放范德华半径（Bondi 表值 × 比例），对原子与外壳同时生效")
+        self._vdw_scale_sld.valueChanged.connect(self._on_vdw_scale)
+        vl.addWidget(self._vdw_scale_sld, 1, 1)
+        self._vdw_scale_edit = QLineEdit("1.00")
+        self._vdw_scale_edit.setValidator(QDoubleValidator(0.50, 2.00, 2))
+        self._vdw_scale_edit.setMaximumWidth(64)
+        self._vdw_scale_edit.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._vdw_scale_edit.editingFinished.connect(self._on_vdw_scale_edit)
+        vl.addWidget(self._vdw_scale_edit, 1, 2)
+
+        # 外壳透明度（vdW 外壳勾选后生效）
+        self._lbl_vdw_alpha = QLabel()
+        self._lbl_vdw_alpha.setText(self._cv_bind(self._lbl_vdw_alpha, "外壳透明度:"))
+        self._lbl_vdw_alpha.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        vl.addWidget(self._lbl_vdw_alpha, 2, 0)
+        self._vdw_alpha_sld = QSlider(Qt.Horizontal)
+        self._vdw_alpha_sld.setRange(2, 80)     # 0.02 ~ 0.80
+        self._vdw_alpha_sld.setValue(20)
+        self._vdw_alpha_sld.setMinimumWidth(200)
+        self._vdw_alpha_sld.setToolTip("vdW 外壳不透明度（0.02 ~ 0.80，越小越透明）")
+        self._vdw_alpha_sld.valueChanged.connect(self._on_vdw_alpha)
+        vl.addWidget(self._vdw_alpha_sld, 2, 1)
+
+        # 外壳描边粗细（勾选「外壳描边」后生效；0.01 ~ 0.99 剪影带厚度）
+        self._lbl_vdw_ow = QLabel()
+        self._lbl_vdw_ow.setText(self._cv_bind(self._lbl_vdw_ow, "外壳描边粗细:"))
+        self._lbl_vdw_ow.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        vl.addWidget(self._lbl_vdw_ow, 3, 0)
+        self._vdw_ow_sld = QSlider(Qt.Horizontal)
+        self._vdw_ow_sld.setRange(1, 60)        # 0.01 .. 0.60
+        self._vdw_ow_sld.setValue(40)           # 默认 0.40
+        self._vdw_ow_sld.setToolTip("vdW 外壳描边粗细（0.01 ~ 0.60 剪影带厚度，越大越粗）")
+        self._vdw_ow_sld.valueChanged.connect(self._on_vdw_outline_width)
+        vl.addWidget(self._vdw_ow_sld, 3, 1)
+
+        # 片段原子编号输入行（IGMH 式）：输入 1-12,15 这类编号 → 点「vdW」
+        # 按钮，这些原子加 vdW 外壳（与框选归入同一片段集合）
+        self._lbl_vdw_frag = QLabel()
+        self._lbl_vdw_frag.setText(self._cv_bind(self._lbl_vdw_frag, "片段:"))
+        vl.addWidget(self._lbl_vdw_frag, 4, 0)
+        self._vdw_frag_edit = QLineEdit()
+        self._vdw_frag_edit.setPlaceholderText(
+            self._cv_bind(self._vdw_frag_edit, "原子编号, 如 1-12,15",
+                          "setPlaceholderText"))
+        self._vdw_frag_edit.setToolTip(
+            "输入要加 vdW 外壳的原子编号（1-based），支持逗号分隔与范围，"
+            "如 1-12,15；点「vdW」按钮应用到画布。与 Shift+框选归入的是"
+            "同一个片段集合")
+        self._vdw_frag_edit.returnPressed.connect(self._on_vdw_frag_apply)
+        vl.addWidget(self._vdw_frag_edit, 4, 1)
+        self._vdw_frag_btn = QPushButton("vdW")
+        self._vdw_frag_btn.setObjectName("SmallBtn")
+        self._vdw_frag_btn.setToolTip("把输入框里的原子加入 vdW 片段并显示外壳")
+        self._vdw_frag_btn.clicked.connect(self._on_vdw_frag_apply)
+        vl.addWidget(self._vdw_frag_btn, 4, 2)
+        # 清除 vdW 片段（IGMH 式片段集合的显式清空入口）
+        self._vdw_frag_clear_btn = QPushButton()
+        self._vdw_frag_clear_btn.setText(self._cv_bind(self._vdw_frag_clear_btn, "清除"))
+        self._vdw_frag_clear_btn.setObjectName("SmallBtn")
+        self._vdw_frag_clear_btn.setToolTip(
+            "清空 vdW 片段原子集合；「仅选中片段」模式下外壳随之消失，"
+            "可重新输入或框选添加")
+        self._vdw_frag_clear_btn.clicked.connect(self._on_vdw_frag_clear)
+        vl.addWidget(self._vdw_frag_clear_btn, 4, 3)
+
         # ── 成键阈值（已隐藏：使用 cub_viewer 中的默认值 1.0 / 1.3 / 0.4） ──
         # 保留底层回调（_on_brf_tight_edit / _on_brf_loose_edit / _on_dash_w_edit）
         # 与默认值，仅不显示控件。如需恢复，取消下方注释即可。
         # bl.addWidget(QLabel("成键阈值:"), 3, 0)
 
         # ── 原子十字圆环（两条贴球大圆带，GL 着色器绘制；主控开关 + 控制面板） ──
-        bl.addWidget(QLabel("十字圆环:"), 4, 0)
-        self._crosshair_chk = QCheckBox("显示")
+        self._lbl_rings = QLabel()
+        self._lbl_rings.setText(self._cv_bind(self._lbl_rings, "十字圆环:"))
+        bl.addWidget(self._lbl_rings, 3, 0)
+        self._crosshair_chk = QCheckBox()
+        self._crosshair_chk.setText(self._cv_bind(self._crosshair_chk, "显示"))
         self._crosshair_chk.setChecked(False)
         self._crosshair_chk.setToolTip(
             "勾选后在每个原子球面画两条交叉的大圆环（十字效果）；"
             "未勾选则完全不显示")
         self._crosshair_chk.toggled.connect(self._on_crosshair)
-        bl.addWidget(self._crosshair_chk, 4, 1)
-        self._ring_btn = QPushButton("圆环设置…")
+        bl.addWidget(self._crosshair_chk, 3, 1)
+        self._ring_btn = QPushButton()
+        self._ring_btn.setText(self._cv_bind(self._ring_btn, "圆环设置…"))
         self._ring_btn.setObjectName("SmallBtn")
-        self._ring_btn.setMaximumWidth(90)
+        self._ring_btn.setMaximumWidth(120)
         self._ring_btn.setToolTip(
             "弹出圆环控制面板：调两条环的方位角/俯仰角；勾选锁定后分子怎么转圆环都不转")
         self._ring_btn.clicked.connect(self._open_ring_dialog)
-        bl.addWidget(self._ring_btn, 4, 2)
+        bl.addWidget(self._ring_btn, 3, 2)
         # bl.addWidget(QLabel("实线"), 3, 1)
         # self._brf_tight_edit = QLineEdit("1.00")
         # self._brf_tight_edit.setValidator(QDoubleValidator(0.50, 2.00, 2))
@@ -1316,99 +1927,99 @@ class CubCanvasPanel(QWidget):
         # bl.addWidget(self._dash_w_edit, 3, 6)
 
         # ── 虚线小圆球：大小 / 间隔 ──
-        bl.addWidget(QLabel("虚线大小:"), 6, 0)
+        self._lbl_dot_size = QLabel()
+        self._lbl_dot_size.setText(self._cv_bind(self._lbl_dot_size, "虚线大小:"))
+        bl.addWidget(self._lbl_dot_size, 4, 0)
         self._dot_size_sld = QSlider(Qt.Horizontal)
         self._dot_size_sld.setRange(20, 400)    # ×0.2 .. ×4.0
         self._dot_size_sld.setValue(100)        # ×1.0
         self._dot_size_sld.setMinimumWidth(200)
         self._dot_size_sld.valueChanged.connect(self._on_dot_size_sld)
-        bl.addWidget(self._dot_size_sld, 6, 1)
+        bl.addWidget(self._dot_size_sld, 4, 1)
         self._dot_size_edit = QLineEdit("1.00")
         self._dot_size_edit.setValidator(QDoubleValidator(0.20, 4.00, 2))
         self._dot_size_edit.setMaximumWidth(64)
         self._dot_size_edit.editingFinished.connect(self._on_dot_size_edit)
-        bl.addWidget(self._dot_size_edit, 6, 2)
+        bl.addWidget(self._dot_size_edit, 4, 2)
 
-        bl.addWidget(QLabel("虚线间隔:"), 7, 0)
+        self._lbl_dot_spacing = QLabel()
+        self._lbl_dot_spacing.setText(self._cv_bind(self._lbl_dot_spacing, "虚线间隔:"))
+        bl.addWidget(self._lbl_dot_spacing, 5, 0)
         self._dot_spacing_sld = QSlider(Qt.Horizontal)
         self._dot_spacing_sld.setRange(30, 400)  # ×0.3 .. ×4.0
         self._dot_spacing_sld.setValue(100)      # ×1.0
         self._dot_spacing_sld.setMinimumWidth(200)
         self._dot_spacing_sld.valueChanged.connect(self._on_dot_spacing_sld)
-        bl.addWidget(self._dot_spacing_sld, 7, 1)
+        bl.addWidget(self._dot_spacing_sld, 5, 1)
         self._dot_spacing_edit = QLineEdit("1.00")
         self._dot_spacing_edit.setValidator(QDoubleValidator(0.30, 4.00, 2))
         self._dot_spacing_edit.setMaximumWidth(64)
         self._dot_spacing_edit.editingFinished.connect(self._on_dot_spacing_edit)
-        bl.addWidget(self._dot_spacing_edit, 7, 2)
+        bl.addWidget(self._dot_spacing_edit, 5, 2)
 
         # ── 原子描边 ──
-        bl.addWidget(QLabel("原子描边:"), 8, 0)
-        self._outline_chk = QCheckBox("启用")
+        self._lbl_outline = QLabel()
+        self._lbl_outline.setText(self._cv_bind(self._lbl_outline, "原子描边:"))
+        bl.addWidget(self._lbl_outline, 6, 0)
+        self._outline_chk = QCheckBox()
+        self._outline_chk.setText(self._cv_bind(self._outline_chk, "启用"))
         self._outline_chk.setChecked(False)
         self._outline_chk.toggled.connect(self._on_outline_toggle)
-        bl.addWidget(self._outline_chk, 8, 1)
-        self._outline_color_btn = QPushButton("颜色")
+        bl.addWidget(self._outline_chk, 6, 1)
+        self._outline_color_btn = QPushButton()
+        self._outline_color_btn.setText(self._cv_bind(self._outline_color_btn, "颜色"))
         self._outline_color_btn.setObjectName("SmallBtn")
         self._outline_color_btn.clicked.connect(self._on_outline_color)
-        bl.addWidget(self._outline_color_btn, 8, 2)
+        bl.addWidget(self._outline_color_btn, 6, 2)
 
-        bl.addWidget(QLabel("描边粗细:"), 9, 0)
+        self._lbl_outline_w = QLabel()
+        self._lbl_outline_w.setText(self._cv_bind(self._lbl_outline_w, "描边粗细:"))
+        bl.addWidget(self._lbl_outline_w, 7, 0)
         self._outline_w_sld = QSlider(Qt.Horizontal)
         self._outline_w_sld.setRange(1, 600)
         self._outline_w_sld.setValue(400)   # 0.4：细档（窄带公式下 ≈1px 细线）
         self._outline_w_sld.setMinimumWidth(200)
         self._outline_w_sld.valueChanged.connect(self._on_outline_width)
-        bl.addWidget(self._outline_w_sld, 9, 1)
+        bl.addWidget(self._outline_w_sld, 7, 1)
         self._outline_w_lbl = QLabel("0.400")
         self._outline_w_lbl.setMaximumWidth(64)
-        bl.addWidget(self._outline_w_lbl, 9, 2)
+        bl.addWidget(self._outline_w_lbl, 7, 2)
 
-        bl.addWidget(QLabel("DPI:"), 10, 0)
-        self._dpi_edit = QLineEdit("600")
-        self._dpi_edit.setValidator(QDoubleValidator(50, 2400, 0))
-        self._dpi_edit.setMaximumWidth(64)
-        bl.addWidget(self._dpi_edit, 10, 1)
-        self._bg_color_btn = QPushButton("背景色")
+        # ── 背景色（导出/预览用）；导出图片/DPI/透明背景已移到画布下方一键样式行 ──
+        self._lbl_bg = QLabel()
+        self._lbl_bg.setText(self._cv_bind(self._lbl_bg, "背景色:"))
+        bl.addWidget(self._lbl_bg, 8, 0)
+        self._bg_color_btn = QPushButton()
+        self._bg_color_btn.setText(self._cv_bind(self._bg_color_btn, "选择…"))
         self._bg_color_btn.setObjectName("SmallBtn")
         self._bg_color_btn.setToolTip("设置导出/预览的背景颜色")
         self._bg_color_btn.clicked.connect(self._on_bg_color)
-        bl.addWidget(self._bg_color_btn, 10, 2)
-
-        self._transparent_chk = QCheckBox("透明背景")
-        self._transparent_chk.setToolTip(
-            "导出 PNG 时背景透明（背景 alpha=0，参照 IboView）")
-        bl.addWidget(self._transparent_chk, 11, 0, 1, 2)
-
-        btn_sc = QPushButton("快速截图")
-        btn_sc.setObjectName("SmallBtn")
-        btn_sc.clicked.connect(self._screenshot)
-        bl.addWidget(btn_sc, 11, 2)
-
-        # 导出图片：移到球棍模型区域底部，蓝色背景突出
-        btn_ex = QPushButton("导出图片")
-        btn_ex.setObjectName("ExportImageBtn")
-        btn_ex.setMinimumHeight(30)
-        btn_ex.setStyleSheet(
-            "QPushButton#ExportImageBtn { background-color: #2E6FD6; color: #ffffff;"
-            " border: none; border-radius: 4px; font-weight: 600; }"
-            "QPushButton#ExportImageBtn:hover { background-color: #3B7DE8; }"
-            "QPushButton#ExportImageBtn:pressed { background-color: #2257AE; }")
-        btn_ex.setToolTip("离屏分块超采样渲染，输出高 DPI PNG（可透明背景）")
-        btn_ex.clicked.connect(self._export_image)
-        bl.addWidget(btn_ex, 12, 0, 1, 3)
+        bl.addWidget(self._bg_color_btn, 8, 1)
 
         # 景深雾化（IboView Fade：远处蒙白雾）
-        self._fade_chk = QCheckBox("景深雾化")
+        self._fade_chk = QCheckBox()
+        self._fade_chk.setText(self._cv_bind(self._fade_chk, "景深雾化"))
         self._fade_chk.setChecked(True)
         self._fade_chk.setToolTip("关闭后远处原子/轨道不再因景深变淡发白")
         self._fade_chk.toggled.connect(self._on_fade_toggle)
-        bl.addWidget(self._fade_chk, 13, 0, 1, 3)
+        bl.addWidget(self._fade_chk, 9, 0, 1, 3)
 
-        col_ball, self._btn_toggle_ball, cl_ball = _collapsible_col("球棍模型")
-        cl_ball.addWidget(gb, 1)
-        _wire_toggle(self._btn_toggle_ball, gb, "球棍模型")
-        gb.setVisible(False)   # 默认收起
+        col_ball, self._btn_toggle_ball, cl_ball = _collapsible_col(
+            _cv("球棍模型"))
+        # 球棍网格 + vdW 子分组上下并列，折叠按钮一起控制
+        ball_holder = QWidget()
+        bh = QVBoxLayout(ball_holder)
+        bh.setContentsMargins(0, 0, 0, 0)
+        bh.setSpacing(6)
+        bh.addWidget(gb)
+        bh.addWidget(vdw_grp)
+        bh.addStretch(1)
+        cl_ball.addWidget(ball_holder, 1)
+        _wire_toggle(self._btn_toggle_ball, ball_holder, "球棍模型")
+        self._fold_titles.append((self._btn_toggle_ball, "球棍模型"))
+        ball_holder.setVisible(False)   # 默认收起
+        # 横向 Ignored：忽略内容固有宽度，与显示/等值面列严格等宽（各占一半）
+        col_ball.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         outer.addWidget(col_ball, stretch=1)
 
         return box
@@ -1442,32 +2053,38 @@ class CubCanvasPanel(QWidget):
             self._sync_phase_swatches()
 
     def _on_wheel_hue(self, hue):
-        """旋转色轮：正相位 = hue，负相位依当前模式计算。
+        """旋转色轮：按当前配色方案（移植自 IboView）计算正/负相位颜色。
 
-        - 互补色（IboView scheme2）：负相位 = hue + 0.5（色环正对面，相差 180°）
-        - 相近色（IboView 默认 scheme0，spread=50°）：负相位 = hue - 25°/360
+        方案 0 相近色（scheme0, IboView 默认）：正 = Hue+25°, 负 = Hue-25°, S=0.6 V=1.0
+        方案 1 同色相不同饱和（scheme1）：正 S=0.6, 负 S=0.35, 同 Hue, V=1.0
+        方案 2 互补色（scheme2）：负相位 = Hue + 180°, S=0.6 V=1.0
 
+        与 IboView 一致：透明度由 orb_opacity 控制，此处只决定 RGB。
         仅当色轮已启用（_wheel_enabled）时生效，否则沿用样式配色。
         """
         if not self._wheel_enabled or self.glw is None:
             return
-        pos = ColorWheelWidget.hue_to_rgb(hue)
-        if self._phase_complementary:
-            neg = ColorWheelWidget.hue_to_rgb((hue + 0.5) % 1.0)
-        else:
-            neg = ColorWheelWidget.hue_to_rgb((hue - 25.0 / 360.0) % 1.0)
+        h = hue % 1.0
+        S, V = 0.6, 1.0
+        if self._phase_scheme == 1:       # 同色相·不同饱和
+            pos = ColorWheelWidget.hue_to_rgb(h, 0.6, V)
+            neg = ColorWheelWidget.hue_to_rgb(h, 0.35, V)
+        elif self._phase_scheme == 2:     # 互补色
+            pos = ColorWheelWidget.hue_to_rgb(h, S, V)
+            neg = ColorWheelWidget.hue_to_rgb((h + 0.5) % 1.0, S, V)
+        else:                              # 相近色（IboView 默认 scheme0）
+            pos = ColorWheelWidget.hue_to_rgb((h + 25.0 / 360.0) % 1.0, S, V)
+            neg = ColorWheelWidget.hue_to_rgb((h - 25.0 / 360.0) % 1.0, S, V)
         if self._phase_flipped:
             pos, neg = neg, pos
         self.glw.set_phase_colors(pos_rgb=pos, neg_rgb=neg)
         self._sync_phase_swatches()
 
-    def _on_phase_mode_toggle(self):
-        """在互补色 / 相近色两种模式间切换，并立即按当前色相重渲染。"""
-        if not self._wheel_enabled:
-            return
-        self._phase_complementary = not self._phase_complementary
-        self._phase_mode_btn.setText("互补色" if self._phase_complementary else "相近色")
-        self._on_wheel_hue(self._color_wheel.hue())
+    def _on_phase_scheme_changed(self, idx):
+        """切换配色方案，立即按当前色相重渲染（等价 IboView 切换 scheme）。"""
+        self._phase_scheme = idx
+        if self._wheel_enabled:
+            self._on_wheel_hue(self._color_wheel.hue())
 
     def _on_flip_phase(self):
         """翻转相位：交换正/负相位颜色（等价 IboView chkBox_FlipPhase）。
@@ -1495,13 +2112,11 @@ class CubCanvasPanel(QWidget):
     # ── 正/负相位色块选色 ──
     @staticmethod
     def _style_swatch(btn, rgb01):
-        """把按钮渲染成当前颜色色块（按亮度选文字黑/白）。rgb01 为 0..1 元组。"""
+        """把按钮渲染成当前相位颜色圆点（无文字）。rgb01 为 0..1 元组。"""
         r, g, b = (int(c * 255) for c in rgb01[:3])
-        lum = 0.299 * r + 0.587 * g + 0.114 * b
         btn.setStyleSheet(
-            "QPushButton { background-color: rgb(%d,%d,%d); color: %s;"
-            " border: 1px solid #9AA7B8; border-radius: 3px; padding: 2px 8px; }"
-            % (r, g, b, "#ffffff" if lum < 128 else "#000000"))
+            "QPushButton { background-color: rgb(%d,%d,%d);"
+            " border: 1px solid #9AA7B8; border-radius: 13px; }" % (r, g, b))
 
     def _sync_phase_swatches(self):
         """把正/负相位色块按钮同步为 glw 当前相位配色。"""
@@ -1711,13 +2326,13 @@ class CubCanvasPanel(QWidget):
 
     def _on_toggle_params(self, on):
         self._params.setVisible(bool(on))
-        self._more_btn.setText("参数 ▴" if on else "参数 ▾")
+        self._more_btn.setText(f"{_cv('参数')} {'▴' if on else '▾'}")
 
     def show_params_panel(self, visible):
         """外部控制画布参数区是否显示在画布下方。"""
         self._params.setVisible(bool(visible))
         self._more_btn.setChecked(bool(visible))
-        self._more_btn.setText("参数 ▴" if visible else "参数 ▾")
+        self._more_btn.setText(f"{_cv('参数')} {'▴' if visible else '▾'}")
 
     def _on_cube_pick(self, idx):
         if 0 <= idx < len(self._cube_paths):
@@ -1849,13 +2464,16 @@ class CubCanvasPanel(QWidget):
 
     def _apply_iqmol_style(self):
         """IQmol 默认：IBOVIEW 等值面绘制方法 + 当前等值面风格 +
-        相位色 #e2254f / #0062ff + 光照角度与 sob-art 一致。"""
+        相位色 #e2254f / #0062ff + 原子配色 GaussView + 光照角度与 sob-art 一致。"""
         if self.glw is None:
             return
         self.glw.reset_molviewer_style()
         sn = getattr(self.glw, "_style_name", None)
         if sn:
             self.glw.set_style(sn)
+        # 原子配色：GaussView（Tian Lu 的 gview_color.tcl 调色板，
+        # 与 HoukMol/SobArt 等样式同一套，便于横向对比）
+        self.glw.set_mol_style("GaussView")
         # 轨道相位颜色：#e2254f（正相位）/ #0062ff（负相位）
         self.glw.set_phase_colors(pos_rgb=(0xE2, 0x25, 0x4F),
                                   neg_rgb=(0x00, 0x62, 0xFF))
@@ -1863,7 +2481,7 @@ class CubCanvasPanel(QWidget):
         # 光照角度与 sob-art 一致
         self._apply_light_state(_SOBART_STYLE)
         self._sync_style_ui()
-        self._set_status("已应用默认样式 IQmol")
+        self._set_status("已应用默认样式 IQmol（原子配色 GaussView）")
 
     # ── 分子显示辅助：隐藏氢 / 保留编号 / 原子标签 ──
 
@@ -1931,6 +2549,29 @@ class CubCanvasPanel(QWidget):
         else:
             if not self._lbl_idx_chk.isChecked():
                 self.glw.set_atom_labels(2)
+
+    def _on_measure_mode(self, on):
+        """测键长开关：转发给画布（开启选点；退出保留标注，可继续调整）。"""
+        if self.glw is not None:
+            self.glw.set_measure_mode(on)
+
+    def _on_measure_clear(self):
+        """清除全部键长测量标注。"""
+        if self.glw is not None:
+            self.glw.clear_measure_items()
+
+    def _on_clear_analysis_clicked(self):
+        """「清空样式」：清空画布上全部等值面/临界点/极值点等分析效果。
+        优先走主窗口注入的 on_clear_analysis（联动 ESP/IGMH/AIM 面板），
+        无注入时只清画布自身。"""
+        if callable(self.on_clear_analysis):
+            try:
+                self.on_clear_analysis()
+                return
+            except Exception:
+                pass
+        if self.glw is not None:
+            self.glw.clear_analysis()
 
     def _apply_houkmol_style(self):
         """一键应用默认样式 HoukMol（内嵌，单光渐变 + 默认圆环方位），
@@ -2030,7 +2671,9 @@ class CubCanvasPanel(QWidget):
         self._op_sld.blockSignals(True)
         self._op_sld.setValue(int((1.0 - op) * 100))
         self._op_sld.blockSignals(False)
-        self._op_lbl.setText(f"{(1.0 - op) * 100:.0f}%")
+        self._op_edit.blockSignals(True)
+        self._op_edit.setText(f"{(1.0 - op) * 100:.0f}")
+        self._op_edit.blockSignals(False)
         # 十字圆环 + 相位色
         self._crosshair_chk.blockSignals(True)
         self._crosshair_chk.setChecked(bool(self.glw._crosshair))
@@ -2069,7 +2712,7 @@ class CubCanvasPanel(QWidget):
             self._ring_dialog.sync_from_glw()
 
     def _on_orb_outline_width(self, v):
-        """等值面描边粗细（窄带阈值 0.01..0.30；未勾选时也记住宽度）。"""
+        """等值面描边粗细（窄带阈值 0.01..0.99；未勾选时也记住宽度）。"""
         w = v / 100.0
         self._orb_outline_val.setText(f"{w:.2f}")
         if self.glw is not None:
@@ -2089,14 +2732,8 @@ class CubCanvasPanel(QWidget):
         self._apply_orb_outline_swatch()
 
     def _apply_orb_outline_swatch(self):
-        """把按钮色块更新为当前描边颜色（按亮度选文字黑/白）。"""
-        r, g, b = self._orb_outline_color
-        lum = 0.299 * r + 0.587 * g + 0.114 * b
-        self._orb_outline_color_btn.setStyleSheet(
-            "QPushButton { background-color: rgb(%d,%d,%d); color: %s;"
-            " border: 1px solid #9AA7B8; border-radius: 3px; padding: 2px 6px; }"
-            % (int(r * 255), int(g * 255), int(b * 255),
-               "#ffffff" if lum < 0.5 else "#000000"))
+        """把描边颜色按钮同步为当前颜色圆点（无文字）。"""
+        self._style_swatch(self._orb_outline_color_btn, self._orb_outline_color)
 
     def _on_sel_marker(self, idx):
         if self.glw is None:
@@ -2180,9 +2817,24 @@ class CubCanvasPanel(QWidget):
         # 滑块值 = 透明度(%)；opacity = 1 - 透明度
         transparency = v / 100.0
         op = 1.0 - transparency
-        self._op_lbl.setText(f"{v}%")
+        self._op_edit.blockSignals(True)
+        self._op_edit.setText(str(v))
+        self._op_edit.blockSignals(False)
         if self.glw is not None:
             self.glw.set_opacity(op)
+
+    def _on_op_edit(self):
+        """透明度精确输入（0-100%）：同步滑块与画布。"""
+        try:
+            v = int(self._op_edit.text())
+        except ValueError:
+            return
+        v = max(0, min(100, v))
+        self._op_edit.setText(str(v))
+        self._op_sld.blockSignals(True)
+        self._op_sld.setValue(v)
+        self._op_sld.blockSignals(False)
+        self._on_op(v)
 
     def _on_atom_scale_sld(self, val):
         s = val / 100.0
@@ -2203,6 +2855,100 @@ class CubCanvasPanel(QWidget):
         self._atom_scale_sld.blockSignals(False)
         if self.glw is not None:
             self.glw.set_atom_scale(s)
+
+    # ── 范德华半径可视化（诉求 1 & 2）──
+    def _on_vdw_mode(self, state):
+        if self.glw is not None:
+            self.glw.set_vdw_mode(state == Qt.Checked)
+
+    def _on_vdw_shell(self, state):
+        if self.glw is not None:
+            alpha = self._vdw_alpha_sld.value() / 100.0
+            self.glw.set_vdw_shell(state == Qt.Checked, alpha)
+            # 子开关状态同步到 GL（外壳关闭时子开关禁用，但状态仍保留）
+            self.glw.set_vdw_shell_selection_only(
+                self._vdw_sel_only_chk.isChecked())
+
+    def _on_vdw_sel_only(self, state):
+        if self.glw is not None:
+            self.glw.set_vdw_shell_selection_only(state == Qt.Checked)
+
+    def _on_vdw_frag_clear(self):
+        if self.glw is not None:
+            self.glw.clear_vdw_selection()
+
+    def _on_vdw_frag_set_changed(self, indices_1based):
+        """片段集合变化（框选/点选/清除）→ 把编号压成范围串回填输入框。"""
+        if not hasattr(self, "_vdw_frag_edit"):
+            return
+        from igmh_panel import compress_ranges
+        text = compress_ranges(indices_1based)
+        self._vdw_frag_edit.setText(text)
+        if not text:
+            return
+        # 输入框内容与片段集合已一致，清掉可能的"手动改过"状态即可，
+        # 这里仅同步显示，不触发应用
+
+    def _on_vdw_frag_apply(self):
+        """把输入框里的原子编号（如 1-12,15）归入 vdW 片段并显示外壳。"""
+        if self.glw is None:
+            return
+        text = self._vdw_frag_edit.text().strip()
+        if not text:
+            return
+        from igmh_panel import parse_ranges
+        indices = sorted(i for i in parse_ranges(text) if i > 0)
+        # 越界编号过滤（按当前原子总数截断）
+        atoms = self.glw._atom_list()
+        n_atoms = len(atoms)
+        valid = [i for i in indices if i <= n_atoms] if n_atoms else []
+        invalid = len(indices) - len(valid)
+        if not valid:
+            return
+        self.glw.set_vdw_shell(True, self._vdw_alpha_sld.value() / 100.0)
+        self._vdw_shell_chk.setChecked(True)
+        self.glw.set_vdw_shell_selection_only(True)
+        self._vdw_sel_only_chk.setChecked(True)
+        self.glw.add_vdw_selection(valid)
+        msg = f"片段: 已为 {len(valid)} 个原子加 vdW 外壳"
+        if invalid:
+            msg += f"（{invalid} 个编号越界已忽略，共 {n_atoms} 个原子）"
+        self.glw._status(msg)
+
+    def _on_vdw_alpha(self, val):
+        if self.glw is not None and self._vdw_shell_chk.isChecked():
+            self.glw.set_vdw_shell(True, val / 100.0)
+
+    def _on_vdw_outline(self, state):
+        if self.glw is not None:
+            self.glw.set_vdw_outline(state == Qt.Checked)
+
+    def _on_vdw_outline_width(self, val):
+        if self.glw is not None:
+            self.glw.set_vdw_outline(
+                self._vdw_outline_chk.isChecked(),
+                width=val / 100.0)
+
+    def _on_vdw_scale(self, val):
+        s = val / 100.0
+        self._vdw_scale_edit.blockSignals(True)
+        self._vdw_scale_edit.setText(f"{s:.2f}")
+        self._vdw_scale_edit.blockSignals(False)
+        if self.glw is not None:
+            self.glw.set_vdw_scale(s)
+
+    def _on_vdw_scale_edit(self):
+        try:
+            s = float(self._vdw_scale_edit.text())
+        except ValueError:
+            s = 1.0
+        s = max(0.50, min(2.00, s))
+        self._vdw_scale_sld.blockSignals(True)
+        self._vdw_scale_sld.setValue(int(round(s * 100)))
+        self._vdw_scale_sld.blockSignals(False)
+        self._vdw_scale_edit.setText(f"{s:.2f}")
+        if self.glw is not None:
+            self.glw.set_vdw_scale(s)
 
     def _on_bond_scale_sld(self, val):
         s = val / 100.0
@@ -2376,10 +3122,18 @@ class CubCanvasPanel(QWidget):
     def _export_image(self):
         if self.glw is None:
             return
-        if self._loaded_path is None:
-            QMessageBox.information(self, "提示", "请先加载一个 cube 文件。")
+        # 画布里有内容（cube 等值面或独立分子）即可导出，不强制要求 cube 文件
+        has_content = (
+            self._loaded_path is not None
+            or getattr(self.glw, "_molecule", None) is not None
+            or getattr(self.glw, "_atom_surf", None) is not None
+            or getattr(self.glw, "_pos_surf", None) is not None
+            or getattr(self.glw, "_cube", None) is not None)
+        if not has_content:
+            QMessageBox.information(self, "提示", "画布为空，请先加载文件或分子。")
             return
-        base = os.path.splitext(os.path.basename(self._loaded_path))[0]
+        base = (os.path.splitext(os.path.basename(self._loaded_path))[0]
+                if self._loaded_path else "mol_view")
         p, _ = save_file(self, "导出高分辨率图片",
                          base + ".png", "PNG (*.png)")
         if not p:

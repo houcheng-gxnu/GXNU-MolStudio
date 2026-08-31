@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-# GXNU MolStudio v1.0 — 分子可视化与量子化学分析
+# MolStudio — 分子可视化与量子化学分析
 # PyInstaller onedir（文件夹形式）打包配置。
 # 用法: pyinstaller OrbitalViewer.spec
 
@@ -10,8 +10,17 @@ import shutil
 a = Analysis(
     ['main.py'],
     pathex=[r'D:\OrbitalViewer 5.3'],
-    binaries=[],
-    datas=[],
+    binaries=[
+        # VC++ 运行库：Qt5Core/Qt5Gui 依赖 MSVCP140.dll，而 PyInstaller 只会
+        # 从 System32 解析到它并默认跳过（假定目标机装有 VC++ Redistributable）。
+        # 显式捆绑，保证分发给未装运行库的机器也能启动。
+        (r'C:\Windows\System32\MSVCP140.dll', '.'),
+    ],
+    datas=[
+        # 窗口/任务栏图标 + 启动画面校徽（main.py 运行时从 exe 同目录加载）
+        ('molstudio.ico', '.'),
+        ('校徽.png', '.'),
+    ],
     hiddenimports=[
         # 主程序依赖
         'main_window', 'i18n', 'theme', 'dialogs', 'workers',
@@ -23,8 +32,12 @@ a = Analysis(
         'ovcanvas', 'ovcanvas._panel', 'ovcanvas._glwidget',
         'ovcanvas._molviewer_style', 'ovcanvas._colorwheel',
         # 各分析面板
-        'esp_panel', 'esp_viewer', 'charge_viewer', 'nbo_viewer',
-        'nbo_parser', 'igmh_panel',
+        'esp_panel', 'esp_viewer', 'charge_viewer', 'charge_bond_panel',
+        'nbo_viewer', 'nbo_parser', 'igmh_panel',
+        'aim_panel', 'aim_visualize',
+        'etsnocv_panel', 'etsnocv', 'etsnocv.viewer', 'etsnocv.molcanvas',
+        # MPP 分子平面性参数分析（移植自 mpp_auto_qt.py）
+        'mpp_panel',
         # 旧版独立查看器（保留兼容）
         'orbital_viewer_v53', 'orbital_viewer_lib',
         'orbital_gl_viewer', 'orbital_gl_widget',
@@ -65,7 +78,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='GXNU MolStudio',
+    name='MolStudio',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -78,7 +91,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     upx=False,
-    icon=r'D:\OrbitalViewer 5.3\gxnu_molstudio.ico',
+    icon=r'D:\OrbitalViewer 5.3\molstudio.ico',
 )
 
 coll = COLLECT(
@@ -88,11 +101,11 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='GXNU MolStudio',
+    name='MolStudio',
 )
 
 # ── 事后放回被拦截的 DLL（写 .tmp 再改名，绕过 360 按名拦截） ──
-_internal = os.path.join(r'D:\OrbitalViewer 5.3\dist', 'GXNU MolStudio', '_internal')
+_internal = os.path.join(r'D:\OrbitalViewer 5.3\dist', 'MolStudio', '_internal')
 os.makedirs(_internal, exist_ok=True)
 for _dest, _src, _tc in _blocked_entries:
     _name = _dest.replace('\\', '/').rsplit('/', 1)[-1]

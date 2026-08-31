@@ -23,7 +23,7 @@ import traceback
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QFileDialog, QMessageBox, QFrame, QGroupBox,
+    QFileDialog, QMessageBox, QFrame, QGroupBox, QInputDialog,
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 
@@ -133,6 +133,12 @@ _NBO_TR = {
         "loaded_mo": "{mo_type} MO #{mo_num} 已加载到画布",
         "dual_loaded": "{n} 个轨道已叠加到画布",
         "no_mo": "该行没有匹配到 MO（能量容差 0.5 a.u.）",
+        "flip_phase": "翻转相位",
+        "flip_choose": "选择要翻转的轨道:",
+        "flip_all": "翻转全部",
+        "flip_none": "画布上还没有轨道，先双击表格行可视化",
+        "flip_done_one": "画布轨道 {label} 相位已翻转",
+        "flip_done_all": "画布 {n} 个轨道相位已翻转",
         "col_nbo_id": "NBO",
         "col_type": "类型",
         "col_atoms": "原子",
@@ -184,6 +190,12 @@ _NBO_TR = {
         "col_stars": "Str",
         "col_donor": "Donor",
         "col_acceptor": "Acceptor",
+        "flip_phase": "Flip Phase",
+        "flip_choose": "Select orbital to flip:",
+        "flip_all": "Flip All",
+        "flip_none": "No orbitals on canvas — double-click a row to visualize first",
+        "flip_done_one": "Canvas orbital {label} phase flipped",
+        "flip_done_all": "Flipped {n} canvas orbitals",
     },
 }
 
@@ -213,7 +225,9 @@ class NboPanel(QWidget):
         self._pending_selection = None
         self._dual_queue = []      # 双轨道可视化：待生成 cube 的 [(mo_type, mo_num), ...]
         self._dual_cubes = []      # 已生成的 cube 路径
+        self._dual_entries = []    # 双轨道原始条目（保留标签供翻转选择）
         self._dual_color_pairs = []
+        self._canvas_orbitals = [] # 画布当前轨道标签 [(label, cube_path), ...]（翻转选择用）
 
         self._build_ui()
         self._apply_lang()
@@ -241,6 +255,7 @@ class NboPanel(QWidget):
         self.lbl_e2.setText(self._t("e2_threshold"))
         self.btn_reset.setText(self._t("reset_view"))
         self.btn_clear.setText(self._t("clear"))
+        self.btn_flip.setText(self._t("flip_phase"))
         self.grp_nbo.setTitle(self._t("nbo_table"))
         self.grp_e2.setTitle(self._t("e2_table"))
         self.table_nbo.setHorizontalHeaderLabels([
@@ -295,6 +310,11 @@ class NboPanel(QWidget):
         self.btn_clear = QPushButton()
         self.btn_clear.clicked.connect(self._clear_selection)
         bv.addWidget(self.btn_clear)
+
+        # 画布翻转相位（支持按轨道选择）
+        self.btn_flip = QPushButton()
+        self.btn_flip.clicked.connect(self._on_flip_clicked)
+        bv.addWidget(self.btn_flip)
         bv.addStretch()
 
         v.addWidget(bar)
@@ -573,9 +593,12 @@ class NboPanel(QWidget):
         if self.glw is not None:
             self._apply_style()          # 单轨道：应用界面样式配色
             self.glw.load(cube_path, 0.05)
+            label = f"#{mo_num} ({mo_type})"
+            self._canvas_orbitals = [(label, cube_path)]
             # 登记 VMD 同步场景（画布当前 MO）
             self.glw.set_vmd_scene(
-                [{"type": "orbital", "vol": cube_path, "iso": 0.05}])
+                [{"type": "orbital", "vol": cube_path, "iso": 0.05,
+                  "label": label}])
         self._log(self._t("loaded_mo", mo_type=mo_type, mo_num=mo_num))
 
     # ── E(2) 双轨道叠加 ──
@@ -604,6 +627,7 @@ class NboPanel(QWidget):
             self._dual_color_pairs = []
 
         self._dual_queue = list(entries)
+        self._dual_entries = list(entries)   # 保存标签（队列生成 cube 时会被消费）
         self._dual_cubes = []
         self._set_status(self._t("analyzing"))
         self._log("E(2) 双轨道叠加: " + ", ".join(
@@ -639,11 +663,47 @@ class NboPanel(QWidget):
             return
         if self.glw is not None:
             self.glw.load_orbitals(self._dual_cubes, 0.05, self._dual_color_pairs)
-            # 登记 VMD 同步场景（E(2) 双轨道叠加）
+            # 登记 VMD 同步场景（E(2) 双轨道叠加；label 供「翻转相位」选择轨道）
+            self._canvas_orbitals = [
+                (f"#{n} ({t})", c)
+                for c, (t, n) in zip(self._dual_cubes, self._dual_entries)]
             self.glw.set_vmd_scene(
-                [{"type": "orbital", "vol": c, "iso": 0.05}
-                 for c in self._dual_cubes])
+                [{"type": "orbital", "vol": c, "iso": 0.05,
+                  "label": f"#{n} ({t})"}
+                 for c, (t, n) in zip(self._dual_cubes, self._dual_entries)])
         self._log(self._t("dual_loaded", n=len(self._dual_cubes)))
+
+    # ── 画布翻转相位（支持按轨道选择） ──
+    def _on_flip_clicked(self):
+        """翻转画布轨道相位：单轨道直接翻；多轨道弹出选择（翻转所选 / 翻转全部）。"""
+        if self.glw is None:
+            return
+        labels = [lab for lab, _c in self._canvas_orbitals]
+        if not labels:
+            self._set_status(self._t("flip_none"))
+            return
+        if len(labels) == 1:
+            ok = self.glw.flip_orbital(0)
+            if ok:
+                self._log(self._t("flip_done_one", label=labels[0]))
+            return
+        # 多轨道：弹出选择（轨道列表 + 翻转全部）
+        items = labels + [self._t("flip_all")]
+        item, ok = QInputDialog.getItem(
+            self, self._t("flip_phase"), self._t("flip_choose"),
+            items, 0, False)
+        if not ok:
+            return
+        if item == self._t("flip_all"):
+            if self.glw.flip_all_orbitals():
+                self._log(self._t("flip_done_all", n=len(labels)))
+        else:
+            try:
+                i = labels.index(item)
+            except ValueError:
+                return
+            if self.glw.flip_orbital(i):
+                self._log(self._t("flip_done_one", label=item))
 
     # ── 视角 / 清空 ──
     def _reset_view(self):

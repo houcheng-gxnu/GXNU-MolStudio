@@ -83,6 +83,24 @@ ATOM_RADII = {
 }
 
 # Config file path (same directory as exe or script)
+def _run_multiwfn_subprocess(args, inputs, cwd, timeout=600):
+    """运行 Multiwfn 控制台程序，确保在 PyInstaller windowed 模式下 stdin 生效。
+
+    windowed 父进程没有控制台，子进程若 attach 到不存在的控制台会导致 stdin
+    管道失效，Multiwfn 会弹出交互式"Choose an input file"对话框。显式指定三
+    个 PIPE + CREATE_NO_WINDOW 可隐藏窗口并强制走标准输入。
+    """
+    creationflags = 0
+    if sys.platform == "win32":
+        creationflags = (
+            subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP)
+    return subprocess.run(
+        args, input=inputs, cwd=cwd, timeout=timeout,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        creationflags=creationflags, encoding="utf-8", errors="replace",
+    )
+
+
 CONFIG_FILE = os.path.join(
     os.path.dirname(os.path.abspath(sys.argv[0] if getattr(sys, 'frozen', False) else __file__)),
     "fchk_orbital.ini"
@@ -1672,10 +1690,8 @@ def log_to_xyz(log_path, multiwfn_exe=None, work_dir=None):
     inputs = f"\n{log_name}\n100\n2\n2\n{xyz_name}\n0\nq\n"
 
     try:
-        subprocess.run(
-            multiwfn_exe, input=inputs, capture_output=True,
-            cwd=ascii_dir, timeout=600, encoding="utf-8", errors="replace",
-        )
+        _run_multiwfn_subprocess(
+            [multiwfn_exe], inputs, cwd=ascii_dir, timeout=600)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return None
 
@@ -1852,7 +1868,7 @@ proc _vmd_handle {{chan}} {{
     }}
     flush $chan
 }}
-puts "OrbitalViewer VMD ready (molecule, port: {port})"
+puts "MolStudio VMD ready (molecule, port: {port})"
 """
     tcl = style_tcl + _draw_bond_tcl() + socket_tcl
     tcl_path = os.path.join(render_dir, "_preview_mol.tcl")
@@ -2328,6 +2344,36 @@ puts "==========================================="
 """
 
 
+
+
+# ═══════════════════════════════════════════════════════════════
+# IGMH 专用 VMD 场景脚本 —— 逐字照搬自 IGMH-V4 (igmh_v6_source._style_tcl)
+# 保证 δg 等值面着色（sl2r BGR）与参考实现完全一致
+# ═══════════════════════════════════════════════════════════════
+_IGMH_SCENE_TPL = 'color Display Background white\naxes location Off\ndisplay depthcue off\ndisplay projection Orthographic\ndisplay rendermode GLSL\n\nlight 0 on\nlight 1 on\nlight 2 off\nlight 3 on\n\ndisplay shadows off\ndisplay ambientocclusion off\ndisplay aoambient 0.8\ndisplay aodirect 0.3\n\n\n# ── 加载：sl2r 先加载（dataset 0），dg_inter 后加载（dataset 1）──\nmol new {color_vol} type cube first 0 last 0 step 1 waitfor all\nmol addfile {vol} type cube first 0 last 0 step 1 waitfor all\n\n# 删除 sl2r 的默认 VDW rep\nmol delrep 0 top\n\n# rep 0: CPK 原子（坐标来自 {color_vol}）\nmol representation CPK 0.600000 0.400000 30.000000 30.000000\nmol addrep top\nmol modstyle 0 top CPK 0.600000 0.400000 30.000000 30.000000\nmol modmaterial 0 top _stl_atom\nif {[lsearch [material list] _stl_atom] < 0} {material add _stl_atom}\nmaterial change ambient _stl_atom 0.0\nmaterial change diffuse _stl_atom 0.65\nmaterial change specular _stl_atom 0.5\nmaterial change shininess _stl_atom 0.53\nmaterial change mirror _stl_atom 0.15\nmaterial change opacity _stl_atom 1.0\nmaterial change outline _stl_atom 2.0\nmaterial change outlinewidth _stl_atom 0.3\n\nmol modcolor 0 top Element\nset _igmh_atom_cpk "0.600000 0.400000 30.000000 30.000000"\ncolor Element C tan\ncolor change rgb tan 0.700000 0.560000 0.360000\ncolor Element H white\ncolor Element S yellow\ncolor change rgb 4  1.000000 0.800000 0.000000\ncolor Element F yellow2\ncolor change rgb 17 0.800000 1.000000 0.000000\ncolor Element Cl yellow3\ncolor change rgb 18 0.500000 1.000000 0.000000\ncolor Element Br magenta2\ncolor change rgb 28 0.600000 0.100000 0.000000\ncolor Element I magenta\ncolor change rgb 27 0.700000 0.000000 0.700000\ncolor Element B pink\ncolor change rgb 9   1.000000 0.400000 0.800000\ncolor Element P red2\ncolor change rgb 9   1.000000 0.400000 0.000000\n\n# 金属元素 GaussView 配色 (ColorID = 原子序数 + 100)\ncolor change rgb 103 0.8000 0.4863 1.0000\ncolor change rgb 104 0.8000 1.0000 0.0000\ncolor change rgb 111 0.6667 0.3569 0.9490\ncolor change rgb 112 0.6980 0.8000 0.0000\ncolor change rgb 113 0.8196 0.6471 0.6471\ncolor change rgb 119 0.5569 0.2471 0.8275\ncolor change rgb 120 0.6000 0.6000 0.0000\ncolor change rgb 121 0.8980 0.8980 0.8863\ncolor change rgb 122 0.7490 0.7569 0.7765\ncolor change rgb 123 0.6471 0.6471 0.6667\ncolor change rgb 124 0.5373 0.6000 0.7765\ncolor change rgb 125 0.6078 0.4784 0.7765\ncolor change rgb 126 0.4980 0.4784 0.7765\ncolor change rgb 127 0.3569 0.4275 1.0000\ncolor change rgb 128 0.3569 0.4784 0.7569\ncolor change rgb 129 1.0000 0.4784 0.3765\ncolor change rgb 130 0.4863 0.4980 0.6863\ncolor change rgb 131 0.7569 0.5569 0.5569\ncolor change rgb 137 0.4392 0.1765 0.6863\ncolor change rgb 138 0.4980 0.4000 0.0000\ncolor change rgb 139 0.5765 0.9882 1.0000\ncolor change rgb 140 0.5765 0.8784 0.8784\ncolor change rgb 141 0.4471 0.7569 0.7882\ncolor change rgb 142 0.3294 0.7098 0.7098\ncolor change rgb 143 0.2275 0.6196 0.6588\ncolor change rgb 144 0.1373 0.5569 0.5882\ncolor change rgb 145 0.0392 0.4863 0.5490\ncolor change rgb 146 0.0000 0.4078 0.5176\ncolor change rgb 147 0.6000 0.7765 1.0000\ncolor change rgb 148 1.0000 0.8471 0.5569\ncolor change rgb 149 0.6471 0.4588 0.4471\ncolor change rgb 150 0.4000 0.4980 0.4980\ncolor change rgb 151 0.6196 0.3882 0.7098\ncolor change rgb 155 0.3373 0.0863 0.5569\ncolor change rgb 156 0.4000 0.2000 0.0000\ncolor change rgb 157 0.4392 0.8667 1.0000\ncolor change rgb 158 1.0000 1.0000 0.7765\ncolor change rgb 159 0.8471 1.0000 0.7765\ncolor change rgb 160 0.7765 1.0000 0.7765\ncolor change rgb 161 0.6392 1.0000 0.7765\ncolor change rgb 162 0.5569 1.0000 0.7765\ncolor change rgb 163 0.3765 1.0000 0.7765\ncolor change rgb 164 0.2667 1.0000 0.7765\ncolor change rgb 165 0.1882 1.0000 0.7765\ncolor change rgb 166 0.1176 1.0000 0.7098\ncolor change rgb 167 0.0000 1.0000 0.7098\ncolor change rgb 168 0.0000 0.8980 0.4588\ncolor change rgb 169 0.0000 0.8275 0.3176\ncolor change rgb 170 0.0000 0.7490 0.2196\ncolor change rgb 171 0.0000 0.6667 0.1373\ncolor change rgb 172 0.2980 0.7569 1.0000\ncolor change rgb 173 0.2980 0.6471 1.0000\ncolor change rgb 174 0.1490 0.5765 0.8392\ncolor change rgb 175 0.1490 0.4863 0.6667\ncolor change rgb 176 0.1490 0.4000 0.5882\ncolor change rgb 177 0.0863 0.3294 0.5294\ncolor change rgb 178 0.0863 0.3569 0.5569\ncolor change rgb 179 1.0000 0.8196 0.1373\ncolor change rgb 180 0.7098 0.7098 0.7569\ncolor change rgb 181 0.6471 0.3294 0.2980\ncolor change rgb 182 0.3373 0.3490 0.3765\ncolor change rgb 183 0.6196 0.3098 0.7098\ncolor change rgb 184 0.6667 0.3569 0.0000\ncolor change rgb 187 0.2588 0.0000 0.4000\ncolor change rgb 188 0.2980 0.0980 0.0000\ncolor change rgb 189 0.4392 0.6667 0.9765\ncolor change rgb 190 0.0000 0.7294 1.0000\ncolor change rgb 191 0.0000 0.6275 1.0000\ncolor change rgb 192 0.0000 0.5569 1.0000\ncolor change rgb 193 0.0000 0.4980 0.9490\ncolor change rgb 194 0.0000 0.4196 0.9490\ncolor change rgb 195 0.3294 0.3569 0.9490\ncolor change rgb 196 0.4667 0.3569 0.8863\ncolor change rgb 197 0.5373 0.3686 0.8863\ncolor change rgb 198 0.6275 0.2078 0.8275\ncolor change rgb 199 0.6588 0.1686 0.7765\ncolor change rgb 200 0.6980 0.1176 0.7294\ncolor change rgb 201 0.6980 0.0471 0.6471\ncolor change rgb 202 0.7373 0.0471 0.5294\ncolor change rgb 203 0.7765 0.0000 0.4000\ncolor change rgb 204 1.0000 0.4980 0.4980\ncolor change rgb 205 0.8980 0.4000 0.4000\ncolor change rgb 206 0.8000 0.2980 0.2980\ncolor change rgb 207 0.6980 0.2000 0.2000\ncolor change rgb 208 0.6000 0.0980 0.0980\ncolor change rgb 209 0.5490 0.0000 0.0000\ncolor change rgb 210 0.4980 0.0000 0.0000\ncolor change rgb 211 0.4471 0.0000 0.0000\ncolor Element Li 103\ncolor Element Be 104\ncolor Element Na 111\ncolor Element Mg 112\ncolor Element Al 113\ncolor Element K 119\ncolor Element Ca 120\ncolor Element Sc 121\ncolor Element Ti 122\ncolor Element V 123\ncolor Element Cr 124\ncolor Element Mn 125\ncolor Element Fe 126\ncolor Element Co 127\ncolor Element Ni 128\ncolor Element Cu 129\ncolor Element Zn 130\ncolor Element Ga 131\ncolor Element Rb 137\ncolor Element Sr 138\ncolor Element Y 139\ncolor Element Zr 140\ncolor Element Nb 141\ncolor Element Mo 142\ncolor Element Tc 143\ncolor Element Ru 144\ncolor Element Rh 145\ncolor Element Pd 146\ncolor Element Ag 147\ncolor Element Cd 148\ncolor Element In 149\ncolor Element Sn 150\ncolor Element Sb 151\ncolor Element Cs 155\ncolor Element Ba 156\ncolor Element La 157\ncolor Element Ce 158\ncolor Element Pr 159\ncolor Element Nd 160\ncolor Element Pm 161\ncolor Element Sm 162\ncolor Element Eu 163\ncolor Element Gd 164\ncolor Element Tb 165\ncolor Element Dy 166\ncolor Element Ho 167\ncolor Element Er 168\ncolor Element Tm 169\ncolor Element Yb 170\ncolor Element Lu 171\ncolor Element Hf 172\ncolor Element Ta 173\ncolor Element W 174\ncolor Element Re 175\ncolor Element Os 176\ncolor Element Ir 177\ncolor Element Pt 178\ncolor Element Au 179\ncolor Element Hg 180\ncolor Element Tl 181\ncolor Element Pb 182\ncolor Element Bi 183\ncolor Element Po 184\ncolor Element Fr 187\ncolor Element Ra 188\ncolor Element Ac 189\ncolor Element Th 190\ncolor Element Pa 191\ncolor Element U 192\ncolor Element Np 193\ncolor Element Pu 194\ncolor Element Am 195\ncolor Element Cm 196\ncolor Element Bk 197\ncolor Element Cf 198\ncolor Element Es 199\ncolor Element Fm 200\ncolor Element Md 201\ncolor Element No 202\ncolor Element Lr 203\ncolor Element Rf 204\ncolor Element Db 205\ncolor Element Sg 206\ncolor Element Bh 207\ncolor Element Hs 208\ncolor Element Mt 209\ncolor Element Ds 210\ncolor Element Rg 211\n\n# rep 1: dg_inter 的 δg 等值面，颜色由 sl2r 值映射\n#   Isosurface {iso} 1 0 0 1 1  → 只画正值等值面\n#   mol color Volume 0              → 颜色映射 dataset 0 (sl2r) 的值\n#   scaleminmax -0.05 0.05          → 色标范围\n#   BGR 色标: 蓝=负(吸引), 绿=弱, 红=正(排斥)\nmol representation Isosurface {iso} 1 0 0 1 1\nmol color Volume 0\nmol addrep top\nmol scaleminmax top 1 -0.05 0.05\ncolor scale method BGR\nif {[lsearch [material list] _igmh_surf] < 0} {material add _igmh_surf}\nmaterial change ambient _igmh_surf 0.1\nmaterial change diffuse _igmh_surf 0.6\nmaterial change specular _igmh_surf 1.0\nmaterial change shininess _igmh_surf 1.0\nmaterial change mirror _igmh_surf 0.0\nmaterial change opacity _igmh_surf 0.75\nmaterial change outline _igmh_surf 0.0\nmaterial change outlinewidth _igmh_surf 0.0\n\nmol modmaterial 1 top _igmh_surf\n\ndisplay distance -8.0\ndisplay height 10\n'
+
+
+def _igmh_scene_tcl(scene, style_name="sob-art", shade_mode="full"):
+    """IGMH 场景的 VMD Tcl：直接套用参考实现模板，仅替换文件名/iso。
+
+    scene 需含 "surfaces"[0] = {type:"bgr", vol:dg_inter, color_vol:sl2r,
+    iso, cmin, cmax}；返回完整 Tcl（不含 socket/极值点/色标条附加段）。
+    """
+    sf = (scene.get("surfaces") or [{}])[0]
+    vol = sf.get("vol", "dg_inter.cub")
+    cvol = sf.get("color_vol", "sl2r.cub")
+    iso = sf.get("iso", 0.02)
+    tcl = _IGMH_SCENE_TPL.replace("{color_vol}", cvol) \
+                          .replace("{vol}", vol) \
+                          .replace("{iso}", str(iso))
+    cmin = sf.get("cmin")
+    cmax = sf.get("cmax")
+    if cmin is not None and cmax is not None:
+        tcl = tcl.replace("mol scaleminmax top 1 -0.05 0.05",
+                          "mol scaleminmax top 1 " + str(cmin) + " " + str(cmax))
+    return tcl
+
+
 def _scene_tcl(scene, style_name="sob-art", shade_mode="full"):
     """把画布场景描述生成 VMD Tcl 脚本（分子 + 等值面 + 配色 + 极值点）。
 
@@ -2372,7 +2418,9 @@ def _scene_tcl(scene, style_name="sob-art", shade_mode="full"):
     mat_a = mat_block("_stl_a", s["surface_mat"])
     mat_b = mat_block("_stl_b", s["surface_mat_b"])
     mat_atom = mat_block("_stl_atom", s["atom_mat"])
-    mat_bgr = mat_block("_stl_bgr", s["surface_mat"])
+    # IGMH 等值面材质对齐参考实现（IGMH-V4 的 _igmh_surf）：只用前 8 项
+    # （ambient..outlinewidth），不设 transmode，否则透射模式会改变 δg 面着色观感
+    mat_bgr = mat_block("_stl_bgr", s["surface_mat"][:8])
 
     # 全局不透明度覆盖
     opacity_lines = ""
@@ -2390,13 +2438,17 @@ def _scene_tcl(scene, style_name="sob-art", shade_mode="full"):
         if s.get("extra_mat_lines") else ""
 
     # H 过滤选择子句（VMD index 为 0-based）
+    # 注意：pqr 分子在 VMD 里 element 属性为空（插件不解析元素列），
+    # 氢判断必须同时用 name H（pqr 的 name 即元素符号）兜底
     keep_h = scene.get("keep_h")
     if keep_h is None:
         h_clause = None
     elif keep_h:
-        h_clause = f"(not element H or (element H and index {' '.join(map(str, keep_h))}))"
+        h_clause = ("(not (element H or name H) or "
+                    "((element H or name H) and index %s))"
+                    % " ".join(map(str, keep_h)))
     else:
-        h_clause = "not element H"
+        h_clause = "not (element H or name H)"
 
     lines = []
     lines.append("color Display Background white\n")
@@ -2413,20 +2465,25 @@ def _scene_tcl(scene, style_name="sob-art", shade_mode="full"):
         atom_color = "Element"
 
     # 分子（先建 _stl_atom 材质，再指定给 rep0，避免材质未定义时被忽略）
-    lines.append(f"mol new {{{scene['xyz']}}} type xyz first 0 last 0 step 1 waitfor all\n")
-    lines.append("mol bondsrecalc top\n")
-    lines.append(f"mol modstyle 0 top CPK {s['atom_cpk']}\n")
-    lines.append(mat_atom)
-    lines.append("mol modmaterial 0 top _stl_atom\n")
-    if atom_color == "Name":
-        lines.append("mol modcolor 0 top Name\n")
-    else:
-        lines.append("mol modcolor 0 top Element\n")
-        lines.append(ATOM_COLORS)
-        lines.append(f"color Element C {s['c_color']}\n")
-        lines.append(f"color change rgb {s['c_color']} {s['c_rgb']}\n")
-    if h_clause is not None:
-        lines.append(f'mol modselect 0 top "{h_clause}"\n')
+    # 若场景含 bgr 表面（IGMH/ESP）或 pqr 表面（MPP），分子原子改由文件自带
+    # （cube/pqr），此处不另建 xyz 分子；否则（纯 orbital）用 scene.xyz。
+    surfaces_list = scene.get("surfaces", [])
+    has_bgr = any(sf.get("type") in ("bgr", "pqr") for sf in surfaces_list)
+    if not has_bgr:
+        lines.append(f"mol new {{{scene['xyz']}}} type xyz first 0 last 0 step 1 waitfor all\n")
+        lines.append("mol bondsrecalc top\n")
+        lines.append(f"mol modstyle 0 top CPK {s['atom_cpk']}\n")
+        lines.append(mat_atom)
+        lines.append("mol modmaterial 0 top _stl_atom\n")
+        if atom_color == "Name":
+            lines.append("mol modcolor 0 top Name\n")
+        else:
+            lines.append("mol modcolor 0 top Element\n")
+            lines.append(ATOM_COLORS)
+            lines.append(f"color Element C {s['c_color']}\n")
+            lines.append(f"color change rgb {s['c_color']} {s['c_rgb']}\n")
+        if h_clause is not None:
+            lines.append(f'mol modselect 0 top "{h_clause}"\n')
 
     rep = 0
     vol_id = 0
@@ -2477,18 +2534,39 @@ def _scene_tcl(scene, style_name="sob-art", shade_mode="full"):
         elif sf_type == "bgr":
             vol = sf["vol"]
             cvol = sf.get("color_vol")
-            lines.append(f"if {{[catch {{mol addfile {{{vol}}} type cube first 0 last 0 step 1 waitfor all volsets {{0}}}} err]}} {{puts \"SYNC-WARN: $err\"}}\n")
-            this_vol = vol_id
-            vol_id += 1
-            color_vol = this_vol
+            # IGMH/ESP 对齐参考实现（IGMH-V4 / ESPViewer2）：
+            # color_vol(sl2r/ESP) 先作为独立 cube 分子（dataset 0，含原子），
+            # vol(dg_inter/density) 用 mol addfile 加为 dataset 1；
+            # 等值面 Isosurface iso 1（几何=vol），Volume 0（颜色=color_vol）。
+            # 不用 volsets 参数，让 VMD 自动分配 dataset（避免覆盖）。
             if cvol and cvol != vol:
-                lines.append(f"if {{[catch {{mol addfile {{{cvol}}} type cube first 0 last 0 step 1 waitfor all volsets {{0}}}} err]}} {{puts \"SYNC-WARN: $err\"}}\n")
-                color_vol = vol_id
-                vol_id += 1
-            rep += 1
+                lines.append(f"mol new {{{cvol}}} type cube first 0 last 0 step 1 waitfor all\n")
+                lines.append(f"if {{[catch {{mol addfile {{{vol}}} type cube first 0 last 0 step 1 waitfor all}} err]}} {{puts \"SYNC-WARN: $err\"}}\n")
+                geo_vol = 1
+                col_vol = 0
+            else:
+                lines.append(f"if {{[catch {{mol new {{{vol}}} type cube first 0 last 0 step 1 waitfor all}} err]}} {{puts \"SYNC-WARN: $err\"}}\n")
+                geo_vol = 0
+                col_vol = 0
+            # 删除 cube 默认 VDW rep（对齐参考 delrep 0）
+            lines.append("mol delrep 0 top\n")
+            # CPK 原子（坐标来自 color_vol/sl2r cube 的原子表）
+            lines.append("mol representation CPK %s\n" % s['atom_cpk'])
             lines.append("mol addrep top\n")
-            lines.append(f"mol modstyle {rep} top Isosurface {iso} {this_vol} 0 0 1 1\n")
-            lines.append(f"mol modcolor {rep} top Volume {color_vol}\n")
+            lines.append("mol modstyle 0 top CPK %s\n" % s['atom_cpk'])
+            lines.append("mol modmaterial 0 top _stl_atom\n")
+            lines.append("mol modcolor 0 top Element\n")
+            if h_clause is not None:
+                lines.append(f'mol modselect 0 top "{h_clause}"\n')
+            # δg/ESP 等值面（几何=geo_vol，颜色=col_vol）
+            # 对齐参考实现：先用 mol representation + mol color Volume 模板，
+            # 再 mol addrep 建 rep，确保 rep 创建时即绑定正确着色
+            rep += 1
+            lines.append(f"mol representation Isosurface {iso} {geo_vol} 0 0 1 1\n")
+            lines.append(f"mol color Volume {col_vol}\n")
+            lines.append("mol addrep top\n")
+            lines.append(f"mol modstyle {rep} top Isosurface {iso} {geo_vol} 0 0 1 1\n")
+            lines.append(f"mol modcolor {rep} top Volume {col_vol}\n")
             # 注意：scaleminmax 的第二个参数是该 rep 的编号（不是 vol 编号）
             lines.append(f"mol scaleminmax top {rep} {sf.get('cmin', -0.05)} {sf.get('cmax', 0.05)}\n")
             # 色标：ESP 用 BWR（对齐 ESPViewer2 的 ESPiso.vmd），IGMH 用 BGR
@@ -2510,6 +2588,40 @@ def _scene_tcl(scene, style_name="sob-art", shade_mode="full"):
                 lines.append(mat_bgr)
                 lines.append(f"mol modmaterial {rep} top _stl_bgr\n")
 
+        elif sf_type == "pqr":
+            # MPP：PQR 偏离着色（Multiwfn MPP 输出的 .pqr，其 charge 列存放
+            # 原子到拟合平面的带符号偏离距离，Å）
+            # 原子球按偏离值着色（Charge + BWR ±0.5 Å）；键单独固定深色，
+            # 避免 Charge 着色把偏离≈0 的键全部染白（结构不可读）
+            pqr = sf["pqr"]
+            cmin = sf.get("cmin", -0.5)
+            cmax = sf.get("cmax", 0.5)
+            lines.append(f"if {{[catch {{mol new {{{pqr}}} type pqr first 0 last -1 step 1 waitfor all}} err]}} {{puts \"SYNC-WARN: $err\"}}\n")
+            # pqr 加载后 VMD 不自动生成键列表（任何 Bonds/DynamicBonds/Licorice
+            # 表示都画不出键），需强制按距离重建键
+            lines.append("mol bondsrecalc top\n")
+            lines.append("mol delrep 0 top\n")
+            # rep 0：原子球按偏离值着色（VDW 不带键；球比例 0.25 足够小，
+            # 避免球过大遮挡化学键与结构）
+            lines.append("mol representation VDW 0.25 12.0\n")
+            lines.append("mol color Charge\n")
+            lines.append("mol selection all\n")
+            lines.append("mol material EdgyShiny\n")
+            lines.append("mol addrep top\n")
+            # rep 1：键按偏离值着色（与原工具 CPK+Charge 一致：偏离≈0 的键
+            # 呈 BWR 中心白色；不用 ColorID 0——VMD 默认 0 号色是蓝色）
+            lines.append("mol representation Licorice 0.12 12.0\n")
+            lines.append("mol color Charge\n")
+            lines.append("mol selection all\n")
+            lines.append("mol addrep top\n")
+            lines.append("color scale method BWR\n")
+            lines.append(f"mol scaleminmax top 0 {cmin} {cmax}\n")
+            lines.append(f"mol scaleminmax top 1 {cmin} {cmax}\n")
+            # 隐藏氢（或保留指定 H）：对原子与键两个 rep 同时生效
+            if h_clause is not None:
+                lines.append(f'mol modselect 0 top "{h_clause}"\n')
+                lines.append(f'mol modselect 1 top "{h_clause}"\n')
+
     lines.append(opacity_lines)
 
     # 片段着色 rep（最后，避免占用 rep 1/2）
@@ -2527,22 +2639,198 @@ def _scene_tcl(scene, style_name="sob-art", shade_mode="full"):
         if rgb and len(rgb) >= 3:
             lines.append(f"color change rgb {grp['cid']} {rgb[0]:.4f} {rgb[1]:.4f} {rgb[2]:.4f}\n")
 
-    # ESP 极值点标记
+    # ESP 极值点标记（对齐 ESPViewer2 的 ESPext.vmd）：
+    # 加载 surfanalysis.pdb 作为独立分子，VDW 表示（球半径可调），
+    # C=极大值(ColorID 32 橙) / O=极小值(ColorID 21 冰蓝)，
+    # 数值标签用 graphics text（挂在极值点分子 id 上）。
+    # 注入可被 socket 实时调用的 Tcl proc（1.1）。
     extrema = scene.get("extrema") or []
     if extrema:
-        lines.append("draw delete all\n")
-        ext_r = 0.25
-        for (x, y, z, kind) in extrema:
-            col = "orange" if str(kind).lower() in ("max", "pos") else "iceblue"
-            lines.append(f"draw color {col}\n")
-            lines.append(f"draw sphere {{{x:.4f} {y:.4f} {z:.4f}}} radius {ext_r} resolution 20\n")
+        try:
+            ext_r = max(0.02, min(2.0, float(scene.get("ext_radius", 0.25))))
+        except (TypeError, ValueError):
+            ext_r = 0.25
+        ext_show_labels = bool(scene.get("ext_show_labels", False))
+        lines.append("""
+# ── 极值点（surfanalysis.pdb 独立分子 + VDW，对齐 ESPViewer2） ──
+set ::GXNU_EXT_MOL -1
+foreach m [molinfo list] {
+    if {[string match {*surfanalysis.pdb} [molinfo $m get name]]} {
+        set ::GXNU_EXT_MOL $m
+    }
+}
+if {$::GXNU_EXT_MOL < 0} {
+    mol new surfanalysis.pdb
+    set ::GXNU_EXT_MOL [molinfo top]
+}
+set ::GXNU_EXT_LABEL_IDS [list]
+# 重设 VDW 球半径（radius 单位 Å）；同时重画数值标签
+proc gxnu_ext_spheres {radius} {
+    global GXNU_EXT_MOL GXNU_EXT_LABEL_IDS
+    set molid $GXNU_EXT_MOL
+    # 删旧标签（球用 mol modstyle 直接改，无需重建）
+    foreach id $GXNU_EXT_LABEL_IDS {
+        catch {graphics $molid delete $id}
+    }
+    set GXNU_EXT_LABEL_IDS [list]
+    catch {
+        # rep0 = 极大值(C 橙)，rep1 = 极小值(O 冰蓝)
+        mol delrep 0 $molid
+        mol addrep $molid
+        mol modstyle 0 $molid VDW $radius 20
+        mol modselect 0 $molid name C
+        mol modcolor 0 $molid ColorID 32
+        mol addrep $molid
+        mol modstyle 1 $molid VDW $radius 20
+        mol modselect 1 $molid name O
+        mol modcolor 1 $molid ColorID 21
+        mol showrep $molid 0
+        mol showrep $molid 1
+    }
+}
+# 画/删极值点数值标签（graphics text，数值来自 beta 列）
+proc gxnu_ext_labels {on} {
+    global GXNU_EXT_MOL GXNU_EXT_LABEL_IDS
+    set molid $GXNU_EXT_MOL
+    foreach id $GXNU_EXT_LABEL_IDS {
+        catch {graphics $molid delete $id}
+    }
+    set GXNU_EXT_LABEL_IDS [list]
+    if {!$on} { return }
+    set sel [atomselect $molid all]
+    set coords [$sel get {x y z}]
+    set betas  [$sel get beta]
+    $sel delete
+    foreach xyz $coords bt $betas {
+        set x [lindex $xyz 0]
+        set y [lindex $xyz 1]
+        set z [expr {[lindex $xyz 2] + 0.4}]
+        graphics $molid color black
+        lappend GXNU_EXT_LABEL_IDS [graphics $molid text [list $x $y $z] [format {%.2f} $bt] size 1.0 thickness 2]
+    }
+}
+# 色标条（ColorScaleBar 插件，对齐 ESPViewer2）
+proc gxnu_colorbar {on low high unit label} {
+    if {!$on} {
+        catch {::ColorScaleBar::delete_color_scale_bar}
+        return
+    }
+    if {[catch {
+        package require colorscalebar
+        catch {::ColorScaleBar::delete_color_scale_bar}
+        ::ColorScaleBar::color_scale_bar 1.5 0.08 0 1 $low $high 10 16 0 0.82 -0.75 1 top 0 1 "${label} (${unit})"
+    } err]} {
+        puts "ColorScaleBar ERROR: $err"
+    }
+}
+""")
+        # 初始调用（按 scene 设置）
+        lines.append(f"gxnu_ext_spheres {ext_r}\n")
+        lines.append("gxnu_ext_labels " + ("1" if ext_show_labels else "0") + "\n")
+        # 初始色标条（scene["colorbar"] 开启时）
+        cb = scene.get("colorbar")
+        if cb and cb.get("show"):
+            try:
+                cb_low = float(cb.get("low", -0.03))
+                cb_high = float(cb.get("high", 0.03))
+                cb_unit = str(cb.get("unit", ""))
+                cb_label = str(cb.get("label", "ESP"))
+            except (TypeError, ValueError):
+                cb_low, cb_high, cb_unit, cb_label = -0.03, 0.03, "", "ESP"
+            lines.append(f"gxnu_colorbar 1 {cb_low} {cb_high} {{{cb_unit}}} {{{cb_label}}}\n")
+
+    # AIM 临界点 / 键径（aim_cps.pdb / aim_paths.pdb 独立分子 + VDW）
+    # 颜色与画布 AIM overlay 一致：C=(3,-3)紫(ColorID7) N=(3,-1)绿(10)
+    #   O=(3,+1)黄(4) F=(3,+3)青(8)，键径点灰(ColorID3)
+    # 临界点与键径按需各自生成（避免加载不存在的 PDB 导致 VMD 报错）
+    aim_ov = scene.get("aim_overlay")
+    if aim_ov and aim_ov.get("cps"):
+        try:
+            aim_cp_r = max(0.02, min(2.0, float(aim_ov.get("cp_radius", 0.07))))
+        except (TypeError, ValueError):
+            aim_cp_r = 0.07
+        lines.append("""
+# ── AIM 临界点（aim_cps.pdb 独立分子 + VDW，对齐画布 AIM overlay 颜色） ──
+set ::GXNU_AIM_CP_MOL -1
+foreach m [molinfo list] {
+    if {[string match {*aim_cps.pdb} [molinfo $m get name]]} {
+        set ::GXNU_AIM_CP_MOL $m
+    }
+}
+if {$::GXNU_AIM_CP_MOL < 0} {
+    mol new aim_cps.pdb
+    set ::GXNU_AIM_CP_MOL [molinfo top]
+}
+proc gxnu_aim_cps {r} {
+    global GXNU_AIM_CP_MOL
+    set molid $GXNU_AIM_CP_MOL
+    catch {
+        mol delrep 0 $molid
+        mol addrep $molid
+        mol modstyle 0 $molid VDW $r 20
+        mol modselect 0 $molid name C
+        mol modcolor 0 $molid ColorID 7
+        mol addrep $molid
+        mol modstyle 1 $molid VDW $r 20
+        mol modselect 1 $molid name N
+        mol modcolor 1 $molid ColorID 10
+        mol addrep $molid
+        mol modstyle 2 $molid VDW $r 20
+        mol modselect 2 $molid name O
+        mol modcolor 2 $molid ColorID 4
+        mol addrep $molid
+        mol modstyle 3 $molid VDW $r 20
+        mol modselect 3 $molid name F
+        mol modcolor 3 $molid ColorID 8
+        mol showrep $molid 0
+        mol showrep $molid 1
+        mol showrep $molid 2
+        mol showrep $molid 3
+    }
+}
+""")
+        lines.append(f"gxnu_aim_cps {aim_cp_r}\n")
+    if aim_ov and aim_ov.get("paths"):
+        try:
+            aim_pt_r = max(0.01, min(2.0, float(aim_ov.get("path_radius", 0.02))))
+        except (TypeError, ValueError):
+            aim_pt_r = 0.02
+        lines.append("""
+# ── AIM 键径点云（aim_paths.pdb 独立分子 + VDW，灰色） ──
+set ::GXNU_AIM_PATH_MOL -1
+foreach m [molinfo list] {
+    if {[string match {*aim_paths.pdb} [molinfo $m get name]]} {
+        set ::GXNU_AIM_PATH_MOL $m
+    }
+}
+if {$::GXNU_AIM_PATH_MOL < 0} {
+    mol new aim_paths.pdb
+    set ::GXNU_AIM_PATH_MOL [molinfo top]
+}
+proc gxnu_aim_paths {r} {
+    global GXNU_AIM_PATH_MOL
+    set molid $GXNU_AIM_PATH_MOL
+    catch {
+        mol delrep 0 $molid
+        mol addrep $molid
+        mol modstyle 0 $molid VDW $r 20
+        mol modcolor 0 $molid ColorID 3
+    }
+}
+""")
+        lines.append(f"gxnu_aim_paths {aim_pt_r}\n")
 
     # 兜底：球棍模型始终实体不透明（rep0 配色 + _stl_atom 不透明），
     # 防止任何表面透明度/样式副作用让分子"发蓝/半透明"
-    lines.append(f"mol modcolor 0 top {atom_color}\n")
-    lines.append("mol modmaterial 0 top _stl_atom\n")
-    lines.append("material change opacity _stl_atom 1.0\n")
-    lines.append("material change transmode _stl_atom 0.0\n")
+    # 先切回主分子（极值点/AIM 等覆盖层分子可能已是 top，兜底不能改错对象）
+    # pqr 场景除外：其 rep0 是 VDW+Charge 偏离着色，兜底会覆盖掉着色
+    has_pqr = any(sf.get("type") == "pqr" for sf in scene.get("surfaces", []))
+    if not has_pqr:
+        lines.append("mol top 0\n")
+        lines.append(f"mol modcolor 0 top {atom_color}\n")
+        lines.append("mol modmaterial 0 top _stl_atom\n")
+        lines.append("material change opacity _stl_atom 1.0\n")
+        lines.append("material change transmode _stl_atom 0.0\n")
 
     lines.append(f"display distance {s.get('display_distance', '-8.0')}\n")
     lines.append("display height 10\n")
@@ -2581,12 +2869,84 @@ def build_scene_tcl(scene, style_name="sob-art", shade_mode="full", port=None,
     with open(os.path.join(render_dir, xyz_name), "w", encoding="utf-8") as f:
         f.write(xyz_text)
 
+    # 极值点 → surfanalysis.pdb（对齐 ESPViewer2：C=极大值橙/O=极小值蓝，
+    # beta 列存数值；VMD 里作为独立分子 + VDW 表示加载）
+    extrema = scene.get("extrema") or []
+    ext_values = scene.get("ext_values") or []
+    if extrema:
+        pdb_lines = ["REMARK  ESP extrema points (GXNU MolStudio)",
+                     "REMARK  name C=max / O=min, beta=value"]
+        for i, (x, y, z, kind) in enumerate(extrema):
+            name = "C" if str(kind).lower() in ("max", "pos") else "O"
+            try:
+                val = float(ext_values[i][0]) if i < len(ext_values) else 0.0
+            except (TypeError, ValueError, IndexError):
+                val = 0.0
+            # PDB ATOM 记录（列对齐兼容 ESPViewer2 的 parse_extrema_pdb）：
+            #   name 13-16 列，x 31-38, y 39-46, z 47-54, beta 61-66
+            # 使用标准 PDB 列模板：HETATM%5d %4s %-3s ESP 1    %8.3f%8.3f%8.3f%6.2f%6.2f
+            pdb_lines.append(
+                "HETATM%5d %4s %-3s ESP 1    %8.3f%8.3f%8.3f%6.2f%6.2f"
+                % (i + 1, name, "MOL", float(x), float(y), float(z), 1.0, val))
+        pdb_lines.append("END")
+        with open(os.path.join(render_dir, "surfanalysis.pdb"),
+                  "w", encoding="utf-8") as f:
+            f.write("\n".join(pdb_lines) + "\n")
+
+    # AIM 临界点 → aim_cps.pdb（name 用类型字母 C/N/O/F，VMD 里独立分子 + VDW，
+    # 按 name 选择并着色，颜色与画布 AIM overlay 一致）
+    aim_ov = scene.get("aim_overlay")
+    if aim_ov:
+        aim_cps = aim_ov.get("cps") or []
+        if aim_cps:
+            pdb_lines = ["REMARK  AIM critical points (GXNU MolStudio)",
+                         "REMARK  name C=(3,-3) N=(3,-1) O=(3,+1) F=(3,+3)"]
+            for i, item in enumerate(aim_cps):
+                try:
+                    x, y, z = float(item[0]), float(item[1]), float(item[2])
+                except (TypeError, ValueError, IndexError):
+                    continue
+                ct = str(item[5]) if len(item) > 5 else "N"
+                name = ct if ct in ("C", "N", "O", "F") else "N"
+                pdb_lines.append(
+                    "HETATM%5d %4s %-3s AIM 1    %8.3f%8.3f%8.3f%6.2f%6.2f"
+                    % (i + 1, name, "MOL", x, y, z, 1.0, 0.0))
+            pdb_lines.append("END")
+            with open(os.path.join(render_dir, "aim_cps.pdb"),
+                      "w", encoding="utf-8") as f:
+                f.write("\n".join(pdb_lines) + "\n")
+        aim_paths = aim_ov.get("paths") or []
+        if aim_paths:
+            pdb_lines = ["REMARK  AIM gradient paths (GXNU MolStudio)"]
+            for i, (x, y, z) in enumerate(aim_paths):
+                try:
+                    px, py, pz = float(x), float(y), float(z)
+                except (TypeError, ValueError, IndexError):
+                    continue
+                pdb_lines.append(
+                    "HETATM%5d %4s %-3s AIP 1    %8.3f%8.3f%8.3f%6.2f%6.2f"
+                    % (i + 1, "PT", "MOL", px, py, pz, 1.0, 0.0))
+            pdb_lines.append("END")
+            with open(os.path.join(render_dir, "aim_paths.pdb"),
+                      "w", encoding="utf-8") as f:
+                f.write("\n".join(pdb_lines) + "\n")
+
     for sf in scene.get("surfaces", []):
-        sf["vol"] = safe(sf["vol"])
+        if sf.get("vol"):
+            sf["vol"] = safe(sf["vol"])
+        if sf.get("pqr"):
+            sf["pqr"] = safe(sf["pqr"])
         if sf.get("color_vol"):
             sf["color_vol"] = safe(sf["color_vol"])
 
-    tcl = _scene_tcl(scene, style_name, shade_mode)
+    # IGMH 场景：逐字照搬参考实现（IGMH-V4）的 VMD 着色方案；
+    # 其余场景（orbital/ESP）走通用 _scene_tcl
+    surfs = scene.get("surfaces") or []
+    is_igmh = any(sf.get("kind") == "igmh" for sf in surfs)
+    if is_igmh:
+        tcl = _igmh_scene_tcl(scene, style_name, shade_mode)
+    else:
+        tcl = _scene_tcl(scene, style_name, shade_mode)
     if port is not None:
         tcl += _socket_server_tcl(port, style_name)
     tcl = _draw_bond_tcl() + tcl
@@ -2657,10 +3017,8 @@ def gen_cube(fchk_path, orbital="h", grid_quality=2,
     )
 
     try:
-        subprocess.run(
-            multiwfn_exe, input=inputs, capture_output=True,
-            cwd=ascii_dir, timeout=600, encoding="utf-8", errors="replace",
-        )
+        _run_multiwfn_subprocess(
+            [multiwfn_exe], inputs, cwd=ascii_dir, timeout=600)
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         print(f"  Error: {e}")
         return None
@@ -2731,10 +3089,8 @@ def gen_multi_cubes(fchk_path, orbitals, grid_quality=2,
         )
 
         try:
-            subprocess.run(
-                multiwfn_exe, input=inputs, capture_output=True,
-                cwd=ascii_dir, timeout=600, encoding="utf-8", errors="replace",
-            )
+            _run_multiwfn_subprocess(
+                [multiwfn_exe], inputs, cwd=ascii_dir, timeout=600)
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
             print(f"  Error: {e}")
             continue
@@ -2997,9 +3353,16 @@ def render_current_view(port, render_dir, output_png=None,
     if resp and not resp.startswith("OK"):
         _log(f"  VMD 返回异常: {resp}")
 
+    # VMD 的 render 命令是同步的，但可能超过 socket 读取超时时间；
+    # 参考 IGMH-V4：轮询等待输出文件，而不是只检查一次（大 cube 渲染较慢）。
     dat = os.path.join(render_dir, "vmdscene.dat")
+    deadline = time.time() + 300
+    while time.time() < deadline:
+        if os.path.exists(dat):
+            break
+        time.sleep(0.5)
     if not os.path.exists(dat):
-        _log(f"  vmdscene.dat does not exist: {dat}")
+        _log(f"  vmdscene.dat 未生成: {dat}")
         return None
 
     dat_size = os.path.getsize(dat)

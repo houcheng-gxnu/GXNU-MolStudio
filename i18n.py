@@ -19,8 +19,8 @@ def tr(key, **fmt):
 TR = {
     # ── Window title ──
     "win_title": {
-        "zh": "GXNU MolStudio v1.0 — 分子可视化与量子化学分析 [PyQt 中文版]",
-        "en": "GXNU MolStudio v1.0 — Molecular Visualization & Quantum Chemical Analysis [PyQt]"
+        "zh": "MolStudio — 分子可视化与量子化学分析 [PyQt 中文版]",
+        "en": "MolStudio — Molecular Visualization & Quantum Chemical Analysis [PyQt]"
     },
     # ── Header ──
     "title_label": {
@@ -53,9 +53,10 @@ TR = {
     "label_mode_none": {"zh": "无", "en": "None"},
     "btn_reset_view": {"zh": "重置视角", "en": "Reset View"},
     # ── Tab titles ──
-    "tab_setup": {"zh": "📁  轨道绘制", "en": "📁  Orbital Draw"},
+    "tab_setup": {"zh": "轨道", "en": "MO"},
     "tab_style": {"zh": "VMD 渲染", "en": "VMD Render"},
     "tab_paths": {"zh": "⚙️  路径设置", "en": "⚙️  Path Settings"},
+    "btn_paths": {"zh": "⚙️ 路径设置（Multiwfn&&VMD）", "en": "⚙️ Paths (Multiwfn&&VMD)"},
     "tab_preview": {"zh": "▶️  预览运行", "en": "▶️  Preview"},
     "tab_tools": {"zh": "🛠️  工具", "en": "🛠️  Tools"},
     "tab_log": {"zh": "📋  运行日志", "en": "📋  Log"},
@@ -63,11 +64,24 @@ TR = {
     "grp_paths": {"zh": "软件路径", "en": "SOFTWARE PATHS"},
     "grp_acknowledgments": {"zh": "致谢", "en": "Acknowledgments"},
     "grp_input": {"zh": "输入文件", "en": "INPUT"},
+    "grp_vmd": {"zh": "VMD 控制台", "en": "VMD CONSOLE"},
     "grp_canvas": {"zh": "可视化画布", "en": "VISUALIZATION CANVAS"},
     "grp_orbital": {"zh": "轨道选择", "en": "ORBITAL SELECTION"},
     "grp_render": {"zh": "渲染参数", "en": "RENDER PARAMETERS"},
     "grp_output": {"zh": "输出目录", "en": "OUTPUT DIRECTORY"},
     "grp_actions": {"zh": "操作", "en": "ACTIONS"},
+    "grp_aim_vmd": {"zh": "AIM 期刊级出图", "en": "AIM PUBLICATION RENDER"},
+    "aim_vmd_style": {"zh": "风格:", "en": "Style:"},
+    "aim_vmd_hint": {
+        "zh": "VMD / Tachyon 路径请在主窗口 ⚙️ 路径设置中配置",
+        "en": "Set VMD / Tachyon paths in main-window ⚙️ Path Settings"
+    },
+    "aim_vmd_preview": {"zh": "在 VMD 中预览", "en": "Preview in VMD"},
+    "aim_vmd_render": {"zh": "渲染当前视角为 PNG", "en": "Render Current View (PNG)"},
+    "msg_aim_unavailable": {
+        "zh": "AIM 模块当前不可用",
+        "en": "AIM module is unavailable"
+    },
     "grp_live": {"zh": "LIVE ADJUSTMENTS  (VMD 打开后可用)", "en": "LIVE ADJUSTMENTS  (available once VMD opens)"},
     "grp_hydrogen": {"zh": "隐藏氢原子", "en": "HIDE HYDROGEN"},
     "grp_draw_bond": {"zh": "绘制虚线键", "en": "DRAW DASHED LINE"},
@@ -143,6 +157,7 @@ TR = {
     "tooltip_trans_raster": {"zh": "选择 Tachyon 透明渲染模式", "en": "Select Tachyon transparency rendering mode"},
     "lbl_threads": {"zh": "渲染线程数:", "en": "Render threads:"},
     "tooltip_threads": {"zh": "影响出图速度，根据自己电脑核心数设置", "en": "Affects rendering speed; set according to your CPU cores"},
+    "vmd_console_title": {"zh": "VMD 控制台", "en": "VMD Console"},
     # ── Output panel ──
     "hint_output_default": {"zh": "(默认: 与输入相同)", "en": "(default: same as input)"},
     "placeholder_output": {"zh": "输出目录...", "en": "Output directory..."},
@@ -151,16 +166,26 @@ TR = {
     "btn_preview": {"zh": "预览", "en": "Preview"},
     "btn_render_view": {"zh": "渲染出图", "en": "Render Image"},
     "btn_flip_phase": {"zh": "翻转相位", "en": "Flip Phase"},
+    "flip_choose": {"zh": "选择要翻转的轨道:", "en": "Select orbital to flip:"},
+    "flip_all": {"zh": "翻转全部", "en": "Flip All"},
+    "log_flip_all": {"zh": "已翻转全部 {n} 个轨道", "en": "Flipped all {n} orbitals"},
+    "log_flip_one": {"zh": "已翻转轨道 {label}", "en": "Flipped orbital {label}"},
     "btn_preview_mol": {"zh": "VMD 预览分子", "en": "VMD Preview Mol"},
     "tab_charge": {"zh": "🧪  电荷分析", "en": "🧪  Charge"},
     "tab_bond_order": {"zh": "🔗  键级", "en": "🔗  Bond Order"},
-    "tab_nbo": {"zh": "🧬  NBO 分析", "en": "🧬  NBO"},
-    "tab_esp": {"zh": "⚡  ESP 表面", "en": "⚡  ESP"},
-    "tab_igmh": {"zh": "🧩  IGMH 分析", "en": "🧩  IGMH"},
+    "tab_charge_bond": {"zh": "电荷键级", "en": "Charge"},
+    "tab_nbo": {"zh": "NBO", "en": "NBO"},
+    "tab_esp": {"zh": "ESP", "en": "ESP"},
+    "tab_igmh": {"zh": "IGMH", "en": "IGMH"},
+    "tab_aim": {"zh": "AIM", "en": "AIM"},
+    "tab_etsnocv": {"zh": "NOCV", "en": "NOCV"},
+    "tab_mpp": {"zh": "MPP", "en": "MPP"},
+    "tab_viz": {"zh": "可视化", "en": "View"},
+    "tab_log": {"zh": "日志", "en": "Log"},
     "tab_orbit_table": {"zh": "📊  轨道表", "en": "📊  Orbitals"},
-    "btn_sync_vmd": {"zh": "🖥  同步到 VMD", "en": "🖥  Sync to VMD"},
-    "btn_sync_vmd_tip": {"zh": "把左侧画布当前场景（分子+等值面+配色+极值点）一键同步到 VMD",
-                        "en": "Sync the current canvas scene (molecule + isosurfaces + colors) to VMD"},
+    "btn_sync_vmd": {"zh": "同步到VMD", "en": "Sync to VMD"},
+    "btn_sync_vmd_tip": {"zh": "弹出新窗口：左侧 VMD 可视化界面，右侧 VMD 控制台按钮，并把画布场景同步进去",
+                        "en": "Open a window with the VMD view on the left and its controls on the right, then sync the canvas scene"},
     "msg_sync_no_molecule": {"zh": "画布中没有分子，请先载入 .fchk/.log 或可视化一个轨道",
                              "en": "No molecule in the canvas — load an .fchk/.log or visualize an orbital first"},
     "msg_no_vmd": {"zh": "未找到 VMD，请先在 ⚙️ 路径设置中配置",
@@ -181,8 +206,8 @@ TR = {
     # ── Hydrogen panel ──
     "btn_hide_h": {"zh": "隐藏氢原子", "en": "Hide Hydrogens"},
     "btn_show_h": {"zh": "显示所有氢原子", "en": "Show All Hydrogens"},
-    "lbl_keep_indices": {"zh": "保留编号 (逗号分隔):", "en": "Keep indices (comma separated):"},
-    "placeholder_h_indices": {"zh": "留空 = 全部隐藏", "en": "empty = hide all"},
+    "lbl_keep_indices": {"zh": "保留编号:", "en": "Keep H:"},
+    "placeholder_h_indices": {"zh": "留空=全部", "en": "empty=all"},
     # ── Draw bond panel ──
     "lbl_atom1": {"zh": "原子 1:", "en": "Atom 1:"},
     "lbl_atom2": {"zh": "原子 2:", "en": "Atom 2:"},
@@ -246,6 +271,10 @@ TR = {
     "dlg_select_exe_filter": {"zh": "可执行文件 (*.exe)", "en": "Executables (*.exe)"},
     "dlg_paths_title": {"zh": "⚙️ 软件路径设置", "en": "⚙️ Software Paths"},
     "log_paths_saved": {"zh": "路径已保存 — Multiwfn: {mw}  VMD: {vmd}", "en": "Paths saved — Multiwfn: {mw}  VMD: {vmd}"},
+    "msg_paths_save_fail": {
+        "zh": "保存路径配置失败：{err}\n\n配置文件位置：{cfg}\n请检查该目录是否有写入权限（杀毒软件也可能拦截写入）。",
+        "en": "Failed to save path config: {err}\n\nConfig file: {cfg}\nCheck write permission on that folder (antivirus may block it)."
+    },
     "dlg_select_input_folder": {"zh": "选择输入文件夹", "en": "Select Input Folder"},
     "dlg_select_input_file": {"zh": "选择输入文件", "en": "Select Input File"},
     "dlg_input_filter": {
@@ -355,4 +384,32 @@ TR = {
         "zh": "渲染错误: {e}",
         "en": "Render error: {e}"
     },
+    # ── Charge & bond order panel ──
+    "grp_charge": {"zh": "原子电荷", "en": "ATOMIC CHARGES"},
+    "grp_bond": {"zh": "Mayer 键级", "en": "MAYER BOND ORDERS"},
+    # ── VMD live adjustments / misc (main window) ──
+    "lbl_dg_iso": {"zh": "δg等值面:", "en": "δg isovalue:"},
+    "lbl_ext_radius": {"zh": "极值点半径:", "en": "Extrema radius:"},
+    "chk_ext_values": {"zh": "极值点数值", "en": "Extrema values"},
+    "chk_colorbar": {"zh": "色标条", "en": "Color scale"},
+    "tab_beta": {"zh": "β 轨道", "en": "β orbitals"},
+    "msg_gl_unavailable": {
+        "zh": "OpenGL 画布不可用",
+        "en": "OpenGL canvas unavailable"},
+    "msg_gl_install_hint": {
+        "zh": "OpenGL 画布不可用\n请安装: pip install PyOpenGL PyOpenGL-accelerate",
+        "en": "OpenGL canvas unavailable\nInstall: pip install PyOpenGL PyOpenGL-accelerate"},
+    "msg_need_pyopengl": {
+        "zh": "需要安装 PyOpenGL: pip install PyOpenGL",
+        "en": "PyOpenGL required: pip install PyOpenGL"},
+    "dlg_select_orb_gl": {"zh": "选择轨道", "en": "Select Orbitals"},
+    "lbl_select_orb_gl": {
+        "zh": "选择要在 OpenGL 中预览的轨道：",
+        "en": "Select orbitals to preview in OpenGL:"},
+    "msg_select_orbital_first": {
+        "zh": "请先选中一个轨道",
+        "en": "Please select an orbital first"},
+    "msg_select_orbital_vis": {
+        "zh": "请先选中一个轨道，或在画布中可视化轨道后再点此按钮",
+        "en": "Select an orbital, or visualize one in the canvas first"},
 }

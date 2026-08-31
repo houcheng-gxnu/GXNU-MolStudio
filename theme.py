@@ -37,6 +37,35 @@ QGroupBox::title {
     font-size: 9pt;
 }
 
+/* ── VMD 控制台卡片：与画布下方「一键样式」区同款浅色渐变 ── */
+QGroupBox#VmdConsoleBox {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #FFFFFF, stop:1 #F1F5FB);
+    border: 1px solid #D5DEE9;
+    border-radius: 12px;
+}
+
+/* ── VMD 控制台内嵌卡片：标题条画进边框内部，避免溢出与上方卡片重叠 ── */
+QGroupBox#AimVmdBox {
+    margin-top: 0px;
+    padding: 32px 12px 10px 12px;
+    border: 1px solid #CBD5E1;
+    border-radius: 8px;
+    background-color: #FFFFFF;
+}
+
+QGroupBox#AimVmdBox::title {
+    subcontrol-origin: padding;
+    subcontrol-position: top left;
+    left: 16px;
+    top: 6px;
+    padding: 2px 12px 2px 12px;
+    color: #FFFFFF;
+    background-color: #1565C0;
+    border-radius: 4px;
+    font-size: 9pt;
+}
+
 /* ── Labels ── */
 QLabel {
     color: #4A5568;
@@ -305,6 +334,33 @@ QPushButton#ActionBtn:disabled {
     color: #94A3B8;
 }
 
+QPushButton#ActionBtnSmall {
+    background-color: #F8FAFE;
+    border: 1px solid #CBD5E1;
+    border-radius: 5px;
+    color: #2C3E50;
+    font-weight: bold;
+    font-size: 9pt;
+    padding: 6px 10px;
+}
+
+QPushButton#ActionBtnSmall:hover {
+    background-color: #E3F2FD;
+    border: 1px solid #1E88E5;
+    color: #1565C0;
+}
+
+QPushButton#ActionBtnSmall:pressed {
+    background-color: #BBDEFB;
+    border: 1px solid #1565C0;
+}
+
+QPushButton#ActionBtnSmall:disabled {
+    background-color: #F1F5F9;
+    border: 1px solid #E2E8F0;
+    color: #94A3B8;
+}
+
 QPushButton#SmallBtn {
     padding: 5px 12px;
     font-size: 9pt;
@@ -474,6 +530,38 @@ QTabWidget::pane {
     border-radius: 6px;
     background-color: #FFFFFF;
     padding: 8px;
+}
+
+/* 主窗口白色圆角卡片：左侧功能导航条 + 右侧参数设置区 */
+QFrame#NavCard, QFrame#RightCard {
+    background-color: #FFFFFF;
+    border: 1px solid #CBD5E1;
+    border-radius: 10px;
+}
+
+QListWidget#MainNav {
+    background: transparent;
+    border: none;
+    color: #4A5568;
+    font-weight: bold;
+    font-size: 9.5pt;
+    outline: none;
+}
+
+QListWidget#MainNav::item {
+    padding: 12px 10px;
+    border-bottom: 1px solid #EEF2F7;
+}
+
+QListWidget#MainNav::item:selected {
+    background-color: #E3F2FD;
+    color: #1565C0;
+    border-left: 3px solid #1E88E5;
+}
+
+QListWidget#MainNav::item:hover:!selected {
+    background-color: #E8EFF7;
+    color: #1565C0;
 }
 
 QTabBar::tab {

@@ -33,6 +33,18 @@ from file_dialogs import open_file, save_file
 from marching_cubes import read_cube, marching_cubes, compute_bounding_sphere, _trilinear
 
 
+# ── 子对话框 i18n（构造时按当前语言求值；key = 中文原文）──
+_CV_EN = {'IGM Map 散点图': 'IGM Map Scatter', 'δg 列:': 'δg column:', 'δg_inter (列0)': 'δg_inter (col 0)', 'δg_intra (列1)': 'δg_intra (col 1)', 'δg (列2)': 'δg (col 2)', '绘制': 'Plot', '保存 PNG': 'Save PNG', '提示': 'Notice'}
+
+def _cv(text):
+    """子对话框文本翻译：zh 原样返回，en 查 _CV_EN（无条目返回原文）。"""
+    import i18n as _i18n
+    if _i18n._CURRENT_LANG == "zh":
+        return text
+    return _CV_EN.get(text, text)
+
+
+
 # ═══════════════════════════════════════════════════════════════
 # BGR 着色 + 复合场（移植自 IGMH_Toolbox igmh_viewer_demo.py）
 # ═══════════════════════════════════════════════════════════════
@@ -97,7 +109,7 @@ class IGMHCompositeField:
         self.glw = glw
         self.geo_cube = None
         self.map_cube = None
-        self.iso = 0.02
+        self.iso = 0.004               # 默认 δg 等值面 0.004（对齐 IGMH-V4）
         self.cmin = -0.05
         self.cmax = 0.05
         self.mid = 0.5
@@ -309,7 +321,7 @@ class IgmScatterDialog(QDialog):
 
     def __init__(self, data_path, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("IGM Map 散点图")
+        self.setWindowTitle(_cv("IGM Map 散点图"))
         self.resize(760, 820)
         self.data_path = data_path
         self._fig = None
@@ -319,15 +331,15 @@ class IgmScatterDialog(QDialog):
         v.setSpacing(6)
 
         top = QHBoxLayout()
-        top.addWidget(QLabel("δg 列:"))
+        top.addWidget(QLabel(_cv("δg 列:")))
         self.combo_col = QComboBox()
-        self.combo_col.addItems(["δg_inter (列0)", "δg_intra (列1)", "δg (列2)"])
+        self.combo_col.addItems([_cv("δg_inter (列0)"), _cv("δg_intra (列1)"), _cv("δg (列2)")])
         top.addWidget(self.combo_col)
-        self.btn_draw = QPushButton("绘制")
+        self.btn_draw = QPushButton(_cv("绘制"))
         self.btn_draw.setStyleSheet("font-weight:bold;")
         self.btn_draw.clicked.connect(self._draw)
         top.addWidget(self.btn_draw)
-        self.btn_save = QPushButton("保存 PNG")
+        self.btn_save = QPushButton(_cv("保存 PNG"))
         self.btn_save.clicked.connect(self._save)
         top.addWidget(self.btn_save)
         top.addStretch()
@@ -394,7 +406,7 @@ class IgmScatterDialog(QDialog):
 
     def _save(self):
         if self._fig is None:
-            QMessageBox.warning(self, "提示", "请先绘制")
+            QMessageBox.warning(self, _cv("提示"), "请先绘制")
             return
         path, _ = save_file(self, "保存散点图", "IGMmap.png",
                             "PNG (*.png);;所有文件 (*)")
@@ -635,20 +647,21 @@ class IgmhPanel(QWidget):
         self.lbl_iso = QLabel()
         dg.addWidget(self.lbl_iso, 0, 2)
         self.sld_iso = QSlider(Qt.Horizontal)
-        self.sld_iso.setRange(5, 2000)              # iso = 值/1000（0.005..2.0，含 IRI 默认 1.0）
-        self.sld_iso.setValue(20)                   # 默认 0.02
+        # 范围 1..2000：iso = 值/1000（0.001..2.0），默认 0.004（对齐 IGMH-V4）
+        self.sld_iso.setRange(1, 2000)
+        self.sld_iso.setValue(4)                    # 默认 δg 等值面 0.004
         self.sld_iso.valueChanged.connect(self._on_iso_slider)
         dg.addWidget(self.sld_iso, 0, 3)
-        self.lbl_iso_val = QLabel("0.02")
+        self.lbl_iso_val = QLabel("0.004")
         self.lbl_iso_val.setMinimumWidth(38)
         dg.addWidget(self.lbl_iso_val, 0, 4)
         # 等值面精确输入框（a.u.）
-        self.edit_iso = QLineEdit("0.020")
+        self.edit_iso = QLineEdit("0.004")
         self.edit_iso.setMaximumWidth(58)
-        self.edit_iso.setToolTip("精确输入等值面大小（a.u.，0.005–2.0），回车生效")
+        self.edit_iso.setToolTip("精确输入等值面大小（a.u.，0.001–2.0），回车生效")
         self.edit_iso.editingFinished.connect(self._on_iso_edit)
         dg.addWidget(self.edit_iso, 0, 5)
-        self._iso_val = 0.02
+        self._iso_val = 0.004
         self.lbl_cmin = QLabel()
         dg.addWidget(self.lbl_cmin, 1, 0)
         self.edit_cmin = QLineEdit("-0.05")
@@ -667,11 +680,11 @@ class IgmhPanel(QWidget):
         dg.addWidget(self.lbl_op, 2, 2)
         self.sld_op = QSlider(Qt.Horizontal)
         self.sld_op.setRange(5, 100)
-        self.sld_op.setValue(100)
+        self.sld_op.setValue(75)                    # 默认不透明度 0.75（对齐 IGMH-V4）
         self.sld_op.valueChanged.connect(self._on_opacity)
         dg.addWidget(self.sld_op, 2, 3)
         # 透明度精确输入框（不透明度 %，与滑块语义一致）
-        self.edit_op = QLineEdit("100")
+        self.edit_op = QLineEdit("75")
         self.edit_op.setMaximumWidth(58)
         self.edit_op.setToolTip("精确输入不透明度（5–100 %），回车生效")
         self.edit_op.editingFinished.connect(self._on_op_edit)
@@ -835,14 +848,14 @@ class IgmhPanel(QWidget):
                     self.combo_field.addItem(label)
             # IGMH（非 IRI）运行完成：清掉 IRI 遗留的 iso/颜色范围状态，
             # 否则会拿 IRI 的 iso=1.0 / cmin=-0.04 去可视化 dg_inter（空面）。
-            if getattr(self, "_iso_val", 0.02) > 0.5:
-                self._iso_val = 0.02
-                self.lbl_iso_val.setText("0.020")
+            if getattr(self, "_iso_val", 0.004) > 0.5:
+                self._iso_val = 0.004
+                self.lbl_iso_val.setText("0.004")
                 self.sld_iso.blockSignals(True)
-                self.sld_iso.setValue(20)
+                self.sld_iso.setValue(4)
                 self.sld_iso.blockSignals(False)
                 self.edit_iso.blockSignals(True)
-                self.edit_iso.setText("0.020")
+                self.edit_iso.setText("0.004")
                 self.edit_iso.blockSignals(False)
                 self.edit_cmin.setText("-0.05")
                 self.edit_cmax.setText("0.05")
@@ -874,7 +887,7 @@ class IgmhPanel(QWidget):
             cmin = float(self.edit_cmin.text().strip())
             cmax = float(self.edit_cmax.text().strip())
         except ValueError:
-            iso, cmin, cmax = 0.02, -0.05, 0.05
+            iso, cmin, cmax = 0.004, -0.05, 0.05
         if self._field is None or self.glw is None:
             return
         try:
@@ -892,7 +905,8 @@ class IgmhPanel(QWidget):
             self._field.push()
             # 登记 VMD 同步场景（几何 cube + BGR 着色 cube）
             self.glw.set_vmd_scene([{"type": "bgr", "vol": geo, "color_vol": mapf,
-                                     "iso": iso, "cmin": cmin, "cmax": cmax}])
+                                     "iso": iso, "cmin": cmin, "cmax": cmax,
+                                     "kind": "igmh", "cmap": "BGR"}])
             self._set_status(self._t("vis_done", field=name,
                                      n=self._field.vertex_count()))
         except Exception as e:
@@ -965,13 +979,13 @@ class IgmhPanel(QWidget):
         self._on_opacity(v)
 
     def _on_iso_edit(self):
-        """等值面精确输入（a.u.）：0.005–2.0，回车生效并同步滑块。"""
+        """等值面精确输入（a.u.）：0.001–2.0，回车生效并同步滑块。"""
         try:
             iso = float(self.edit_iso.text().strip())
         except ValueError:
             self.edit_iso.setText(f"{self._iso_val:.3f}")
             return
-        iso = max(0.005, min(2.0, iso))
+        iso = max(0.001, min(2.0, iso))
         v = int(round(iso * 1000))
         # 与滑块同路径（保持 BGR 着色 + 画布联动）
         self.sld_iso.blockSignals(True)
