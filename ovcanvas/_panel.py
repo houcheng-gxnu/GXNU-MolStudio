@@ -16,6 +16,7 @@ QWidget，可以直接放进主程序 (main_window.py) 的左侧面板作为画�
 import os
 import math
 import json
+import numpy as np
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QComboBox,
@@ -35,7 +36,7 @@ from ._glwidget import (
     SHININESS_PRESETS, SHININESS_DEFAULT, _IBO_ELEMENT_COLORS,
 )
 from file_dialogs import open_file, save_file
-from marching_cubes import read_cube, relative_iso_threshold
+from marching_cubes import read_cube, relative_iso_threshold, IsoSurface
 from ._colorwheel import ColorWheelWidget
 import i18n
 
@@ -3309,6 +3310,54 @@ class CubCanvasPanel(QWidget):
         p, _ = save_file(self, "保存截图", base + ".png", "PNG (*.png)")
         if p:
             self.glw.screenshot(p)
+
+    # ── 启动预热：触发所有 shader 首次编译（消除首操作卡顿） ──
+    def warmup_gl(self):
+        """在启动画面期间渲染一帧极小场景，让 GPU 驱动完成所有着色器
+        管线的首次编译（原子/键/等值面/深度剥离），避免用户首次
+        载入/拖动/缩放时出现 1-3 秒卡顿。"""
+        glw = self.glw
+        if glw is None or not getattr(glw, "_gl_ok", False):
+            return
+        try:
+            saved = (glw._molecule, glw._cube,
+                     glw._pos_surf, glw._neg_surf,
+                     getattr(glw, "_orbital_recs", None))
+            # 极小场景：2 原子 + 1 键 + 1 个等值面三角
+            glw._molecule = [(6, 0.0, 0.0, 0.0, 0.0),
+                             (1, 0.0, 2.0, 0.0, 0.0)]
+            glw._cube = None
+            surf = IsoSurface()
+            surf.vertices = np.array(
+                [[0, 0, 0], [2, 0, 0], [1, 1, 0]], dtype=np.float32)
+            surf.normals = np.array(
+                [[0, 0, 1], [0, 0, 1], [0, 0, 1]], dtype=np.float32)
+            surf.indices = np.array([0, 1, 2], dtype=np.uint32)
+            surf.colors = None
+            glw._pos_surf = surf
+            glw._neg_surf = None
+            glw._orbital_recs = None
+            glw._gen_atoms()
+            glw._needs_upload = True
+            glw.update()
+            # 等 warmup 帧渲染完再恢复（恢复后重绘为空场景）
+            QTimer.singleShot(
+                300, lambda: self._restore_after_warmup(saved))
+        except Exception:
+            pass
+
+    def _restore_after_warmup(self, saved):
+        glw = self.glw
+        if glw is None:
+            return
+        try:
+            glw._molecule, glw._cube, glw._pos_surf, glw._neg_surf, \
+                glw._orbital_recs = saved
+            glw._gen_atoms()
+            glw._needs_upload = True
+            glw.update()
+        except Exception:
+            pass
 
     def _export_image(self):
         if self.glw is None:

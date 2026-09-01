@@ -1927,6 +1927,12 @@ class OrbitalVisApp(QMainWindow):
         self._append_log("GXNU MolStudio 1.0 已启动 — 分子可视化与量子化学分析")
         self._append_log("请拖放 .fchk / .log 文件到界面，或使用「浏览轨道」载入轨道数据")
         self._append_log("═" * 50)
+        # 启动预热：splash 盖着窗口时编译全部着色器，消除首操作卡顿
+        if self.cub_canvas is not None:
+            try:
+                self.cub_canvas.warmup_gl()
+            except Exception:
+                pass
 
     def keyPressEvent(self, event):
         key = event.key()
