@@ -107,6 +107,13 @@ try:
 except Exception:
     _HAS_MPP_PANEL = False
 
+# ── IRC 整合分析（整合自 D:\IRC\IRC_Integrated_Qt.py） ──
+try:
+    from irc_panel import IrcPanel
+    _HAS_IRC_PANEL = True
+except Exception:
+    _HAS_IRC_PANEL = False
+
 # ── 拆分后的模块 ──
 import i18n
 from theme import LIGHT_QSS
@@ -758,6 +765,21 @@ class OrbitalVisApp(QMainWindow):
                 self.tabs.addWidget(self.mpp_panel)
             except Exception:
                 self.mpp_panel = None
+
+        # ── IRC 整合分析 tab ──
+        self.irc_panel = None
+        if _HAS_IRC_PANEL:
+            glw = self.cub_canvas.glw if self.cub_canvas is not None else None
+            try:
+                self.irc_panel = IrcPanel(
+                    glw=glw,
+                    multiwfn_path=self.paths.get("multiwfn", ""),
+                    log_func=self._append_log,
+                    parent=self,
+                )
+                self.tabs.addWidget(self.irc_panel)
+            except Exception:
+                self.irc_panel = None
 
         scroll_right.setWidget(self.tabs)
         # 参数设置区用白色圆角卡片整体包裹
@@ -1638,6 +1660,11 @@ class OrbitalVisApp(QMainWindow):
                 self.aim_panel.shutdown()
             except Exception:
                 pass
+        if getattr(self, "irc_panel", None) is not None:
+            try:
+                self.irc_panel.shutdown()
+            except Exception:
+                pass
         # 5) 停掉自旋密度后台线程（cancel_check 使 Multiwfn 快速退出）
         if getattr(self, "_spin_worker", None) is not None:
             try:
@@ -1717,7 +1744,7 @@ class OrbitalVisApp(QMainWindow):
     # 功能导航条（画布左侧）的 i18n key（与页面顺序一一对应）
     _main_tab_keys = ["tab_viz", "tab_setup", "tab_charge_bond", "tab_nbo",
                       "tab_esp", "tab_igmh", "tab_aim", "tab_etsnocv",
-                      "tab_mpp", "tab_log"]
+                      "tab_mpp", "tab_irc", "tab_log"]
 
     def _setup_main_nav(self):
         """建立画布左侧的功能导航条（QListWidget），并联动右侧页面栈。
