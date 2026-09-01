@@ -600,6 +600,9 @@ class OrbitalVisApp(QMainWindow):
         # 输入文件行在右侧控制面板顶部、跨 tab 共用（见右栏构建处）
         # 轨道面板（轨道选择/浏览轨道/编号规则）已按需求隐藏，不再加入布局
         self._build_orbital_panel()
+        # 自旋密度行（可见）：挂在轨道 tab 顶部，轨道表格上方
+        if getattr(self, "spin_density_bar", None) is not None:
+            tab_setup_layout.addWidget(self.spin_density_bar, 0)
         # 轨道表格 — 嵌入第一个选项卡，载入 fchk 后自动填充
         self.orbital_tabs = QTabWidget()
         self.orbital_table_alpha = self._make_orbital_table()
@@ -884,8 +887,9 @@ class OrbitalVisApp(QMainWindow):
             layout.setColumnStretch(c, 0)
         layout.setColumnStretch(1, 1)
 
-        # ── 自旋密度行：生成自旋密度 cube → 画布显示 + VMD 同步 ──
-        spin_row = QHBoxLayout()
+        # ── 自旋密度行：独立可见行（grp_orbital 隐藏不挂布局，此行挂到轨道 tab） ──
+        self.spin_density_bar = QWidget()
+        spin_row = QHBoxLayout(self.spin_density_bar)
         spin_row.setSpacing(6)
         spin_row.setContentsMargins(0, 0, 0, 0)
         self.btn_spin_density = QPushButton(self._tr("spin_density_btn"))
@@ -904,7 +908,6 @@ class OrbitalVisApp(QMainWindow):
         self.spin_iso.setToolTip(self._tr("spin_density_iso_tip"))
         spin_row.addWidget(self.spin_iso)
         spin_row.addStretch()
-        layout.addLayout(spin_row, 1, 0, 1, 7)
         return self.grp_orbital
 
     # ── 自旋密度：Multiwfn 生成 cube → 画布显示 + VMD 场景登记 ──
