@@ -237,13 +237,53 @@ class IrcPanel(QWidget):
     def _build_ui(self):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(8, 8, 8, 8)
-        outer.setSpacing(6)
+        outer.setSpacing(8)
 
-        # ── 参数区 ──
+        # ── 图表（上方，占主要空间） ──
+        self.fig_holder = QWidget()
+        self._canvas_layout = QVBoxLayout(self.fig_holder)
+        self._canvas_layout.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(self.fig_holder, stretch=1)
+
+        # ── IRC 分析设置（下方，浅色渐变圆角卡片，对齐左侧画布下方面板） ──
         grp = QGroupBox("IRC 分析设置")
+        grp.setObjectName("IrcSettingsBox")
+        grp.setStyleSheet("""
+            QGroupBox#IrcSettingsBox {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                            stop:0 #FFFFFF, stop:1 #F1F5FB);
+                border: 1px solid #D5DEE9;
+                border-radius: 12px;
+                margin-top: 14px;
+            }
+            QGroupBox#IrcSettingsBox::title {
+                subcontrol-origin: margin;
+                left: 14px;
+                padding: 0 6px;
+                color: #0F766E;
+                font-weight: bold;
+                font-size: 10pt;
+            }
+            QGroupBox#IrcSettingsBox QLineEdit {
+                background: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+                padding: 4px 8px;
+            }
+            QGroupBox#IrcSettingsBox QPushButton {
+                background: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+                padding: 4px 12px;
+            }
+            QGroupBox#IrcSettingsBox QPushButton:hover {
+                background: #E8F1EF;
+                border-color: #3E8E7E;
+            }
+        """)
         gl = QGridLayout(grp)
-        gl.setContentsMargins(8, 8, 8, 8)
-        gl.setHorizontalSpacing(6)
+        gl.setContentsMargins(10, 8, 10, 10)
+        gl.setHorizontalSpacing(8)
         gl.setVerticalSpacing(6)
 
         gl.addWidget(QLabel("fchk 目录:"), 0, 0)
@@ -296,12 +336,6 @@ class IrcPanel(QWidget):
         self.btn_clear_cache.clicked.connect(self._clear_cache)
         gl.addWidget(self.btn_clear_cache, 3, 4)
         outer.addWidget(grp)
-
-        # ── 图表 ──
-        self.fig_holder = QWidget()
-        self._canvas_layout = QVBoxLayout(self.fig_holder)
-        self._canvas_layout.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(self.fig_holder, stretch=1)
 
     # ── 配置持久化 ──
     def _settings_path(self):
