@@ -945,66 +945,6 @@ void main() {
 }
 """
 
-# ── 实时接触阴影 / 环境光遮蔽（屏幕空间，深度差版） ──
-# 输入：场景颜色 + 场景深度（正交投影、线性 [0,1]，1.0=背景无几何）。
-# 对每个几何像素统计周围各方向"样本更深"的占比 → 遮蔽因子（凹陷/缝隙
-# 变暗，平滑面不变）；再沿主光方向找更近几何 → 方向光接触阴影。
-# 深度梯度法线对平滑分子无效（深度变化≈0），故采用纯深度差判据。
-FRAG_SSAO = """
-#version 330 core
-uniform sampler2D u_Color;
-uniform sampler2D u_Depth;
-uniform float u_Strength;   // AO 强度（0=关）
-uniform float u_RadiusPx;   // 采样半径（像素，自适应）
-uniform float u_Bias;       // 深度偏置（防自遮蔽）
-uniform vec2 u_LightDir;    // 主光屏幕方向（归一化，指向光源）
-out vec4 out_Color;
-
-const int K = 24;   // 12 方向 × 2 半径层
-const vec2 kDirs[12] = vec2[12](
-    vec2( 1.0, 0.0), vec2(-1.0, 0.0), vec2(0.0, 1.0), vec2(0.0,-1.0),
-    vec2( 0.7071, 0.7071), vec2(-0.7071, 0.7071),
-    vec2( 0.7071,-0.7071), vec2(-0.7071,-0.7071),
-    vec2( 0.9239, 0.3827), vec2(-0.9239, 0.3827),
-    vec2( 0.9239,-0.3827), vec2(-0.9239,-0.3827));
-const float kRadii[2] = float[2](0.5, 1.0);
-
-void main() {
-    ivec2 pc = ivec2(gl_FragCoord.xy);
-    float d0 = texelFetch(u_Depth, pc, 0).r;
-    vec3 col = texelFetch(u_Color, pc, 0).rgb;
-    if (d0 >= 1.0 || u_Strength <= 0.0) {
-        out_Color = vec4(col, 1.0);
-        return;
-    }
-    float occ = 0.0;
-    float wsum = 0.0;
-    for (int i = 0; i < K; i++) {
-        int dir = i / 2;
-        int rad = i % 2;
-        vec2 off = kDirs[dir] * u_RadiusPx * kRadii[rad];
-        float ds = texelFetch(u_Depth, pc + ivec2(off), 0).r;
-        if (ds >= 1.0) continue;                 // 样本在背景 → 不统计
-        float w = 1.0 - length(off) / (u_RadiusPx + 1e-4);
-        wsum += w;
-        if (ds > d0 + u_Bias) occ += w;          // 样本更深（凹陷/缝隙）
-    }
-    float ao = 1.0 - u_Strength * (occ / max(wsum, 1e-4));
-    // 方向光接触阴影：沿 -光方向（投影方向）找更近的几何 → 阴影
-    float shadow = 0.0;
-    if (length(u_LightDir) > 0.01) {
-        for (int t = 1; t <= 4; t++) {
-            ivec2 sp = pc + ivec2(u_LightDir * u_RadiusPx * float(t) * 0.6);
-            float ds = texelFetch(u_Depth, sp, 0).r;
-            if (ds >= 1.0) break;
-            if (ds < d0 - u_Bias) { shadow = 1.0 - float(t) * 0.18; break; }
-        }
-    }
-    ao = clamp(ao - shadow * 0.55, 0.0, 1.0);
-    out_Color = vec4(col * ao, 1.0);
-}
-"""
-
 # ═══════════════════════════════════════════════════════════════
 # Helpers
 # ═══════════════════════════════════════════════════════════════
@@ -1787,15 +1727,6 @@ class CubGLWidget(QOpenGLWidget):
         self._prog_orb_dp = self._prog_combine = 0
         self._vao_quad = 0
         self._peel = []
-
-        # 实时接触阴影 / AO（屏幕空间后处理）
-        self._ao_ok = False
-        self._ao_enabled = True       # 总开关（可被 set_ao_enabled 关闭）
-        self._ao_strength = 1.2       # AO 强度
-        self._ao_radius_px = 24.0     # 采样半径（像素，世界半径随缩放换算）
-        self._ao_bias = 0.0004        # 深度偏置（防自遮蔽）
-        self._prog_ssao = 0
-        self._ao_scene = None         # 场景 FBO（color+depth）
 
         # Data state — deferred loading pattern
         self._cube = None
@@ -3885,20 +3816,6 @@ class CubGLWidget(QOpenGLWidget):
             except Exception as e:
                 self._dp_ok = False
                 self._status(f"OpenGL 就绪；depth peeling 不可用，回退排序混合: {e}")
-
-            # 实时接触阴影 / AO（可选：失败仅禁用该特效，不影响渲染）
-            try:
-                self._prog_ssao = link_program(
-                    compile_shader(VERT_QUAD, GL_VERTEX_SHADER),
-                    compile_shader(FRAG_SSAO, GL_FRAGMENT_SHADER))
-                if self._vao_quad == 0:
-                    self._vao_quad = glGenVertexArrays(1)
-                self._ao_scene = PeelTarget()
-                self._ao_ok = True
-            except Exception as e:
-                self._ao_ok = False
-                self._prog_ssao = 0
-                print(f"[ssao] 初始化失败，接触阴影禁用: {e}")
         except Exception as e:
             self._status(f"OpenGL 初始化失败: {e}")
             traceback.print_exc()
@@ -3920,33 +3837,6 @@ class CubGLWidget(QOpenGLWidget):
             self._dp_ok = False
             self._status(f"FBO 创建失败，回退排序混合: {e}")
             return False
-
-    def _ensure_ao_targets(self, w, h):
-        """(Re)create the AO scene FBO when the drawable size changed."""
-        if not self._ao_ok or self._ao_scene is None:
-            return False
-        try:
-            t = self._ao_scene
-            if t.fbo == 0 or t.w != w or t.h != h:
-                t.create(w, h)
-            return True
-        except Exception as e:
-            self._ao_ok = False
-            self._status(f"接触阴影 FBO 创建失败，已禁用: {e}")
-            return False
-
-    def set_ao_enabled(self, on):
-        """开/关实时接触阴影 / AO 特效。"""
-        self._ao_enabled = bool(on)
-        self.update()
-
-    def set_ao_strength(self, v):
-        self._ao_strength = max(0.0, min(3.0, float(v)))
-        self.update()
-
-    def set_ao_radius(self, px):
-        self._ao_radius_px = max(1.0, min(40.0, float(px)))
-        self.update()
 
     def paintGL(self):
         if not self._gl_ok:
@@ -5311,17 +5201,6 @@ class CubGLWidget(QOpenGLWidget):
         view = self.cam.view()
         nm = self.cam.normal()
 
-        # ── 实时接触阴影 / AO：场景先渲染进 AO 场景 FBO（color+depth），
-        #    末尾屏幕空间后处理输出 color×ao。离屏 tile 导出（vp）不加。 ──
-        prev_fbo = glGetIntegerv(GL_FRAMEBUFFER_BINDING)
-        use_ao = (self._ao_enabled and self._ao_ok and vp is None
-                  and self._prog_ssao and self._ao_scene is not None)
-        if use_ao:
-            if not self._ensure_ao_targets(w, h):
-                use_ao = False
-            else:
-                glBindFramebuffer(GL_FRAMEBUFFER, self._ao_scene.fbo)
-
         glViewport(0, 0, w, h)
         glClearColor(*self._bg)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -5379,57 +5258,6 @@ class CubGLWidget(QOpenGLWidget):
 
         glDisable(GL_BLEND)
         glDepthMask(GL_TRUE)
-
-        # ── SSAO 后处理：场景 color+depth → color×ao，输出到原 FBO ──
-        if use_ao:
-            try:
-                glBindFramebuffer(GL_FRAMEBUFFER, prev_fbo)
-                glViewport(0, 0, w, h)
-                glDisable(GL_DEPTH_TEST)
-                glDepthMask(GL_FALSE)
-                glDisable(GL_BLEND)
-                glUseProgram(self._prog_ssao)
-                glActiveTexture(GL_TEXTURE0)
-                glBindTexture(GL_TEXTURE_2D, self._ao_scene.tex_color)
-                glUniform1i(glGetUniformLocation(self._prog_ssao, 'u_Color'), 0)
-                glActiveTexture(GL_TEXTURE1)
-                glBindTexture(GL_TEXTURE_2D, self._ao_scene.tex_depth)
-                glUniform1i(glGetUniformLocation(self._prog_ssao, 'u_Depth'), 1)
-                glUniform1f(glGetUniformLocation(self._prog_ssao, 'u_Strength'),
-                            float(self._ao_strength))
-                # 采样半径自适应：画面短边的 ~3%（随缩放自动覆盖原子表面）
-                _rpx = max(4.0, 0.03 * min(w, h))
-                glUniform1f(glGetUniformLocation(self._prog_ssao, 'u_RadiusPx'),
-                            _rpx)
-                glUniform1f(glGetUniformLocation(self._prog_ssao, 'u_Bias'),
-                            float(self._ao_bias))
-                # 主光屏幕方向（视图空间 _light_dirs[0] 的 xy，正交投影下
-                # 屏幕方向即其 x/y 分量；指向光源）
-                ld0 = (getattr(self, "_light_dirs", None)
-                       or getattr(self, "_light_default_dirs", None)
-                       or [(0.5, 0.5, 0.70710678)])
-                lx = float(ld0[0][0]) if ld0 else 0.5
-                ly = float(ld0[0][1]) if ld0 else 0.5
-                ln = math.hypot(lx, ly)
-                if ln > 1e-6:
-                    glUniform2f(glGetUniformLocation(self._prog_ssao,
-                                                     'u_LightDir'),
-                                lx / ln, ly / ln)
-                else:
-                    glUniform2f(glGetUniformLocation(self._prog_ssao,
-                                                     'u_LightDir'), 0.0, 0.0)
-                glBindVertexArray(self._vao_quad)
-                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
-                glBindVertexArray(0)
-                glActiveTexture(GL_TEXTURE1)
-                glBindTexture(GL_TEXTURE_2D, 0)
-                glActiveTexture(GL_TEXTURE0)
-                glBindTexture(GL_TEXTURE_2D, 0)
-                glEnable(GL_DEPTH_TEST)
-                glDepthMask(GL_TRUE)
-            except Exception as e:
-                self._ao_ok = False
-                print(f"[ssao] pass 失败，接触阴影禁用: {e}")
 
     def render_opaque(self, view, nm, proj, depth_func=GL_LESS):
         """Opaque geometry (atoms): depth test + depth write, no blending.
