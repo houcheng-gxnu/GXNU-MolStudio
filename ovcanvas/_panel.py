@@ -16,23 +16,6 @@ QWidget，可以直接放进主程序 (main_window.py) 的左侧面板作为画�
 import os
 import math
 import json
-import threading
-
-# POV-Ray 常见安装路径（画布「POV-Ray 渲染」按钮自动检测）
-_POVRAY_CANDIDATES = [
-    r"C:\Program Files\POV-Ray\v3.7\bin\pvengine64.exe",
-    r"C:\Program Files (x86)\POV-Ray\v3.7\bin\pvengine64.exe",
-    r"C:\Program Files\POV-Ray\v3.7\bin\pvengine.exe",
-    r"C:\Program Files (x86)\POV-Ray\v3.7\bin\pvengine.exe",
-]
-
-
-def find_povray():
-    """检测 POV-Ray 可执行文件路径，找不到返回 None。"""
-    for p in _POVRAY_CANDIDATES:
-        if os.path.isfile(p):
-            return p
-    return None
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QComboBox,
@@ -95,7 +78,6 @@ _CV_EN = {
     "透明背景": "Transparent BG",
     "截图": "Snapshot",
     "导出图片": "Export Image",
-    "POV-Ray 渲染": "POV-Ray Render",
     "重置视角": "Reset View",
     "参数": "Parameters",
     # 参数区行标签
@@ -1174,8 +1156,6 @@ class CubCanvasPanel(QWidget):
 
     statusChanged = pyqtSignal(str)
     paramsChanged = pyqtSignal()   # 参数区某个折叠组展开/收起时发出（主窗口据此对齐底部横带）
-    # POV-Ray 后台渲染完成（str=PNG 路径或 "ERR:..."）
-    _povray_done = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1192,10 +1172,6 @@ class CubCanvasPanel(QWidget):
         self.on_sync_vmd = None
         # 「清空样式」回调（由主窗口注入联动各分析面板；None=仅清画布）
         self.on_clear_analysis = None
-        # POV-Ray 渲染器路径（自动检测；主窗口可覆盖）
-        self.povray_exe = find_povray()
-        self._pov_thread = None
-        self._povray_done.connect(self._on_povray_done)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -1506,11 +1482,6 @@ class CubCanvasPanel(QWidget):
         btn_ex.setObjectName("SmallBtn")
         btn_ex.clicked.connect(self._export_image)
         h3.addWidget(btn_ex)
-        self._btn_povray = QPushButton(self._cv_bind(QPushButton(), "POV-Ray 渲染"))
-        self._btn_povray.setObjectName("SmallBtn")
-        self._btn_povray.setToolTip("POV-Ray 光线追踪渲染当前画布场景（Phong 高光/真半透明/背景），输出高分辨率 PNG")
-        self._btn_povray.clicked.connect(self._povray_render)
-        h3.addWidget(self._btn_povray)
         h3.addStretch()
         v.addLayout(h3)
 
@@ -3374,72 +3345,6 @@ class CubCanvasPanel(QWidget):
         finally:
             if restore_bg is not None and self.glw is not None:
                 self.glw.set_background(restore_bg)
-
-    # ── POV-Ray 光线追踪渲染（画布场景，需安装 POV-Ray） ──
-    def _povray_render(self):
-        if self.glw is None:
-            return
-        has_content = (
-            self._loaded_path is not None
-            or getattr(self.glw, "_molecule", None) is not None
-            or getattr(self.glw, "_pos_surf", None) is not None
-            or getattr(self.glw, "_cube", None) is not None)
-        if not has_content:
-            QMessageBox.information(self, "提示", "画布为空，请先加载文件或分子。")
-            return
-        pov = getattr(self, "povray_exe", None) or find_povray()
-        if not pov or not os.path.isfile(pov):
-            QMessageBox.warning(
-                self, "提示",
-                "未找到 POV-Ray（pvengine64.exe）。\n"
-                "请先安装 POV-Ray 3.7（povray.org 免费下载）后再使用此功能。")
-            return
-        base = (os.path.splitext(os.path.basename(self._loaded_path))[0]
-                if self._loaded_path else "mol_view")
-        p, _ = save_file(self, "POV-Ray 光线追踪渲染",
-                         base + "_povray.png", "PNG (*.png)")
-        if not p:
-            return
-        if self._pov_thread is not None and self._pov_thread.is_alive():
-            QMessageBox.information(self, "提示", "POV-Ray 渲染正在进行，请稍候。")
-            return
-        self._btn_povray.setEnabled(False)
-        try:
-            self.statusChanged.emit("POV-Ray 光线追踪渲染中…")
-        except Exception:
-            pass
-        glw = self.glw
-
-        def worker():
-            try:
-                from ._povray_render import render_glw_to_png
-                png = render_glw_to_png(
-                    glw, pov, output_png=p, resolution=(2000, 1500),
-                    quality=11,
-                    log=lambda m: self.statusChanged.emit(m))
-                self._povray_done.emit(png or "ERR:渲染未产生输出文件")
-            except Exception as e:
-                self._povray_done.emit("ERR:" + str(e))
-
-        self._pov_thread = threading.Thread(target=worker, daemon=True)
-        self._pov_thread.start()
-
-    def _on_povray_done(self, png):
-        self._btn_povray.setEnabled(True)
-        if png.startswith("ERR:"):
-            msg = png[4:]
-            try:
-                self.statusChanged.emit("POV-Ray 渲染失败: " + msg)
-            except Exception:
-                pass
-            QMessageBox.warning(self, "渲染失败", msg)
-        elif png:
-            try:
-                self.statusChanged.emit("POV-Ray 渲染完成: " + os.path.basename(png))
-            except Exception:
-                pass
-            QMessageBox.information(self, "渲染完成",
-                                    "POV-Ray 渲染完成:\n" + png)
 
     # ── 拖放 ───────────────────────────────────────────────────
     def dragEnterEvent(self, e):
