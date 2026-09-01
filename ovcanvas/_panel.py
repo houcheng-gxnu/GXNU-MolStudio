@@ -32,12 +32,33 @@ from PyQt5.QtGui import (
 from ._glwidget import (
     CubGLWidget, STYLE_NAMES, STYLE_DISPLAY, IBOVIEW_DEFAULTS,
     MOL_STYLE_NAMES, MOL_STYLE_DISPLAY, _ensure_pyopengl,
-    SHININESS_PRESETS, SHININESS_DEFAULT,
+    SHININESS_PRESETS, SHININESS_DEFAULT, _IBO_ELEMENT_COLORS,
 )
 from file_dialogs import open_file, save_file
 from marching_cubes import read_cube, relative_iso_threshold
 from ._colorwheel import ColorWheelWidget
 import i18n
+
+# ── 元素符号 / 名称表（元素原子颜色设置用） ──
+_ELEM_SYMBOLS = {
+    1: "H", 2: "He", 3: "Li", 4: "Be", 5: "B", 6: "C", 7: "N", 8: "O",
+    9: "F", 10: "Ne", 11: "Na", 12: "Mg", 13: "Al", 14: "Si", 15: "P",
+    16: "S", 17: "Cl", 18: "Ar", 19: "K", 20: "Ca", 21: "Sc", 22: "Ti",
+    23: "V", 24: "Cr", 25: "Mn", 26: "Fe", 27: "Co", 28: "Ni", 29: "Cu",
+    30: "Zn", 31: "Ga", 32: "Ge", 33: "As", 34: "Se", 35: "Br", 36: "Kr",
+    37: "Rb", 38: "Sr", 39: "Y", 40: "Zr", 41: "Nb", 42: "Mo", 43: "Tc",
+    44: "Ru", 45: "Rh", 46: "Pd", 47: "Ag", 48: "Cd", 49: "In", 50: "Sn",
+    51: "Sb", 52: "Te", 53: "I", 54: "Xe", 55: "Cs", 56: "Ba", 72: "Hf",
+    73: "Ta", 74: "W", 75: "Re", 76: "Os", 77: "Ir", 78: "Pt", 79: "Au",
+    80: "Hg", 81: "Tl", 82: "Pb", 83: "Bi", 92: "U",
+}
+_ELEM_NAMES = {
+    1: "氢", 5: "硼", 6: "碳", 7: "氮", 8: "氧", 9: "氟", 11: "钠",
+    12: "镁", 13: "铝", 14: "硅", 15: "磷", 16: "硫", 17: "氯", 19: "钾",
+    20: "钙", 22: "钛", 24: "铬", 25: "锰", 26: "铁", 27: "钴", 28: "镍",
+    29: "铜", 30: "锌", 35: "溴", 47: "银", 53: "碘", 56: "钡",
+    74: "钨", 78: "铂", 79: "金", 82: "铅", 92: "铀",
+}
 
 # ── 画布参数区 i18n ──
 # key = 中文原文（构造处直接传原文，zh 模式原样显示），value = 英文。
@@ -63,6 +84,14 @@ _CV_EN = {
     "等值面配色:": "Iso color:",
     "光照:": "Lighting:",
     "原子配色:": "Atom colors:",
+    "元素颜色…": "Element colors…",
+    "元素原子颜色": "Element Atom Colors",
+    "点击色块选择颜色；点「恢复」还原该元素默认色":
+        "Click a swatch to pick a color; \"Reset\" restores the default",
+    "恢复": "Reset",
+    "全部恢复默认": "Reset All",
+    "取消": "Cancel",
+    "确定": "OK",
     "光泽:": "Shininess:",
     "选中标记:": "Sel. marker:",
     "呼吸:": "Pulse:",
@@ -300,6 +329,147 @@ def _parse_color(color):
             c = "".join(ch * 2 for ch in c)
         return tuple(int(c[i:i + 2], 16) for i in (0, 2, 4))
     return tuple(int(round(float(v))) for v in color[:3])
+
+
+class ElementColorDialog(QDialog):
+    """自定义每种元素的原子颜色（覆盖默认 CPK 配色）。"""
+
+    def __init__(self, parent, glw):
+        super().__init__(parent)
+        self._glw = glw
+        self.setWindowTitle(_cv("元素原子颜色"))
+        self.setMinimumWidth(420)
+
+        # 收集元素：当前分子中存在的 + 常用元素
+        present = set()
+        atoms = getattr(glw, "_molecule", None)
+        if not atoms and getattr(glw, "_cube", None) is not None:
+            atoms = getattr(glw._cube, "atoms", None)
+        if atoms:
+            try:
+                present = {int(a[0]) for a in atoms}
+            except (TypeError, ValueError, IndexError):
+                present = set()
+        common = [6, 1, 7, 8, 9, 15, 16, 17, 35, 53, 5, 14, 3, 11, 12, 13,
+                  19, 20, 22, 26, 29, 30, 47, 79]
+        self._elems = list(dict.fromkeys(common + sorted(present)))
+
+        # 当前颜色：已有元素覆盖优先，否则默认 CPK 表（_IBO_ELEMENT_COLORS）
+        try:
+            self._cur = dict(getattr(glw, "element_colors", lambda: {})())
+        except Exception:
+            self._cur = {}
+
+        lay = QVBoxLayout(self)
+        lay.setSpacing(8)
+        tip = QLabel(_cv("点击色块选择颜色；点「恢复」还原该元素默认色"))
+        tip.setStyleSheet("color:#64748B; font-size:9pt;")
+        lay.addWidget(tip)
+
+        self._swatches = {}   # anum -> QPushButton
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(6)
+        for i, anum in enumerate(self._elems):
+            sym = _ELEM_SYMBOLS.get(anum, str(anum))
+            name = _ELEM_NAMES.get(anum, "")
+            col = self._cur.get(anum) or self._default_color(anum)
+            self._cur[anum] = col
+            btn = QPushButton()
+            btn.setFixedSize(34, 22)
+            btn.setCursor(Qt.PointingHandCursor)
+            self._set_swatch(btn, col)
+            btn.clicked.connect(lambda _=False, a=anum: self._pick(a))
+            self._swatches[anum] = btn
+            grid.addWidget(btn, i, 0)
+            lbl = QLabel(f"{sym}  {name}".strip())
+            lbl.setMinimumWidth(70)
+            grid.addWidget(lbl, i, 1)
+            hex_lbl = QLabel(self._hex_str(col))
+            hex_lbl.setStyleSheet("color:#64748B; font-size:9pt;")
+            grid.addWidget(hex_lbl, i, 2)
+            b_reset = QPushButton(_cv("恢复"))
+            b_reset.setObjectName("SmallBtn")
+            b_reset.setFixedWidth(52)
+            b_reset.clicked.connect(lambda _=False, a=anum: self._reset_one(a))
+            grid.addWidget(b_reset, i, 3)
+        lay.addLayout(grid)
+
+        btn_row = QHBoxLayout()
+        b_all = QPushButton(_cv("全部恢复默认"))
+        b_all.setObjectName("SmallBtn")
+        b_all.clicked.connect(self._reset_all)
+        btn_row.addWidget(b_all)
+        btn_row.addStretch(1)
+        b_cancel = QPushButton(_cv("取消"))
+        b_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(b_cancel)
+        b_ok = QPushButton(_cv("确定"))
+        b_ok.setObjectName("PrimaryBtn")
+        b_ok.clicked.connect(self.accept)
+        btn_row.addWidget(b_ok)
+        lay.addLayout(btn_row)
+
+    def _default_color(self, anum):
+        try:
+            return tuple(_IBO_ELEMENT_COLORS[anum])
+        except (IndexError, TypeError):
+            return (0.55, 0.55, 0.55)
+
+    def _hex_str(self, rgb01):
+        r, g, b = (int(round(c * 255)) for c in rgb01)
+        return "#%02X%02X%02X" % (r, g, b)
+
+    def _set_swatch(self, btn, rgb01):
+        r, g, b = (int(round(c * 255)) for c in rgb01)
+        btn.setStyleSheet(
+            f"background:#{r:02X}{g:02X}{b:02X}; border:1px solid #94A3B8;"
+            " border-radius:4px;")
+
+    def _pick(self, anum):
+        cur = self._cur.get(anum, self._default_color(anum))
+        col = QColorDialog.getColor(
+            QColor(*(int(round(c * 255)) for c in cur)), self, "选择颜色")
+        if col.isValid():
+            rgb = (col.red() / 255.0, col.green() / 255.0, col.blue() / 255.0)
+            self._cur[anum] = rgb
+            self._set_swatch(self._swatches[anum], rgb)
+            # 同步 hex 标签（第 3 列）
+            idx = self._elems.index(anum)
+            item = self.layout().itemAt(0)   # tip
+            grid = self.layout().itemAt(1).layout()
+            lbl = grid.itemAtPosition(idx, 2).widget()
+            lbl.setText(self._hex_str(rgb))
+
+    def _reset_one(self, anum):
+        rgb = self._default_color(anum)
+        self._cur[anum] = rgb
+        self._set_swatch(self._swatches[anum], rgb)
+        idx = self._elems.index(anum)
+        grid = self.layout().itemAt(1).layout()
+        lbl = grid.itemAtPosition(idx, 2).widget()
+        lbl.setText(self._hex_str(rgb))
+
+    def _reset_all(self):
+        for anum in self._elems:
+            self._cur[anum] = self._default_color(anum)
+            self._set_swatch(self._swatches[anum], self._cur[anum])
+            idx = self._elems.index(anum)
+            grid = self.layout().itemAt(1).layout()
+            lbl = grid.itemAtPosition(idx, 2).widget()
+            lbl.setText(self._hex_str(self._cur[anum]))
+
+    def result_overrides(self):
+        """返回 {atomic_number: (r,g,b) 0..1}，仅含用户改过的元素。"""
+        out = {}
+        defaults = {}
+        for anum in self._elems:
+            defaults[anum] = self._default_color(anum)
+        for anum, rgb in self._cur.items():
+            if tuple(round(float(c), 4) for c in rgb) != \
+                    tuple(round(float(c), 4) for c in defaults.get(anum, (0, 0, 0))):
+                out[anum] = tuple(float(c) for c in rgb)
+        return out
 
 
 class RingControlDialog(QDialog):
@@ -1438,7 +1608,13 @@ class CubCanvasPanel(QWidget):
         # ── 第 2 行：光照 ──
         gl.addWidget(_row(_lbl("光照:"), (self._light_cb, 1)))
         # ── 第 3 行：原子配色 ──
-        gl.addWidget(_row(_lbl("原子配色:"), (self._mol_style_cb, 1)))
+        self._btn_elem_color = QPushButton(
+            self._cv_bind(QPushButton(), "元素颜色…"))
+        self._btn_elem_color.setObjectName("SmallBtn")
+        self._btn_elem_color.setToolTip("自定义每种元素的原子颜色（覆盖默认 CPK 配色）")
+        self._btn_elem_color.clicked.connect(self._open_element_color_dialog)
+        gl.addWidget(_row(_lbl("原子配色:"), (self._mol_style_cb, 1),
+                          self._btn_elem_color))
         # ── 第 4 行：光泽 ──
         gl.addWidget(_row(_lbl("光泽:"), (self._shiny_cb, 1)))
         # ── 第 5 行：选中标记（下拉占满整行）──
@@ -2375,6 +2551,19 @@ class CubCanvasPanel(QWidget):
         name = MOL_STYLE_NAMES[idx]
         # widget 内部会按当前等值面风格的 c_rgb 取碳色（VMD single 时）
         self.glw.set_mol_style(name)
+
+    def _open_element_color_dialog(self):
+        """元素原子颜色设置：自定义每种元素的颜色（覆盖默认 CPK 配色）。"""
+        if self.glw is None:
+            return
+        dlg = ElementColorDialog(self, self.glw)
+        if dlg.exec_() == QDialog.Accepted:
+            self.glw.set_element_colors(dlg.result_overrides())
+            if hasattr(self, "on_vmd_refresh") and self.on_vmd_refresh:
+                try:
+                    self.on_vmd_refresh()
+                except Exception:
+                    pass
 
     def _on_shiny(self, idx):
         if self.glw is None or not (0 <= idx < len(SHININESS_PRESETS)):

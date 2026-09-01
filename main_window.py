@@ -492,6 +492,8 @@ class OrbitalVisApp(QMainWindow):
                 self.cub_canvas.setMinimumWidth(360)
                 self.cub_canvas.show_params_panel(True)
                 self.cub_canvas.statusChanged.connect(self._on_canvas_status)
+                # 元素原子颜色设置等画布改动 → VMD 已连接时自动同步
+                self.cub_canvas.on_vmd_refresh = self._push_canvas_to_vmd_if_running
                 cv.addWidget(self.cub_canvas, stretch=1)
             except Exception as e:
                 self.cub_canvas = None
@@ -2751,6 +2753,18 @@ class OrbitalVisApp(QMainWindow):
 
         # ── 片段原子着色（1-based → VMD 0-based index 选择，按颜色分组） ──
         overrides = dict(getattr(glw, "_atom_color_overrides", None) or {})
+        # 元素原子颜色覆盖 → 展开为原子索引覆盖（原子索引覆盖优先）
+        elem_ov = dict(getattr(glw, "_element_color_overrides", None) or {})
+        if elem_ov:
+            if getattr(glw, "_molecule", None):
+                src_atoms = [(int(a[0]),) for a in glw._molecule]
+            elif glw._cube is not None and getattr(glw._cube, "atoms", None):
+                src_atoms = [(int(a[0]),) for a in glw._cube.atoms]
+            else:
+                src_atoms = []
+            for i, at in enumerate(src_atoms, start=1):
+                if i not in overrides and at[0] in elem_ov:
+                    overrides[i] = elem_ov[at[0]]
         groups = {}
         for idx, rgb in overrides.items():
             key = tuple(round(float(c), 3) for c in rgb)

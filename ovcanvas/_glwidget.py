@@ -1833,6 +1833,8 @@ class CubGLWidget(QOpenGLWidget):
         self._was_drag = False      # True if mouse moved enough to be a drag
         # 按原子索引(1-based)覆盖球棍模型颜色（电荷分析等视图用）
         self._atom_color_overrides = {}
+        # 按元素(原子序数)覆盖球棍模型颜色（元素原子颜色设置，用户自定义）
+        self._element_color_overrides = {}
 
         # ── ESP 扩展（整合自 ESPViewer） ──
         self._extrema_pts = []       # [(x, y, z, kind)] 世界帧 Bohr；kind=max/min
@@ -3987,6 +3989,8 @@ class CubGLWidget(QOpenGLWidget):
             # 原子本体保持元素色/电荷覆盖色，不再染绿。
             if (k + 1) in self._atom_color_overrides:
                 col = self._atom_color_overrides[k + 1]
+            elif anum in self._element_color_overrides:
+                col = self._element_color_overrides[anum]
             else:
                 col = self._atom_color(anum)
             v, nrm, idx = make_sphere(r, 3)
@@ -4427,6 +4431,25 @@ class CubGLWidget(QOpenGLWidget):
             self._gen_atoms()
             self._needs_upload = True
             self.update()
+
+    def set_element_colors(self, overrides):
+        """按元素(原子序数)覆盖球棍模型的原子颜色（元素原子颜色设置）。
+
+        overrides: dict {atomic_number: (r,g,b)}，颜色分量 0..1；传 None/空 dict
+        清除覆盖，恢复按分子风格配色。
+        优先级：原子索引覆盖 > 元素覆盖 > 分子风格默认色（CPK 等）。
+        """
+        self._element_color_overrides = dict(overrides) if overrides else {}
+        if self._molecule is not None or self._cube is not None:
+            self._gen_atoms()
+            self._needs_upload = True
+            self.update()
+
+    def clear_element_colors(self):
+        self.set_element_colors(None)
+
+    def element_colors(self):
+        return dict(self._element_color_overrides)
 
     # ── ESP 扩展（整合自 ESPViewer） ──
 
