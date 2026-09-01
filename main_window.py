@@ -494,6 +494,12 @@ class OrbitalVisApp(QMainWindow):
                 self.cub_canvas.statusChanged.connect(self._on_canvas_status)
                 # 元素原子颜色设置等画布改动 → VMD 已连接时自动同步
                 self.cub_canvas.on_vmd_refresh = self._push_canvas_to_vmd_if_running
+                # Tachyon 渲染器路径（画布「Tachyon 渲染」按钮用）
+                try:
+                    self.cub_canvas.tachyon_exe = (
+                        self.paths.get("tachyon") or "")
+                except Exception:
+                    pass
                 cv.addWidget(self.cub_canvas, stretch=1)
             except Exception as e:
                 self.cub_canvas = None

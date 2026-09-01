@@ -16,6 +16,7 @@ QWidget，可以直接放进主程序 (main_window.py) 的左侧面板作为画�
 import os
 import math
 import json
+import threading
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QComboBox,
@@ -78,6 +79,7 @@ _CV_EN = {
     "透明背景": "Transparent BG",
     "截图": "Snapshot",
     "导出图片": "Export Image",
+    "Tachyon 渲染": "Tachyon Render",
     "重置视角": "Reset View",
     "参数": "Parameters",
     # 参数区行标签
@@ -1154,6 +1156,8 @@ class CubCanvasPanel(QWidget):
 
     statusChanged = pyqtSignal(str)
     paramsChanged = pyqtSignal()   # 参数区某个折叠组展开/收起时发出（主窗口据此对齐底部横带）
+    # Tachyon 后台渲染完成（str=PNG 路径或 "ERR:..."）
+    _tachyon_done = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1170,6 +1174,10 @@ class CubCanvasPanel(QWidget):
         self.on_sync_vmd = None
         # 「清空样式」回调（由主窗口注入联动各分析面板；None=仅清画布）
         self.on_clear_analysis = None
+        # Tachyon 渲染器路径（由主窗口注入；None 时回退 fchk_orbital 默认）
+        self.tachyon_exe = None
+        self._tach_thread = None
+        self._tachyon_done.connect(self._on_tachyon_done)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -1480,6 +1488,11 @@ class CubCanvasPanel(QWidget):
         btn_ex.setObjectName("SmallBtn")
         btn_ex.clicked.connect(self._export_image)
         h3.addWidget(btn_ex)
+        self._btn_tachyon = QPushButton(self._cv_bind(QPushButton(), "Tachyon 渲染"))
+        self._btn_tachyon.setObjectName("SmallBtn")
+        self._btn_tachyon.setToolTip("Tachyon 光线追踪渲染当前画布场景（无需 VMD），输出高分辨率 PNG")
+        self._btn_tachyon.clicked.connect(self._tachyon_render)
+        h3.addWidget(self._btn_tachyon)
         h3.addStretch()
         v.addLayout(h3)
 
@@ -3343,6 +3356,79 @@ class CubCanvasPanel(QWidget):
         finally:
             if restore_bg is not None and self.glw is not None:
                 self.glw.set_background(restore_bg)
+
+    # ── Tachyon 光线追踪渲染（画布场景，无需 VMD） ──
+    def _tachyon_render(self):
+        if self.glw is None:
+            return
+        has_content = (
+            self._loaded_path is not None
+            or getattr(self.glw, "_molecule", None) is not None
+            or getattr(self.glw, "_atom_surf", None) is not None
+            or getattr(self.glw, "_pos_surf", None) is not None
+            or getattr(self.glw, "_cube", None) is not None)
+        if not has_content:
+            QMessageBox.information(self, "提示", "画布为空，请先加载文件或分子。")
+            return
+        tach = getattr(self, "tachyon_exe", None)
+        if not tach:
+            try:
+                import fchk_orbital as _fb
+                tach = getattr(_fb, "DEFAULT_TACHYON", None)
+            except Exception:
+                tach = None
+        if not tach or not os.path.isfile(tach):
+            QMessageBox.warning(
+                self, "提示",
+                "未找到 Tachyon 渲染器（tachyon_WIN32.exe）。\n"
+                "请确认已安装 VMD，并在「路径设置」中配置 VMD 目录。")
+            return
+        base = (os.path.splitext(os.path.basename(self._loaded_path))[0]
+                if self._loaded_path else "mol_view")
+        p, _ = save_file(self, "Tachyon 光线追踪渲染",
+                         base + "_tachyon.png", "PNG (*.png)")
+        if not p:
+            return
+        if self._tach_thread is not None and self._tach_thread.is_alive():
+            QMessageBox.information(self, "提示", "Tachyon 渲染正在进行，请稍候。")
+            return
+        self._btn_tachyon.setEnabled(False)
+        try:
+            self.statusChanged.emit("Tachyon 光线追踪渲染中…")
+        except Exception:
+            pass
+        glw = self.glw
+
+        def worker():
+            try:
+                from ._tachyon_render import render_glw_to_png
+                png = render_glw_to_png(
+                    glw, tach, output_png=p, resolution=(2000, 1500),
+                    threads=8, aasamples=24,
+                    log=lambda m: self.statusChanged.emit(m))
+                self._tachyon_done.emit(png or "ERR:渲染未产生输出文件")
+            except Exception as e:
+                self._tachyon_done.emit("ERR:" + str(e))
+
+        self._tach_thread = threading.Thread(target=worker, daemon=True)
+        self._tach_thread.start()
+
+    def _on_tachyon_done(self, png):
+        self._btn_tachyon.setEnabled(True)
+        if png.startswith("ERR:"):
+            msg = png[4:]
+            try:
+                self.statusChanged.emit("Tachyon 渲染失败: " + msg)
+            except Exception:
+                pass
+            QMessageBox.warning(self, "渲染失败", msg)
+        elif png:
+            try:
+                self.statusChanged.emit("Tachyon 渲染完成: " + os.path.basename(png))
+            except Exception:
+                pass
+            QMessageBox.information(self, "渲染完成",
+                                    "Tachyon 渲染完成:\n" + png)
 
     # ── 拖放 ───────────────────────────────────────────────────
     def dragEnterEvent(self, e):
