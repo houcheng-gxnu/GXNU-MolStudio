@@ -33,7 +33,7 @@ from PyQt5.QtGui import (
 from ._glwidget import (
     CubGLWidget, STYLE_NAMES, STYLE_DISPLAY, IBOVIEW_DEFAULTS,
     MOL_STYLE_NAMES, MOL_STYLE_DISPLAY, _ensure_pyopengl,
-    SHININESS_PRESETS, SHININESS_DEFAULT, _IBO_ELEMENT_COLORS,
+    SHININESS_PRESETS, SHININESS_DEFAULT, _IBO_ELEMENT_COLORS, GlMesh,
 )
 from file_dialogs import open_file, save_file
 from marching_cubes import read_cube, relative_iso_threshold, IsoSurface
@@ -3351,6 +3351,14 @@ class CubCanvasPanel(QWidget):
         if glw is None:
             return
         try:
+            # 关键：深度剥离按 mesh.count 判断是否绘制等值面，只清数据
+            # （_pos_surf=None）不够，必须销毁 warmup 的等值面网格缓冲
+            for mi in (0, 1):
+                try:
+                    glw._meshes[mi].destroy()
+                except Exception:
+                    pass
+                glw._meshes[mi] = GlMesh()
             glw._molecule, glw._cube, glw._pos_surf, glw._neg_surf, \
                 glw._orbital_recs = saved
             glw._gen_atoms()
