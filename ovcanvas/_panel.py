@@ -95,6 +95,8 @@ _CV_EN = {
     "光泽:": "Shininess:",
     "选中标记:": "Sel. marker:",
     "呼吸:": "Pulse:",
+    "接触阴影:": "Contact shadow:",
+    "接触阴影": "Contact shadow",
     "等值面大小:": "Isovalue:",
     "透明度:": "Transparency:",
     "层数:": "Layers:",
@@ -1619,9 +1621,18 @@ class CubCanvasPanel(QWidget):
         gl.addWidget(_row(_lbl("光泽:"), (self._shiny_cb, 1)))
         # ── 第 5 行：选中标记（下拉占满整行）──
         gl.addWidget(_row(_lbl("选中标记:"), (self._sel_marker_cb, 1)))
+        # ── 接触阴影 / AO 开关（特效行，与呼吸同排）──
+        self._ao_chk = QCheckBox()
+        self._ao_chk.setText(self._cv_bind(self._ao_chk, "接触阴影"))
+        self._ao_chk.setChecked(True)
+        self._ao_chk.setToolTip("实时接触阴影/环境光遮蔽（屏幕空间后处理）："
+                                "原子与等值面的缝隙、凹陷处自动变暗，立体感更强")
+        self._ao_chk.toggled.connect(self._on_ao_toggled)
         # ── 第 6 行：呼吸 / 重置视角（按钮留足宽度）──
         gl.addWidget(_row(_lbl("呼吸:"), self._sel_pulse_chk, None,
                           self._btn_reset_view))
+        # ── 第 7 行：接触阴影 ──
+        gl.addWidget(_row(_lbl("接触阴影:"), self._ao_chk))
 
         # 先创建全部控件再连接信号，避免初始化 addItems 触发回调时
         # 访问尚未创建的控件（如 _on_style 会读取 _mol_style_cb）
@@ -2551,6 +2562,14 @@ class CubCanvasPanel(QWidget):
         name = MOL_STYLE_NAMES[idx]
         # widget 内部会按当前等值面风格的 c_rgb 取碳色（VMD single 时）
         self.glw.set_mol_style(name)
+
+    def _on_ao_toggled(self, on):
+        """接触阴影 / AO 开关 → 画布渲染器。"""
+        if self.glw is not None:
+            try:
+                self.glw.set_ao_enabled(bool(on))
+            except Exception:
+                pass
 
     def _open_element_color_dialog(self):
         """元素原子颜色设置：自定义每种元素的颜色（覆盖默认 CPK 配色）。"""
