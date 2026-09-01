@@ -3951,6 +3951,7 @@ class CubGLWidget(QOpenGLWidget):
                     except Exception:
                         pass
                 self._meshes[2] = GlMesh()
+                self._atom_surf = None    # 清空分子时缓存网格一并失效
                 self._bond_surf = None
                 self._bond_mesh = GlMesh()
                 return

@@ -3351,17 +3351,29 @@ class CubCanvasPanel(QWidget):
         if glw is None:
             return
         try:
-            # 关键：深度剥离按 mesh.count 判断是否绘制等值面，只清数据
-            # （_pos_surf=None）不够，必须销毁 warmup 的等值面网格缓冲
-            for mi in (0, 1):
+            # 显式销毁全部网格缓冲（等值面 ×2 + 原子 + 键），不依赖
+            # _gen_atoms 的清空分支——深度剥离按 mesh.count 判断绘制，
+            # 任何残留（含原子网格）都会显示在画布上
+            for mi in (0, 1, 2):
                 try:
                     glw._meshes[mi].destroy()
                 except Exception:
                     pass
                 glw._meshes[mi] = GlMesh()
+            try:
+                glw._bond_mesh.destroy()
+            except Exception:
+                pass
+            glw._bond_mesh = GlMesh()
+            glw._bond_surf = None
+            glw._atom_surf = None    # 关键：_upload 用 _atom_surf 填 mesh2
             glw._molecule, glw._cube, glw._pos_surf, glw._neg_surf, \
                 glw._orbital_recs = saved
-            glw._gen_atoms()
+            # 若恢复后确有分子（非启动场景），重建原子网格
+            if (glw._molecule is not None
+                    or (glw._cube is not None
+                        and getattr(glw._cube, "atoms", None))):
+                glw._gen_atoms()
             glw._needs_upload = True
             glw.update()
         except Exception:
