@@ -38,11 +38,22 @@ def _norm(v):
     return v / n if n > 1e-12 else np.array([0.0, 0.0, 1.0])
 
 
-def _finish(amb, dif, spe):
+def _finish(amb, dif, spe, phong_size=60):
     """POV-Ray finish 块（IboView Phong 映射）。"""
     return ("finish {{ ambient {a} diffuse {d} specular {s} "
-            "roughness 0.05 phong {s} phong_size 60 }}").format(
-        a=amb, d=dif, s=spe)
+            "roughness 0.05 phong {s} phong_size {ps} }}").format(
+        a=amb, d=dif, s=spe, ps=phong_size)
+
+
+# IboView 经典观感固定参数（POV-Ray 渲染默认采用，不随画布当前样式）
+_IBOVIEW_LIGHTS = [(0.5, 0.5, 0.70710678), (-0.4330127, -0.25, 0.8660254),
+                   (0.4330127, -0.25, 0.8660254)]
+_IBOVIEW_POS = (0.48, 0.78, 0.92)   # ultra-glass 正相位（冰蓝）
+_IBOVIEW_NEG = (0.65, 0.55, 0.88)   # ultra-glass 负相位（紫）
+_IBOVIEW_ATOM_MAT = (0.10, 0.50, 0.15)   # ambient/diffuse/specular
+_IBOVIEW_SURF_MAT = (0.25, 0.15, 0.90)   # ambient/diffuse/specular（玻璃感）
+_IBOVIEW_SURF_OP = 0.30                  # 等值面不透明度（IboView ultra-glass）
+_IBOVIEW_ATOM_SCALE = 1.5                # 原子半径倍率（一键 IBOview 样式）
 
 
 def glw_scene_to_pov(glw, out_w, out_h):
@@ -70,33 +81,24 @@ def glw_scene_to_pov(glw, out_w, out_h):
           "    right    <%f, %f, %f>" % tuple(right_v),
           "}"]
 
-    # ── 光源：画布视图空间方向 → 世界系（平行光，强度分级） ──
-    ld = (getattr(glw, "_light_dirs", None)
-          or getattr(glw, "_light_default_dirs", None)
-          or [(0.5, 0.5, 0.70710678), (-0.4330127, -0.25, 0.8660254),
-              (0.4330127, -0.25, 0.8660254), (0.0, 0.0, 1.0)])
-    n_lights = int(getattr(glw, "_light_count", 3))
-    for i in range(max(1, min(n_lights, 4))):
-        d = np.asarray(ld[i] if i < len(ld) else (0.0, 0.0, 1.0),
-                       dtype=np.float64)
+    # ── 光源：IboView 三光（固定方向，不随画布当前光源调整） ──
+    n_lights = 3
+    for i in range(n_lights):
+        d = np.asarray(_IBOVIEW_LIGHTS[i], dtype=np.float64)
         wdir = _norm(R.T @ d)
         pos = ctr + wdir * 100.0
         I = _LIGHT_INTENSITY[i] if i < len(_LIGHT_INTENSITY) else 0.4
         L.append("light_source { <%f, %f, %f> color rgb <%f, %f, %f> parallel }"
                  % (pos[0], pos[1], pos[2], I, I, I))
 
-    # ── 背景 ──
-    bg = getattr(glw, "_bg", (1.0, 1.0, 1.0, 1.0))
-    L.append("background { color rgb <%f, %f, %f> }"
-             % (bg[0], bg[1], bg[2]))
+    # ── 背景：IboView 白底 ──
+    L.append("background { color rgb <1, 1, 1> }")
 
-    # ── 材质 ──
-    sp = getattr(glw, "_sp", None) or {}
-    a_reg = sp.get("a_reg") or [0.8, 0.65, 0.4, -0.5]
-    o_reg = sp.get("o_reg") or [0.8, 0.6, 1.0, 1.0]
-    surf_op = max(0.05, min(1.0, float(sp.get("opacity", 0.85))))
-    atom_amb, atom_dif, atom_spe = 0.15, float(a_reg[1]), min(float(a_reg[2]), 0.6)
-    surf_amb, surf_dif, surf_spe = 0.10, float(o_reg[1]), min(float(o_reg[2]) * 0.35, 0.5)
+    # ── 材质：IboView 经典（不随画布当前样式） ──
+    atom_amb, atom_dif, atom_spe = _IBOVIEW_ATOM_MAT
+    surf_amb, surf_dif, surf_spe = _IBOVIEW_SURF_MAT
+    surf_op = _IBOVIEW_SURF_OP
+    atom_scale_eff = float(getattr(glw, "_atom_scale", 1.0)) * _IBOVIEW_ATOM_SCALE
 
     # ── 原子 + 键 ──
     if getattr(glw, "_molecule", None):
@@ -111,7 +113,7 @@ def glw_scene_to_pov(glw, out_w, out_h):
         coords = np.array([[float(a[2]), float(a[3]), float(a[4])]
                            for a in atoms], dtype=np.float64)
         n = len(anums)
-        atom_scale = float(getattr(glw, "_atom_scale", 1.0))
+        atom_scale = atom_scale_eff
         bond_scale = float(getattr(glw, "_bond_scale", 2.0))
         elem_ov = getattr(glw, "_element_color_overrides", None) or {}
         idx_ov = getattr(glw, "_atom_color_overrides", None) or {}
@@ -174,10 +176,10 @@ def glw_scene_to_pov(glw, out_w, out_h):
                                 bond_r, c[0], c[1], c[2],
                                 _finish(atom_amb, atom_dif, atom_spe)))
 
-    # ── 等值面（smooth_triangle 半透明） ──
+    # ── 等值面（smooth_triangle 半透明，IboView ultra-glass 配色） ──
     surf_vcolor = bool(getattr(glw, "_surf_vcolor", False))
-    pc = tuple(float(c) for c in getattr(glw, "_pc", (0.1, 0.8, 0.1)))
-    nc = tuple(float(c) for c in getattr(glw, "_nc", (0.9, 0.25, 0.25)))
+    pc = _IBOVIEW_POS
+    nc = _IBOVIEW_NEG
     for surf, is_neg in ((getattr(glw, "_pos_surf", None), False),
                          (getattr(glw, "_neg_surf", None), True)):
         if surf is None or getattr(surf, "vertices", None) is None:
@@ -213,7 +215,7 @@ def glw_scene_to_pov(glw, out_w, out_h):
                    v1[0], v1[1], v1[2], n1[0], n1[1], n1[2],
                    v2[0], v2[1], v2[2], n2[0], n2[1], n2[2],
                    rgb[0], rgb[1], rgb[2], t,
-                   _finish(surf_amb, surf_dif, surf_spe)))
+                   _finish(surf_amb, surf_dif, surf_spe, phong_size=150)))
 
     return "\n".join(L) + "\n"
 
