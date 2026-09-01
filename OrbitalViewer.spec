@@ -31,6 +31,7 @@ a = Analysis(
         # ovcanvas 渲染包（旧 cub_canvas/cub_viewer/color_wheel 已并入）
         'ovcanvas', 'ovcanvas._panel', 'ovcanvas._glwidget',
         'ovcanvas._molviewer_style', 'ovcanvas._colorwheel',
+        'ovcanvas._povray_render',
         # 各分析面板
         'esp_panel', 'esp_viewer', 'charge_viewer', 'charge_bond_panel',
         'nbo_viewer', 'nbo_parser', 'igmh_panel',
