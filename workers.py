@@ -174,3 +174,41 @@ class RenderWorker(QThread):
         except Exception as e:
             self.log_signal.emit(tr("log_render_err", e=e))
             self.finished_signal.emit("")
+
+
+class SpinDensityWorker(QThread):
+    """后台生成自旋密度 cube（Multiwfn，提示驱动）。"""
+    log_signal = pyqtSignal(str)
+    progress_signal = pyqtSignal(int)   # 0-100
+    finished_signal = pyqtSignal(str)   # cube 路径
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, fchk_path, multiwfn_exe, work_dir=None,
+                 grid_quality=3, parent=None):
+        super().__init__(parent)
+        self.fchk_path = fchk_path
+        self.multiwfn_exe = multiwfn_exe
+        self.work_dir = work_dir
+        self.grid_quality = grid_quality
+        self._running = True
+
+    def stop(self):
+        self._running = False
+
+    def run(self):
+        import fchk_orbital as backend
+
+        try:
+            cube = backend.gen_spin_cube(
+                self.fchk_path, multiwfn_exe=self.multiwfn_exe,
+                work_dir=self.work_dir, grid_quality=self.grid_quality,
+                log_func=lambda ln: self.log_signal.emit(ln) if self._running else None,
+                progress_cb=lambda pct, ln: self.progress_signal.emit(int(pct))
+                if self._running else None,
+                cancel_check=lambda: not self._running)
+            if cube and os.path.exists(cube):
+                self.finished_signal.emit(cube)
+            else:
+                self.error_signal.emit(tr("spin_density_failed"))
+        except Exception as e:
+            self.error_signal.emit(str(e))

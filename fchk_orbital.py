@@ -3108,6 +3108,196 @@ def gen_multi_cubes(fchk_path, orbitals, grid_quality=2,
     return results if results else None
 
 
+# ── Multiwfn: fchk -> Spin density cube（提示驱动，兼容不同版本） ──
+def gen_spin_cube(fchk_path, multiwfn_exe=None, work_dir=None, grid_quality=3,
+                  log_func=None, progress_cb=None, timeout=900,
+                  cancel_check=None):
+    """调用 Multiwfn 生成自旋密度 cube 文件。
+
+    流程（逐提示等待，适配不同版本 Multiwfn）：
+      ENTER(跳过启动页) → 载入 fchk → 主功能 5(格点数据) → 5(自旋密度)
+      → 格点质量(若询问) → 计算格点(等待 Post-processing menu)
+      → 2(导出cube) → 文件名 → Done! → 终止进程（避免主菜单 q 崩溃）
+
+    注意：Multiwfn 主菜单在管道模式下用 list-directed I/O 读数字，
+    'q' 会触发 forrtl severe (59) 崩溃；cube 在 "Done!" 后已完整写出，
+    故检测到完成后主动 kill，保证进程干净退出。
+
+    Args:
+        fchk_path: .fchk 文件路径
+        multiwfn_exe: Multiwfn 可执行文件路径
+        work_dir: 输出目录（None=与 fchk 同目录）
+        grid_quality: 格点质量 1/2/3（低/中/高，默认 3 高质量）
+        log_func: 可选，逐行输出回调 log_func(line)
+        progress_cb: 可选，进度回调 progress_cb(pct_0to100, line)
+        timeout: 总超时秒数
+
+    Returns:
+        str|None: 生成的 {stem}_spin_density.cub 路径，失败返回 None
+    """
+    import threading
+
+    if multiwfn_exe is None:
+        multiwfn_exe = DEFAULT_MULTIWFN
+    if work_dir is None:
+        work_dir = os.path.dirname(os.path.abspath(fchk_path))
+    os.makedirs(work_dir, exist_ok=True)
+
+    fchk_name = os.path.basename(fchk_path)
+    stem = os.path.splitext(fchk_name)[0]
+    cube_dst = os.path.join(work_dir, f"{stem}_spin_density.cub")
+    if os.path.exists(cube_dst):
+        return cube_dst  # 已存在直接复用
+
+    ascii_dir = os.path.join(work_dir, "_multiwfn_tmp_spin")
+    os.makedirs(ascii_dir, exist_ok=True)
+    ascii_fchk = os.path.join(ascii_dir, fchk_name)
+    if not os.path.exists(ascii_fchk):
+        shutil.copy2(fchk_path, ascii_fchk)
+
+    proc = None
+    reader_stop = False
+    buf = []
+    lock = threading.Lock()
+    cond = threading.Condition(lock)
+
+    def _read_loop():
+        try:
+            for line in proc.stdout:
+                if reader_stop:
+                    break
+                with cond:
+                    buf.append(line)
+                    cond.notify_all()
+        except Exception:
+            pass
+
+    def wait_for(pattern, timeout=120):
+        """等待 buffer 中出现 pattern（不区分大小写）。"""
+        start = time.time()
+        while time.time() - start < timeout:
+            if cancel_check is not None and cancel_check():
+                raise RuntimeError("已取消")
+            with cond:
+                if any(pattern.lower() in ln.lower() for ln in buf):
+                    return True
+            time.sleep(0.2)
+        return False
+
+    def wait_for_any(patterns, timeout=120):
+        """等待 buffer 中出现任一 pattern，返回命中的 pattern 或 None。"""
+        start = time.time()
+        while time.time() - start < timeout:
+            if cancel_check is not None and cancel_check():
+                raise RuntimeError("已取消")
+            with cond:
+                for pat in patterns:
+                    if any(pat.lower() in ln.lower() for ln in buf):
+                        return pat
+            time.sleep(0.2)
+        return None
+
+    def feed(s):
+        if proc is None or proc.poll() is not None:
+            raise RuntimeError("Multiwfn 进程已退出")
+        proc.stdin.write(s + "\n")
+        proc.stdin.flush()
+
+    def emit(line):
+        if log_func:
+            try:
+                log_func(line.rstrip())
+            except Exception:
+                pass
+        # 进度条：Multiwfn 输出形如 "Progress: [###...] 45.0 %"
+        if progress_cb:
+            m = re.search(r"Progress:\s*.*?(\d+(?:\.\d+)?)\s*%", line)
+            if m:
+                try:
+                    progress_cb(min(float(m.group(1)), 100.0), line.rstrip())
+                except Exception:
+                    pass
+
+    try:
+        proc = subprocess.Popen(
+            [multiwfn_exe], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, cwd=ascii_dir, text=True,
+            encoding="utf-8", errors="replace", bufsize=1)
+        threading.Thread(target=_read_loop, daemon=True).start()
+
+        # 1) 启动页：先按 ENTER 继续，再等文件输入提示
+        feed("")
+        if not wait_for("input file path", 30):
+            raise RuntimeError("Multiwfn 启动超时")
+
+        # 2) 载入 fchk
+        feed(fchk_name)
+        if not wait_for("main function menu", 60):
+            raise RuntimeError("fchk 载入失败")
+        emit(f"已载入 {fchk_name}")
+
+        # 3) 主功能 5：计算格点数据
+        feed("5")
+        if not wait_for("available real space functions", 30):
+            raise RuntimeError("未进入格点功能菜单")
+
+        # 4) 自旋密度
+        feed("5")
+        got = wait_for_any(["please select a method to set up grid",
+                            "post-processing menu"], 30)
+        if got == "please select a method to set up grid":
+            feed(str(grid_quality))
+            if not wait_for("post-processing menu", timeout):
+                raise RuntimeError("格点计算超时")
+        elif got is None:
+            raise RuntimeError("未出现格点设置/计算提示")
+
+        # 5) 导出 cube（2 + 文件名 连续发送，导出提示不回显）
+        feed("2")
+        feed("spindensity.cub")
+        if not wait_for("done!", 120):
+            raise RuntimeError("cube 导出超时")
+        emit("自旋密度 cube 导出完成")
+
+        # 6) 文件稳定性检查（3 次采样大小不变）
+        cube_src = os.path.join(ascii_dir, "spindensity.cub")
+        sizes = []
+        for _ in range(6):
+            sizes.append(os.path.getsize(cube_src) if os.path.exists(cube_src) else -1)
+            time.sleep(0.5)
+        if not sizes or sizes[0] <= 0 or len(set(sizes)) != 1:
+            raise RuntimeError("cube 文件不稳定或未生成")
+    except Exception as e:
+        if log_func:
+            try:
+                log_func(f"自旋密度生成失败: {e}")
+            except Exception:
+                pass
+        try:
+            shutil.rmtree(ascii_dir)
+        except OSError:
+            pass
+        return None
+    finally:
+        # cube 已完整写出：主动终止，避免主菜单 q 崩溃（forrtl 59）
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        try:
+            proc.wait(timeout=10)
+        except Exception:
+            pass
+
+    shutil.move(cube_src, cube_dst)
+    try:
+        shutil.rmtree(ascii_dir)
+    except OSError:
+        pass
+    return cube_dst
+
+
 # ── VMD Preview: Open GUI Window + Socket Server ────────
 def preview_cube(cube_path, isovalue=0.05, style_name="sob-art", vmd_exe=None,
                  shade_mode="full", keep_h_indices=None):

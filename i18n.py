@@ -124,6 +124,14 @@ TR = {
     "btn_preview_both": {"zh": "预览", "en": "Preview"},
     "tab_orbit_hint": {"zh": "双击行在画布中渲染", "en": "Double-click row to render in canvas"},
     "lbl_orbit_hint": {"zh": "双击行可视化", "en": "Double-click row to visualize"},
+    # ── 自旋密度 ──
+    "spin_density_btn": {"zh": "自旋密度", "en": "Spin Density"},
+    "spin_density_iso": {"zh": "等值面:", "en": "Isosurface:"},
+    "spin_density_iso_tip": {"zh": "自旋密度等值面阈值，建议 0.0005 ~ 0.005", "en": "Spin density isosurface, suggest 0.0005~0.005"},
+    "spin_density_gen": {"zh": "生成自旋密度（需开壳层 fchk）…", "en": "Generating spin density (open-shell fchk required)..."},
+    "spin_density_done": {"zh": "自旋密度已显示：{name}", "en": "Spin density shown: {name}"},
+    "spin_density_failed": {"zh": "自旋密度生成失败（请确认 fchk 为开壳层且 Multiwfn 路径正确）", "en": "Spin density generation failed (check open-shell fchk and Multiwfn path)"},
+    "spin_density_need_fchk": {"zh": "请先选择 .fchk 文件（开壳层）", "en": "Select an open-shell .fchk file first"},
     # ── Orbital browser dialog ──
     "dlg_orbital_browser": {"zh": "轨道浏览器", "en": "Orbital Browser"},
     "dlg_orbital_sys_info": {"zh": "体系: {n_a}α + {n_b}β 电子 | {n_basis} 基函数 | HOMO={homo} LUMO={lumo}", "en": "System: {n_a}α + {n_b}β e | {n_basis} basis | HOMO={homo} LUMO={lumo}"},

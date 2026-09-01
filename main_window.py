@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QSlider, QTabWidget, QDialog, QDialogButtonBox, QFormLayout,
     QTextBrowser, QTableWidget, QTableWidgetItem, QHeaderView,
     QToolButton, QListWidget, QStackedWidget, QAbstractItemView,
-    QInputDialog,
+    QInputDialog, QDoubleSpinBox,
 )
 from PyQt5 import QtCore
 from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
@@ -111,7 +111,7 @@ except Exception:
 import i18n
 from theme import LIGHT_QSS
 from fchk_parser import parse_fchk_mo_info
-from workers import CubeWorker, RenderWorker
+from workers import CubeWorker, RenderWorker, SpinDensityWorker
 from widgets import SciFiGroupBox
 from dialogs import OrbitalBrowserDialog
 
@@ -883,7 +883,107 @@ class OrbitalVisApp(QMainWindow):
         for c in range(7):
             layout.setColumnStretch(c, 0)
         layout.setColumnStretch(1, 1)
+
+        # ── 自旋密度行：生成自旋密度 cube → 画布显示 + VMD 同步 ──
+        spin_row = QHBoxLayout()
+        spin_row.setSpacing(6)
+        spin_row.setContentsMargins(0, 0, 0, 0)
+        self.btn_spin_density = QPushButton(self._tr("spin_density_btn"))
+        self.btn_spin_density.setToolTip(self._tr("spin_density_iso_tip"))
+        self.btn_spin_density.setCursor(Qt.PointingHandCursor)
+        self.btn_spin_density.clicked.connect(self._run_spin_density)
+        spin_row.addWidget(self.btn_spin_density)
+        self.lbl_spin_iso = QLabel(self._tr("spin_density_iso"))
+        spin_row.addWidget(self.lbl_spin_iso)
+        self.spin_iso = QDoubleSpinBox()
+        self.spin_iso.setRange(0.0001, 0.5)
+        self.spin_iso.setDecimals(4)
+        self.spin_iso.setValue(0.001)
+        self.spin_iso.setSingleStep(0.0005)
+        self.spin_iso.setMaximumWidth(96)
+        self.spin_iso.setToolTip(self._tr("spin_density_iso_tip"))
+        spin_row.addWidget(self.spin_iso)
+        spin_row.addStretch()
+        layout.addLayout(spin_row, 1, 0, 1, 7)
         return self.grp_orbital
+
+    # ── 自旋密度：Multiwfn 生成 cube → 画布显示 + VMD 场景登记 ──
+    def _run_spin_density(self):
+        try:
+            if getattr(self, "_spin_worker", None) is not None \
+                    and self._spin_worker.isRunning():
+                return
+            path = self.var_path.text().strip()
+            if not path:
+                QMessageBox.warning(self, self._tr("msg_title_hint"),
+                                    self._tr("spin_density_need_fchk"))
+                return
+            fchk = path if os.path.isfile(path) else None
+            if not fchk:
+                files = sorted(glob.glob(os.path.join(path, "*.fchk")))
+                fchk = files[0] if files else None
+            if not fchk or not os.path.isfile(fchk):
+                QMessageBox.warning(self, self._tr("msg_title_hint"),
+                                    self._tr("spin_density_need_fchk"))
+                return
+            exe_paths = self._get_paths()
+            if not os.path.exists(exe_paths["multiwfn"]):
+                QMessageBox.warning(self, self._tr("msg_title_error"),
+                                    self._tr("msg_mw_not_found",
+                                             path=exe_paths["multiwfn"]))
+                return
+            out = self._get_out_dir(fchk)
+            try:
+                os.makedirs(out, exist_ok=True)
+            except OSError:
+                out = os.path.dirname(os.path.abspath(fchk))
+            self._spin_iso = self.spin_iso.value()
+            self.btn_spin_density.setEnabled(False)
+            self._append_log(self._tr("spin_density_gen"))
+            self._spin_worker = SpinDensityWorker(
+                fchk, exe_paths["multiwfn"], work_dir=out, grid_quality=3)
+            self._spin_worker.log_signal.connect(self._append_log)
+            self._spin_worker.progress_signal.connect(
+                lambda v: self._set_progress(f"自旋密度 {int(v)}%"))
+            self._spin_worker.finished_signal.connect(self._on_spin_done)
+            self._spin_worker.error_signal.connect(self._on_spin_error)
+            self._spin_worker.start()
+        except Exception as e:
+            self.btn_spin_density.setEnabled(True)
+            try:
+                self._append_log(f"自旋密度失败: {e}")
+            except Exception:
+                pass
+
+    def _on_spin_done(self, cube):
+        self.btn_spin_density.setEnabled(True)
+        try:
+            if not self._canvas_ready():
+                QMessageBox.warning(self, self._tr("msg_title_hint"),
+                                    self._tr("msg_gl_unavailable"))
+                return
+            glw = self.cub_canvas.glw
+            iso = getattr(self, "_spin_iso", 0.001)
+            glw._esp_point_mode = False   # 确保按表面（非点云）显示
+            ok = glw.load(cube, isovalue=iso)
+            if ok:
+                # 登记 VMD 场景：type=orbital → +iso/-iso 双等值面，
+                # 颜色用当前样式默认（sob-art 正绿/负蓝）
+                glw.set_vmd_scene([{"type": "orbital", "vol": cube,
+                                    "iso": iso}])
+                self._append_log(self._tr(
+                    "spin_density_done", name=os.path.basename(cube)))
+            else:
+                self._append_log(self._tr("spin_density_failed"))
+        except Exception as e:
+            self._append_log(f"自旋密度显示失败: {e}")
+
+    def _on_spin_error(self, msg):
+        self.btn_spin_density.setEnabled(True)
+        try:
+            self._append_log(str(msg))
+        except Exception:
+            pass
 
     def _build_render_params_panel(self):
         self.grp_render = SciFiGroupBox("")
@@ -1533,6 +1633,13 @@ class OrbitalVisApp(QMainWindow):
                 self.aim_panel.shutdown()
             except Exception:
                 pass
+        # 5) 停掉自旋密度后台线程（cancel_check 使 Multiwfn 快速退出）
+        if getattr(self, "_spin_worker", None) is not None:
+            try:
+                self._spin_worker.stop()
+                self._spin_worker.wait(3000)
+            except Exception:
+                pass
         event.accept()
 
     def _apply_theme(self):
@@ -1703,6 +1810,14 @@ class OrbitalVisApp(QMainWindow):
         self.btn_rules.setToolTip(self._tr("orbital_rules_btn"))
         self.btn_rules.setText(self._tr("orbital_rules_btn"))
         self.orbital_tabs.setTabText(self.orbital_tabs.indexOf(self.tab_hint), self._tr("tab_orbit_hint"))
+
+        # 自旋密度行
+        if hasattr(self, "btn_spin_density"):
+            self.btn_spin_density.setText(self._tr("spin_density_btn"))
+            self.btn_spin_density.setToolTip(self._tr("spin_density_iso_tip"))
+        if hasattr(self, "lbl_spin_iso"):
+            self.lbl_spin_iso.setText(self._tr("spin_density_iso"))
+            self.spin_iso.setToolTip(self._tr("spin_density_iso_tip"))
 
         # VMD 控制台标题
         if hasattr(self, "_vmd_content"):
