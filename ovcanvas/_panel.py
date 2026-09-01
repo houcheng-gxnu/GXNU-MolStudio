@@ -340,7 +340,8 @@ class ElementColorDialog(QDialog):
         self.setWindowTitle(_cv("元素原子颜色"))
         self.setMinimumWidth(420)
 
-        # 收集元素：当前分子中存在的 + 常用元素
+        # 收集元素：只显示当前分子实际存在的元素（按原子序数排序）；
+        # 未检测到分子时兜底常用元素，避免空对话框
         present = set()
         atoms = getattr(glw, "_molecule", None)
         if not atoms and getattr(glw, "_cube", None) is not None:
@@ -350,9 +351,10 @@ class ElementColorDialog(QDialog):
                 present = {int(a[0]) for a in atoms}
             except (TypeError, ValueError, IndexError):
                 present = set()
-        common = [6, 1, 7, 8, 9, 15, 16, 17, 35, 53, 5, 14, 3, 11, 12, 13,
-                  19, 20, 22, 26, 29, 30, 47, 79]
-        self._elems = list(dict.fromkeys(common + sorted(present)))
+        if present:
+            self._elems = sorted(present)
+        else:
+            self._elems = [1, 6, 7, 8, 9, 15, 16, 17, 35, 53]
 
         # 当前颜色：已有元素覆盖优先，否则默认 CPK 表（_IBO_ELEMENT_COLORS）
         try:
