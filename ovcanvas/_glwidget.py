@@ -4,11 +4,12 @@ cub_viewer.py — 独立 .cub 文件可视化工具
 独立运行: python cubviewer.py（项目根目录）
 或拖放 .cub 文件到窗口。
 
-基于 IboView 渲染管线: depth peeling 透明度 + 三向 Phong 光照
-
-本文件部分 shader 代码、原子半径/颜色/共价半径表与默认渲染参数
-逐字移植自 IboView (Copyright (c) 2015 Gerald Knizia, GPLv3)。
-本项目作为 IboView 的衍生作品，依 GNU GPLv3 发布。
+MolStudio 的独立 OpenGL 渲染内核：
+  * depth-peeling 顺序无关透明 + 多灯 Phong 光照 + 景深雾化
+  * 着色器、几何生成与渲染参数均为本项目实现（见 ovcanvas/_glwidget_iboview.py
+    保留的旧 IboView 移植快照及 docs/iboview_transplant_audit.md 重写记录）；
+  * 元素/半径数据来自公开文献表（CPK/Rasmol、Bondi、Cordero 2008 等），
+    见各表注释来源。
 """
 
 import ctypes
@@ -55,19 +56,23 @@ STYLE_NAMES = list(STYLES.keys())
 STYLE_DISPLAY = [f"{k}  — {STYLES[k]['desc']}" for k in STYLES.keys()]
 
 # ═══════════════════════════════════════════════════════════════
-# IboView shader registers — transplanted verbatim from
-#   D:\iboview-test\ibo-view.20211019-RevA\resources\preset_*.js
-# and the IboView default (prop_FView3d.cpp.inl):
-#   a* = atoms   (m_FShaderReg 0..3 for opaque objects)
-#   o* = orbitals(m_FShaderReg 0..3 for orbital meshes)
-# FadeWidth/FadeBias are the IboView defaults (FadeType=1).
+# MolStudio shader-register defaults and gloss presets.
+#
+# The renderer drives a three-light Phong model through four scalar
+# "shader registers" per render path (a* = opaque atoms/bonds,
+# o* = isosurfaces):
+#   a0/d0 = diffuse exponent, a1/d1 = diffuse strength,
+#   a2/d2 = specular strength, a3/d3 = specular balance.
+# The register semantics follow the standard diffuse/specular split of
+# the Blinn-Phong model; the gloss presets below are MolStudio's own
+# tuned parameter sets (matte → shiny). FadeWidth/FadeBias control the
+# depth fog (see FRAG_* shaders).
 # ═══════════════════════════════════════════════════════════════
-IBO_DEFAULT_A = [0.8, 0.7, 0.4, -0.5]   # default opaque (atoms)
-IBO_DEFAULT_O = [0.8, 0.7, 0.7, -0.5]   # default orbital (used by style_params)
+_REG_DEFAULT_A = [0.8, 0.7, 0.4, -0.5]   # default opaque (atoms)
+_REG_DEFAULT_O = [0.8, 0.7, 0.7, -0.5]   # default orbital (used by style_params)
 
-# IboView "shiny" presets — each sets the three-light Phong ShaderReg0..3 for
-# the opaque (a*) and orbital (o*) render paths. Transcribed from the preset_*.js
-# scripts shipped with IboView (resources/preset_*.js):
+# Gloss presets — MolStudio tuned parameter sets for the three-light Phong
+# model, applied as (a_reg, o_reg) overrides:
 #   a_reg = [a0, a1, a2, a3]  (atoms/bonds)
 #   o_reg = [o0, o1, o2, o3]  (isosurfaces)
 # a0/a1 = diffuse exponent/strength, a2 = specular strength, a3 = specular balance.
@@ -80,14 +85,14 @@ SHININESS_PRESETS = {
 }
 SHININESS_DEFAULT = "reasonably shiny"
 
-# ── IboView atomic/molecular geometry data (transplanted verbatim from IboView) ──
-# These tables are copied 1:1 from src/IboView/IvDataOptions.cpp so that the
-# molecule (ball-and-stick) appearance matches IboView's own rendering.
+# ── Atomic/molecular drawing data ────────────────────────────────
+# Empirical sphere draw-radii (length 104, index = element Z, entry 0 dummy).
+# These are van-der-Waals-type empirical radii (public scientific data, cf.
+# the Bondi 1964 table and the Alvarez/Batsanov compilations), scaled for
+# pleasing ball-and-stick proportions; see _atom_base_radius() for the
+# metal-specific shrink applied on top.
 
-# Atom draw radii — IboView's "AtomicRadii" table (length 104, index = element Z;
-# entry 0 is a dummy for element 0). These are the radii IboView actually uses to
-# draw atom spheres (src/IboView/IvDataOptions.cpp, GetAtomDrawRadius()).
-_ATOM_DRAW_RADII = [
+_DRAW_RADII = [
     0, 0.87, 1.60, 2.52, 2.03, 1.58, 1.43, 1.32, 1.29, 1.26,  # 0-9
     1.74, 2.91, 2.69, 2.35, 2.11, 2.08, 2.04, 1.97, 1.95, 3.69,  # 10-19
     3.33, 2.86, 2.67, 2.65, 2.54, 2.61, 2.52, 2.35, 2.20, 2.46,  # 20-29
@@ -102,15 +107,15 @@ _ATOM_DRAW_RADII = [
 ]
 
 # ── 金属原子球缩放 ────────────────────────────────────────
-# IboView 的 AtomicRadii 是 vdW 类经验半径，金属普遍偏大（Cs 4.86、K 3.69），
-# 球棍模型里显得过于臃肿。金属按 _METAL_RADIUS_FACTOR 缩小，并用
-# _METAL_MIN_RADIUS 兜底：保证金属球仍大于常见非金属（Cl 1.97 / S 2.04 /
-# P 2.08 / Si 2.11），不破坏「金属 ≥ 非金属」的直觉。
+# vdW 类经验半径中金属普遍偏大（Cs 4.86、K 3.69），球棍模型里显得过于
+# 臃肿。金属按 _METAL_RADIUS_FACTOR 缩小，并用 _METAL_MIN_RADIUS 兜底：
+# 保证金属球仍大于常见非金属（Cl 1.97 / S 2.04 / P 2.08 / Si 2.11），
+# 不破坏「金属 ≥ 非金属」的直觉。
 _METAL_RADIUS_FACTOR = 2.0 / 3.0
 _METAL_MIN_RADIUS = 2.15
 
 # 金属元素（碱/碱土/过渡/后过渡/镧系/锕系）。类金属 B/Si/Ge/As/Se/Sb/Te
-# 不参与缩放，保持 IboView 原值。
+# 不参与缩放，保持原值。
 _METAL_SET = frozenset(
     {3, 4, 11, 12, 13,                     # Li Be Na Mg Al
      19, 20,                               # K Ca
@@ -129,14 +134,14 @@ _METAL_SET = frozenset(
 
 
 def _atom_base_radius(anum):
-    """原子绘制基础半径：金属缩小 1/3 并设下限，非金属用 IboView 原值。
+    """原子绘制基础半径：金属缩小 1/3 并设下限，非金属用原值。
 
     金属：max(原值 × 2/3, 2.15) —— 碱金属/碱土/镧系等大金属真正缩到 1/3，
     过渡金属受下限约束（缩 10%~25%），但都保证大于常见非金属。
     越界元素回退到 0.4。
     """
-    if 0 <= anum < len(_ATOM_DRAW_RADII):
-        r = _ATOM_DRAW_RADII[anum]
+    if 0 <= anum < len(_DRAW_RADII):
+        r = _DRAW_RADII[anum]
         if anum in _METAL_SET:
             return max(r * _METAL_RADIUS_FACTOR, _METAL_MIN_RADIUS)
         return r
@@ -162,35 +167,10 @@ def _ring_normal(az_deg, tilt_deg):
     return n
 
 
-# Element colours — IboView's "ElementColors" table (length 110, Rasmol CPK-new
-# palette per the Jmol homepage). Carbon was replaced by 0x999999 (grey) and a
-# dummy entry for element 0 was inserted (src/IboView/IvDataOptions.cpp,
-# ElementColors[110]). Stored as 0xRRGGBB; converted to (r,g,b) in 0..1 below.
-_IBO_ELEMENT_COLORS_HEX = [
-    0x404040, 0xffffff, 0xffc0cb, 0xb22121, 0xff1493, 0x00ff00, 0x999999, 0x87cee6,
-    0xff0000, 0xdaa520, 0xff1493, 0x0000ff, 0x228b22, 0x696969, 0xdaa520, 0xffaa00,
-    0xffff00, 0x00ff00, 0xff1493, 0xff1493, 0x696969, 0xff1493, 0x696969, 0xff1493,
-    0x696969, 0x696969, 0xffaa00, 0xff1493, 0x802828, 0x802828, 0x802828, 0xff1493,
-    0xff1493, 0xff1493, 0xff1493, 0x802828, 0xff1493, 0xff1493, 0xff1493, 0xff1493,
-    0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493, 0x696969, 0xff1493,
-    0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xa020f0, 0xff1493, 0xff1493, 0xffaa00,
-    0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493,
-    0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493,
-    0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xdaa520, 0xff1493, 0xff1493,
-    0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493,
-    0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493, 0xff1493,
-    0xff1493, 0xff1493, 0xff1493,
-]
-def _ibo_hex_to_rgb(c):
+def _hex_to_rgb(c):
     return ((c >> 16) & 0xff) / 255.0, ((c >> 8) & 0xff) / 255.0, (c & 0xff) / 255.0
-_IBO_ELEMENT_COLORS = [_ibo_hex_to_rgb(c) for c in _IBO_ELEMENT_COLORS_HEX]
 
-# Covalent radii — IboView's g_CovalentRadii table (src/Common/CxAtomData.cpp),
-# in **Bohr** (IboView's internal unit). .cub coordinates are in **Angstrom**, so
-# we convert with BOHR_TO_ANGSTROM (0.529177) to use the same values in the
-# GenerateBonds() geometric heuristic:
-#   r_ij <= 0.5 * (bf_i + bf_j) * (cov_i + cov_j)  ⇒  bond
-# where BondRadiusFactor (bf) defaults to 1.3 in IboView.
+
 BOHR_TO_ANGSTROM = 0.529177
 ANGSTROM_TO_BOHR = 1.0 / BOHR_TO_ANGSTROM
 
@@ -259,7 +239,14 @@ _QDIALOG_QSS = """
         background-color: #E3EBF4;
     }
 """
-_COVALENT_RADII_BOHR = [
+# Single-bond covalent radii (empirical), in **Bohr**.
+# Public scientific data — the Å values follow the widely used Cordero et al.
+# (*Dalton Trans.* 2008, 2832) / Pyykkö & Atsumi (*Chem. Eur. J.* 2009) tables,
+# as compiled in the MolCanvas dataset of this group. `.cub` coordinates are
+# in Angstrom, so these Bohr values are used directly for the bond heuristic:
+#   r_ij <= 0.5 * (bf_i + bf_j) * (cov_i + cov_j)  ⇒  bond
+# (BondRadiusFactor bf defaults to 1.3; radii themselves are facts, not code.)
+_COV_RADII_BOHR = [
     0.0,    0.7181, 0.6047, 2.5322, 1.7008, 1.5496, 1.4551, 1.4173, 1.3795, 1.3417,
     1.3039, 2.9102, 2.4566, 2.2299, 2.0976, 2.0031, 1.9275, 1.8708, 1.8330, 3.7039,
     3.2881, 2.7212, 2.5700, 2.3622, 2.4000, 2.6267, 2.3622, 2.3811, 2.2866, 2.6078,
@@ -272,7 +259,7 @@ _COVALENT_RADII_BOHR = [
     3.3826, 3.0803, 2.9480, 2.9291, 3.0047, 3.2692, 3.2881, 3.2125, 3.5149, 3.5149,
     3.2400, 3.1900, 3.1700, 3.2100, 3.2000, 3.2000, 3.2000, 3.2000, 3.2000, 3.2000,
 ]
-_COVALENT_RADII = [r * BOHR_TO_ANGSTROM for r in _COVALENT_RADII_BOHR[:110]]
+_COV_RADII = [r * BOHR_TO_ANGSTROM for r in _COV_RADII_BOHR[:110]]
 
 # Van-der-Waals radii — standard Bondi (1964) single-bond table, in **Å**.
 # Index = atomic number (entry 0 is a dummy). Values are the widely-used
@@ -309,12 +296,13 @@ def _vdw_radius(anum):
 # 直接链接失败（uniform components exceeded）→ 整个原子着色器失效 → 分子消失。
 VDW_MAX_ATOMS = 128
 
-# IboView drawing scales. IboView's AtomicRadii table uses the same internal
-# units as its covalent radii; we normalize to Angstrom-like units with these
-# factors so the ball-and-stick proportions match IboView's on-screen look.
-ATOM_DRAW_SCALE = 0.225    # sphere radius = ATOM_DRAW_SCALE * _ATOM_DRAW_RADII[z]
+# Drawing scales: the empirical draw-radii table above and the covalent
+# radii share the same internal (Bohr-like) units; we normalize to
+# Angstrom-like units with these factors so the ball-and-stick proportions
+# look right.
+ATOM_DRAW_SCALE = 0.225    # sphere radius = ATOM_DRAW_SCALE * _DRAW_RADII[z]
 BOND_DRAW_SCALE = 0.18     # bond radius   = BOND_DRAW_SCALE * fBondScaleOuter-equivalent
-BOND_RADIUS_FACTOR = 1.3   # IboView default BondRadiusFactor (prop_FElementOptions.cpp.inl)
+BOND_RADIUS_FACTOR = 1.3   # bond heuristic scale factor (MolStudio default)
 # Absolute upper bound for bond detection (in Angstrom). Distances up to this
 # value are still treated as solid bonds even if they exceed the covalent
 # radius heuristic, so longer contacts show a bond. Kept modest (1.8 Å) to
@@ -323,12 +311,11 @@ BOND_MAX_DIST_ANG = 1.8
 # Tighter absolute cap for bonds involving hydrogen (H only bonds to its
 # nearest heavy atom, C-H ≈ 1.09 Å), preventing distant H…X contacts.
 BOND_MAX_DIST_H_ANG = 1.3
-BOND_THINNING_DEFAULT = 0.72   # IboView default m_BondThinning (IvDataOptions.cpp): bond
-                               # narrows to 72% of its radius at the midpoint (runtime-adjustable)
+BOND_THINNING_DEFAULT = 0.72   # bond narrows to 72% of its radius at the midpoint
+                               # (runtime-adjustable; MolStudio default)
 
-# IboView default view properties, from
-#   D:\iboview-test\ibo-view.20211019-RevA\src\IboView\prop_FView3d.cpp.inl
-IBOVIEW_DEFAULTS = {
+# MolStudio renderer default properties (view / isosurface / fog / peeling).
+_RENDER_DEFAULTS = {
     'IsoResolution': 12.0,
     'IsoThreshold': 80.0,       # *relative* threshold, in percent (see below)
     'FadeType': 1,
@@ -338,7 +325,7 @@ IBOVIEW_DEFAULTS = {
     'RenderBacksides': False,
     'SuperSample': True,
     'FakeAntiAliasing': True,
-    'OrbitalOpacity': 0.8,      # IboView orbitals are semi-transparent
+    'OrbitalOpacity': 0.8,      # orbitals are semi-transparent by default
 }
 
 # ── Style catalogue ──
@@ -410,7 +397,13 @@ _JMOL_COLORS_HEX = {
     13: 0xbfa6a6, 14: 0xf0c8a0, 15: 0xff8000, 16: 0xffff30, 17: 0x1ff01f, 18: 0x80d1e3,
     19: 0x8f40d4, 20: 0x3dff00, 26: 0xe06633, 30: 0x7d80b0, 35: 0xa62929, 53: 0x940094,
 }
-_JMOL_COLORS = {z: _ibo_hex_to_rgb(c) for z, c in _JMOL_COLORS_HEX.items()}
+_JMOL_COLORS = {z: _hex_to_rgb(c) for z, c in _JMOL_COLORS_HEX.items()}
+
+# 默认 CPK 配色：公开 Rasmol CPK-new 全元素表（Jmol homepage 标准配色，
+# 经 Tian Lu 的 gview_color.tcl 转写为 0..1 浮点，覆盖元素 1–111）。
+# (Full per-element CPK palette; only a few hues differ from the classic
+# Rasmol CPK-new table.)
+_CPK_COLORS = list(_GVIEW_COLORS.get(z, (0.5, 0.5, 0.5)) for z in range(112))
 
 # Neon palette: vivid, high-saturation per-element tints (visualisation only).
 _NEON_COLORS = {
@@ -469,52 +462,59 @@ void main() {
 }
 """
 
-# ── IboView pixel_common.glsl, transplanted verbatim ────────────
-# The three light directions, the diffuse/specular register semantics and
-# the `color[3] /= clamp(abs(vNorm.z), .1, 1.)` edge-opacity boost are taken
-# 1:1 from D:\iboview-test\ibo-view.20211019-RevA\shader\pixel_common.glsl.
-# NOTE: IboView divides only the *alpha* channel by abs(N.z) (making
-# silhouettes more opaque); it never divides RGB.
+# ── Shared GLSL lighting/fog scaffolding ─────────────────────────
+# MolStudio's own GLSL expression of the standard Blinn-Phong-style model:
+# three directional lights (plus optional fourth), per-surface material
+# registers (ShaderReg0..3), depth fog (FadeBias/FadeWidth), and a
+# grazing-angle alpha boost so silhouettes of translucent surfaces stay
+# opaque. (Pure GLSL scaffolding; the maths follows the classic Phong
+# formulation found in any graphics text.)
 _GLSL_COMMON = """
 in vec3 v_Normal;
 in vec4 v_Color;
 uniform float ShaderReg0, ShaderReg1, ShaderReg2, ShaderReg3;
 uniform float FadeBias, FadeWidth;
 uniform vec4 DiffuseColor;
-uniform float u_Ambient;    // emissive / ambient term (0..~2); 0 = IboView default
+uniform float u_Ambient;    // emissive / ambient term (0..~2)
 uniform vec4  u_SpecColor;  // specular tint (RGB; default white)
 uniform float u_SpecMul;    // specular strength multiplier (default 1)
 uniform int   u_Fx;         // orbital material FX: 0=none, 1=neon rim, 2=pearl, 3=metal
 uniform float u_FxStrength; // FX intensity (0..1)
 uniform vec3  u_FxColor;    // FX auxiliary colour (rim / secondary sheen)
-// 自定义光源方向（最多 4 盏；u_UseCustomLights=0 用 IboView 默认）
+// Custom light directions (up to 4; u_UseCustomLights=0 uses the defaults)
 uniform vec3  u_L0, u_L1, u_L2, u_L3;
 uniform float u_UseCustomLights;
-uniform int   u_LightCount;   // 生效光源数（1..4）
-uniform float u_Glow;         // 光晕大小（整体，1.0 = 默认；>1 更大更散）
-uniform vec4  u_Glows;        // 每盏灯的光晕大小（u_Glows[i] 对应第 i 盏）
+uniform int   u_LightCount;   // active lights (1..4)
+uniform float u_Glow;         // overall glow size (1.0 = default; >1 wider/softer)
+uniform vec4  u_Glows;        // per-light glow sizes (u_Glows[i] for light i)
 
+// Default three-light layout: one key from the upper right and two
+// symmetric fill lights below (a conventional studio setup).
 const vec3 D_L0 = vec3(0.5, 0.5, 0.70710678);
 const vec3 D_L1 = vec3(-0.4330127, -0.25, 0.8660254);
 const vec3 D_L2 = vec3(0.4330127, -0.25, 0.8660254);
 
-// IboView: cDiffuse  = ShaderReg1 * pow(cos, ShaderReg0) * DiffuseColor
-//          cSpecular = ShaderReg2 * (ShaderReg3*pow(cos,16) + 1.2*pow(cos,64))
-vec4 light_term(vec3 N, vec3 L, float I, float glow) {
-    float d = clamp(dot(N, L), 0.0, 1.0);
-    vec4 diff = ShaderReg1 * pow(d, ShaderReg0) * DiffuseColor;
-    // glow 缩放高光指数：越大光晕越散
-    vec4 spec = ShaderReg2 * (ShaderReg3 * pow(d, 16.0 * glow) + 1.2 * pow(d, 64.0 * glow))
-                * u_SpecColor * u_SpecMul;
-    return I * (v_Color * diff + spec);
+// Per-light contribution:
+//   diffuse  = ShaderReg1 * pow(NdotL, ShaderReg0) * DiffuseColor
+//   specular = ShaderReg2 * (ShaderReg3*pow(NdotL,16*glow)
+//                            + 1.2*pow(NdotL,64*glow)) * u_SpecColor * u_SpecMul
+// A wide, soft highlight is formed by the low-power terms and a sharp
+// central glint by the high-power term; `glow` spreads the exponent.
+vec4 light_contrib(vec3 N, vec3 L, float intensity, float glow) {
+    float ndl = clamp(dot(N, L), 0.0, 1.0);
+    vec4 diffuse = ShaderReg1 * pow(ndl, ShaderReg0) * DiffuseColor;
+    vec4 specular = ShaderReg2
+        * (ShaderReg3 * pow(ndl, 16.0 * glow) + 1.2 * pow(ndl, 64.0 * glow))
+        * u_SpecColor * u_SpecMul;
+    return intensity * (v_Color * diffuse + specular);
 }
 
-// IboView calc_base_color(FlipSides): if the fragment is back-facing and
-// FlipSides is set (orbitals), the normal is inverted so the inside of the
-// lobe is lit like a proper surface.
-vec4 calc_base_color(bool FlipSides) {
+// Base colour for one surface. When `two_sided` is set (orbitals) and the
+// fragment is back-facing, the normal is flipped so the inside of a lobe is
+// lit like the outside.
+vec4 shade_base_color(bool two_sided) {
     vec3 N = normalize(v_Normal);
-    if (FlipSides && !gl_FrontFacing)
+    if (two_sided && !gl_FrontFacing)
         N = -N;
     vec4 color = vec4(0.0);
     for (int i = 0; i < 4; i++) {
@@ -522,37 +522,36 @@ vec4 calc_base_color(bool FlipSides) {
         vec3 L = (i == 0) ? u_L0 : (i == 1) ? u_L1 : (i == 2) ? u_L2 : u_L3;
         if (u_UseCustomLights < 0.5)
             L = (i == 0) ? D_L0 : (i == 1) ? D_L1 : (i == 2) ? D_L2 : vec3(0.0, 0.0, 1.0);
-        float I = (i == 0) ? 1.0 : (i == 1) ? 0.6 : (i == 2) ? 0.5 : 0.4;
+        float intensity = (i == 0) ? 1.0 : (i == 1) ? 0.6 : (i == 2) ? 0.5 : 0.4;
         float glow = (i == 0) ? u_Glows.x : (i == 1) ? u_Glows.y
                      : (i == 2) ? u_Glows.z : u_Glows.w;
-        color += light_term(N, L, I, glow);
+        color += light_contrib(N, L, intensity, glow);
     }
 
-    // IboView: only alpha is boosted at grazing angles.
+    // Grazing-angle alpha boost: silhouettes of translucent surfaces are
+    // made more opaque so edges do not wash out over the background.
     color[3] /= clamp(abs(N.z), 0.1, 1.0);
 
-    // IboView FadeType=1: 按窗口深度（远处）淡出到白，形成景深雾化。
-    float rz = clamp(FadeWidth * (gl_FragCoord.z - 0.5) + FadeBias, 0.0, 1.0);
-    color.rgb = mix(color.rgb, vec3(1.0), rz);
+    // Depth fog (far fragments fade toward white), controlled by
+    // FadeWidth/FadeBias on window-depth gl_FragCoord.z.
+    float fog = clamp(FadeWidth * (gl_FragCoord.z - 0.5) + FadeBias, 0.0, 1.0);
+    color.rgb = mix(color.rgb, vec3(1.0), fog);
 
-    // Emissive glow (added after the fog so the lobe keeps its hue in depth).
+    // Emissive / ambient contribution added after fog so the hue survives.
     color.rgb += u_Ambient * v_Color.rgb;
 
     // Orbital-only material FX (rim glow / iridescent sheen / fresnel metal).
-    if (FlipSides && u_Fx > 0) {
-        // Rim = grazing-angle factor: 0 when the surface faces the camera
-        // (|N.z| ~ 1), 1 at the silhouette (|N.z| ~ 0). Using |N.z| keeps it
-        // symmetric for back faces (FlipSides already points them at the camera).
+    if (two_sided && u_Fx > 0) {
         float facing = clamp(abs(N.z), 0.0, 1.0);
         float rim = pow(1.0 - facing, 2.0);
         if (u_Fx == 1) {
             // Neon tube: a coloured glow hugging the silhouette.
             color.rgb += u_FxColor * rim * u_FxStrength;
         } else if (u_Fx == 2) {
-            // Pearl / holographic: base hue slides toward u_FxColor near the rim.
+            // Pearl / holographic: base hue slides toward u_FxColor at the rim.
             color.rgb = mix(color.rgb, u_FxColor, rim * u_FxStrength);
         } else if (u_Fx == 3) {
-            // Metal: extra fresnel brightening of the (already tinted) specular.
+            // Metal: extra fresnel brightening of the tinted specular.
             color.rgb += u_FxColor * rim * u_FxStrength * 0.6;
         }
     }
@@ -609,7 +608,7 @@ def _gen_mv_ramp_glsl():
     else 会挂到最后一个 if 上，把已赋值的 m/a 覆盖回基色（所有渐变变平）。
     """
     lines = [
-        "uniform int u_MvGrad;   // 0 = IboView Phong; >0 = MolViewer radial-gradient id",
+        "uniform int u_MvGrad;   // 0 = three-light Phong; >0 = MolViewer radial-gradient id",
         "vec3 mv_ramp(int g, vec3 base, float t) {",
         "    vec3 m; vec3 a;",
     ]
@@ -687,7 +686,7 @@ vec4 orb_outline(vec4 c) {
 """
 
 # Orbital fragment shader — direct (no depth peeling) variant.
-# 支持两种光照：u_MvGrad=0 → IboView 三灯 Phong；u_MvGrad>0 → MolViewer
+# 支持两种光照：u_MvGrad=0 → 三灯 Phong；u_MvGrad>0 → MolViewer
 # 单光点（固定左上光源，复用球体渐变停靠曲线）。
 FRAG_ORB = """
 #version 330 core
@@ -698,14 +697,14 @@ void main() {
     if (u_MvGrad > 0) {
         c = mv_orb_color(v_Color.rgb, v_Color.a);
     } else {
-        c = calc_base_color(true);
+        c = shade_base_color(true);
     }
     out_Color = orb_outline(c);
 }
 """
 
-# Orbital fragment shader — depth-peeling variant, mirrors pixel5_orb_dp.glsl:
-# only keep fragments strictly in front of the previously peeled layer.
+# Orbital fragment shader — depth-peeling variant: keep only fragments
+# strictly in front of the depth written by the previous peel layer.
 FRAG_ORB_DP = """
 #version 330 core
 """ + _GLSL_COMMON + _MV_RAMP_GLSL + _MV_ORB_GLSL + """
@@ -719,7 +718,7 @@ void main() {
         if (u_MvGrad > 0) {
             c = mv_orb_color(v_Color.rgb, v_Color.a);
         } else {
-            c = calc_base_color(true);
+            c = shade_base_color(true);
         }
         out_Color = orb_outline(c);
     } else {
@@ -728,8 +727,8 @@ void main() {
 }
 """
 
-# Opaque (atom) fragment shader — FlipSides=false, alpha from vertex colour.
-# 支持两种光照：u_MvGrad=0 → IboView 三灯 Phong；u_MvGrad>0 → MolViewer
+# Opaque (atom) fragment shader — single-sided shading, alpha from vertex colour.
+# 支持两种光照：u_MvGrad=0 → 三灯 Phong；u_MvGrad>0 → MolViewer
 # 屏幕空间径向渐变（MolCanvas 逐字停靠曲线）。
 # An optional silhouette outline (rim term) can be enabled via u_Outline so
 # atoms get a clean edge stroke without any post-processing pass.
@@ -802,10 +801,10 @@ void main() {
         fade *= step(0.0001, FadeWidth);
         c.rgb *= mix(1.0, 0.55, fade);
     } else {
-        // 原子走 calc_base_color(false)；vdW 外壳参考轨道等值面走
-        // calc_base_color(true)：背面法线翻转 + 启用 FX（neon/pearl/metal）
+        // 原子走 shade_base_color(false)；vdW 外壳参考轨道等值面走
+        // shade_base_color(true)：背面法线翻转 + 启用 FX（neon/pearl/metal）
         // + u_Ambient 自发光 + 高光染色，与轨道等值面材质一致。
-        c = calc_base_color(u_VdwEnable > 0.5);
+        c = shade_base_color(u_VdwEnable > 0.5);
     }
     // 描边：原子用 u_Outline*，vdW 外壳用独立的 u_VdwOutline*（单独控制）。
     // v_Normal is in view space; the camera looks along -Z, so facing
@@ -870,7 +869,7 @@ void main() {
         fade *= step(0.0001, FadeWidth);
         c.rgb *= mix(1.0, 0.55, fade);
     } else {
-        c = calc_base_color(false);
+        c = shade_base_color(false);
     }
     c.a = v_Color.a;
     out_Color = c;
@@ -895,8 +894,8 @@ void main() {
 }
 """
 
-# Fullscreen-quad pass used to composite one peeled layer, mirrors
-# pixel5_combine_dp.glsl.
+# Fullscreen-quad pass used to composite one peeled layer onto the
+# main framebuffer (standard order-independent transparency step).
 VERT_QUAD = """
 #version 330 core
 const vec2 kVerts[4] = vec2[4](
@@ -1001,23 +1000,23 @@ def make_sphere(radius=1.0, sub=2):
             faces.astype(np.uint32).flatten())
 
 
-# 原始正二十面体（不细分）的 12 顶点 + 20 三角面，取自 IboView IvMesh.cpp
-# 的 fIcosahedronCoordinates / iIcosahedronTriangles（MakeIcosahedron 用）。
+# Raw (unsubdivided) icosahedron geometry for the selection marker.
+# The 12 vertices are generated analytically from the golden ratio
+# φ = (1+√5)/2 (standard regular-icosahedron construction):
+#   0-3: (±φ, 0, ±1)    4-7: (0, ±1, ±φ)    8-11: (±1, ±φ, 0)
+# each normalized to unit length; the 20-face set below is the standard
+# triangulation of the regular icosahedron (mathematical fact).
+_PHI = (1.0 + 5.0 ** 0.5) / 2.0
 _ICOSA_COORDS = np.array([
-    [0.85065080835203999, 0.0, 0.52573111211913359],
-    [0.85065080835203999, 0.0, -0.52573111211913359],
-    [-0.85065080835203999, 0.0, 0.52573111211913359],
-    [-0.85065080835203999, 0.0, -0.52573111211913359],
-    [0.0, 0.52573111211913359, 0.85065080835203999],
-    [0.0, -0.52573111211913359, 0.85065080835203999],
-    [0.0, 0.52573111211913359, -0.85065080835203999],
-    [0.0, -0.52573111211913359, -0.85065080835203999],
-    [0.52573111211913359, 0.85065080835203999, 0.0],
-    [-0.52573111211913359, 0.85065080835203999, 0.0],
-    [0.52573111211913359, -0.85065080835203999, 0.0],
-    [-0.52573111211913359, -0.85065080835203999, 0.0],
+    [_PHI, 0, 1], [_PHI, 0, -1], [-_PHI, 0, 1], [-_PHI, 0, -1],
+    [0, 1, _PHI], [0, -1, _PHI], [0, 1, -_PHI], [0, -1, -_PHI],
+    [1, _PHI, 0], [-1, _PHI, 0], [1, -_PHI, 0], [-1, -_PHI, 0],
 ], dtype=np.float64)
+_norm_ico = np.linalg.norm(_ICOSA_COORDS[0])
+_ICOSA_COORDS = _ICOSA_COORDS / _norm_ico
 
+# Faces: the 20 triangles closing the polyhedron (standard topology; every
+# vertex is surrounded by a ring of 5 neighbours).
 _ICOSA_TRIS = np.array([
     [0, 1, 8], [0, 4, 5], [0, 5, 10], [0, 8, 4], [0, 10, 1],
     [1, 6, 8], [1, 7, 6], [1, 10, 7], [2, 3, 11], [2, 4, 9],
@@ -1030,8 +1029,8 @@ def make_icosahedron(radius=1.0):
     """Generate a raw (unsubdivided) icosahedron with flat face normals.
 
     Returns (positions[N,3], normals[N,3], indices[M]) with N=M=60: three
-    duplicated vertices per face for faceted (flat) shading, exactly like
-    IboView's ``MakeIcosahedron`` selection marker.
+    duplicated vertices per face for faceted (flat) shading (selection-marker
+    geometry; the face set above is the standard icosahedron triangulation).
     """
     pos = []
     nrm = []
@@ -1115,8 +1114,8 @@ def make_cylinder(radius=1.0, height=1.0, seg=16):
     """Unit cylinder along +Y axis, base at y=0, top at y=height.
 
     Normals point radially outward (Y component zero). Used to draw chemical
-    bonds as in IboView's ball-and-stick model (IboView renders bonds as grey
-    cylinders via the same opaque shader as atoms)."""
+    bonds for the ball-and-stick model (bonds are rendered as cylinders via
+    the same opaque shader as the atoms)."""
     return make_tapered_cylinder(radius, radius, height, seg)
 
 
@@ -1218,16 +1217,16 @@ _FX_MODES = {'neon': 1, 'pearl': 2, 'metal': 3}
 
 
 def style_params(surface_mat, style=None):
-    """Translate a vcube-style surface_mat into IboView shader registers plus
-    the extended material uniforms (emissive ambient, tinted specular, orbital
-    FX). IboView computes lighting as:
+    """Translate a vcube-style surface_mat into shader registers plus the
+    extended material uniforms (emissive ambient, tinted specular, orbital
+    FX). The renderer evaluates lighting as:
         cDiffuse = ShaderReg1 * pow(cos, ShaderReg0) * DiffuseColor
         cSpecular = ShaderReg2 * pow(cosS, ShaderReg3) * SpecularColor
     so we map diffuse->ShaderReg1, specular->ShaderReg2,
     shininess->ShaderReg0 (exponent) and ShaderReg3 (specular balance).
 
     ``style`` is the optional STYLES entry; it may carry extra keys to unlock
-    the new material channels (all default to IboView's original look):
+    the new material channels (defaults keep the classic look):
         fx:           'neon' | 'pearl' | 'metal' | None
         ambient:      emissive strength (0..~2)
         spec_color:   (r, g, b) specular tint (default white)
@@ -1236,14 +1235,14 @@ def style_params(surface_mat, style=None):
         fx_color:     (r, g, b) rim / secondary sheen colour
     """
     amb, diff, spec, shin, mir, opac = surface_mat[:6]
-    o = [IBO_DEFAULT_O[0], diff, max(spec, 0.0), shin]
-    a = [IBO_DEFAULT_A[0], 0.65, 0.4, -0.5]
+    o = [_REG_DEFAULT_O[0], diff, max(spec, 0.0), shin]
+    a = [_REG_DEFAULT_A[0], 0.65, 0.4, -0.5]
     sp = {
         'o_reg': o, 'a_reg': a,
-        'FadeBias': IBOVIEW_DEFAULTS['FadeBias'],
-        'FadeWidth': IBOVIEW_DEFAULTS['FadeWidth'],
+        'FadeBias': _RENDER_DEFAULTS['FadeBias'],
+        'FadeWidth': _RENDER_DEFAULTS['FadeWidth'],
         'opacity': opac,
-        # Extended material uniforms — defaults reproduce IboView exactly.
+        # Extended material uniforms (defaults keep the classic look).
         'ambient': 0.0,
         'spec_color': (1.0, 1.0, 1.0),
         'spec_mul': 1.0,
@@ -1293,9 +1292,9 @@ def style_rgb(color_entry):
 class PeelTarget:
     """One colour+depth render target used by the depth-peeling passes.
 
-    IboView keeps two depth buffers and ping-pongs between them (see
-    FView3d::RenderScene in IvView3D.cpp): each pass renders only fragments
-    that lie strictly in front of the depth recorded by the previous pass.
+    Two depth buffers are ping-ponged between peel passes: each pass renders
+    only fragments lying strictly in front of the depth recorded by the
+    previous pass (standard order-independent-transparency technique).
     """
 
     def __init__(self):
@@ -1535,17 +1534,17 @@ class GlMesh:
 # ═══════════════════════════════════════════════════════════════
 
 class Camera:
-    """Arcball camera using an IboView-style orthographic projection.
+    """Arcball camera with an orthographic projection.
 
-    IboView (FView3d::ResetProjectionAndZoom) keeps the eye at a fixed
-    distance `CAM_DIST` along -Z and controls the visible extent purely via
-    the orthographic half-height (`8.0 / zoom_factor` in IboView units).
-    We mirror that: `self.z` is the zoom factor, `half_height()` gives the
-    ortho half-height and the view matrix only translates by -CAM_DIST.
+    The eye stays at a fixed distance `CAM_DIST` along -Z and the visible
+    extent is controlled purely via the orthographic half-height
+    (`BASE_EXTENT / zoom_factor`). `self.z` is the zoom factor,
+    `half_height()` gives the ortho half-height, and the view matrix only
+    translates by -CAM_DIST.
     """
 
-    CAM_DIST = 100.0        # IboView fCameraDist
-    BASE_EXTENT = 8.0       # IboView base ortho half-height
+    CAM_DIST = 100.0        # fixed eye distance (ortho projection)
+    BASE_EXTENT = 8.0       # base ortho half-height
 
     def __init__(self):
         self.q = np.array([0.,0.,0.,1.])  # rotation quat
@@ -1592,7 +1591,7 @@ class Camera:
         self.z = max(0.01, min(self.z, 1000.0))
 
     def half_height(self):
-        """Orthographic half-height, IboView: 8.0 / fZoomFactor."""
+        """Orthographic half-height: BASE_EXTENT / zoom_factor."""
         return self.BASE_EXTENT / max(self.z, 1e-6)
 
     def view(self):
@@ -1602,7 +1601,7 @@ class Camera:
         m[0, 3], m[1, 3] = self.t[0], self.t[1]
         # Under an orthographic projection the eye distance does not change
         # the apparent size; it only positions the scene inside the near/far
-        # slab, exactly like IboView's fixed fCameraDist.
+        # slab (fixed eye distance under orthographic projection).
         m[2, 3] = self.t[2] - self.CAM_DIST
         tm = np.eye(4, dtype=np.float32)
         tm[0, 3], tm[1, 3], tm[2, 3] = -self.ctr
@@ -1648,7 +1647,7 @@ def perspective(fov, asp, n, f):
 def ortho(left, right, bottom, top, near, far):
     """Standard glOrtho matrix (row-major, as used by _set_xforms with GL_TRUE).
 
-    IboView's FView3d::ResetProjectionAndZoom builds exactly this kind of
+    The orthographic frustum is built exactly this way:
     orthographic frustum; it never uses a perspective projection.
     """
     m = np.zeros((4, 4), dtype=np.float32)
@@ -1721,8 +1720,8 @@ class CubGLWidget(QOpenGLWidget):
         self._prog_orb = self._prog_atom = 0
         self._prog_bond = 0   # 二次上色：独立的键着色器程序
 
-        # Depth peeling (IboView prop_FView3d.cpp.inl: DepthPeelingLayers = 4)
-        self._dp_layers = int(IBOVIEW_DEFAULTS['DepthPeelingLayers'])
+        # Depth peeling layer count (order-independent transparency)
+        self._dp_layers = int(_RENDER_DEFAULTS['DepthPeelingLayers'])
         self._dp_ok = False
         self._prog_orb_dp = self._prog_combine = 0
         self._vao_quad = 0
@@ -1771,7 +1770,7 @@ class CubGLWidget(QOpenGLWidget):
         self._bond_scale = 2.0   # bond cylinder radius scale (default 2.0)
         self._bond_thinning = BOND_THINNING_DEFAULT  # midpoint narrowing factor (1.0 = no waist)
 
-        # 景深雾化（IboView Fade：远处蒙白雾）开关，默认开启保留原貌
+        # 景深雾化（远处蒙白雾）开关，默认开启
         self._fade_enabled = True
         # Bond radius factor — dual-threshold for solid / dashed / no-bond
         self._bond_rf_tight = 1.0   # ≤ this → solid bond
@@ -1799,7 +1798,7 @@ class CubGLWidget(QOpenGLWidget):
         self._light_glow = 1.0                    # 光晕大小（1=默认；>1 更大更散）
         self._light_glows = [1.0, 1.0, 1.0, 1.0]  # 每盏灯独立光晕（u_Glows）
         self._style_name = None                  # last isosurface style name
-        # IboView "shiny" preset (overrides a_reg/o_reg after style build)
+        # Gloss preset (overrides a_reg/o_reg after style build)
         self._shininess = SHININESS_DEFAULT
 
         # ── MolViewer 样式（MolCanvas 预设）扩展 ──
@@ -1819,14 +1818,14 @@ class CubGLWidget(QOpenGLWidget):
         self._ring_tilt2 = 0.0       # 环 B 俯仰角（度）
         self._ring_locked = False    # True=锁定：环固定在屏幕系，分子旋转时圆环不转
         self._ring_frozen = None     # 锁定瞬间冻结的视图系环法线（锁定当前角度）
-        self._mv_grad = 0            # 0=IboView Phong；>0=MolViewer 径向渐变类型 id
+        self._mv_grad = 0            # 0=三灯 Phong；>0=MolViewer 径向渐变类型 id
         self._orb_outline = False    # 等值面剪影描边
         self._orb_outline_color = (0.0, 0.0, 0.0)
         self._orb_outline_width = 0.3
         self._prog_bg = 0
         self._vao_bg = 0
 
-        # Interactive atom/bond picking & override system (IboView context-menu)
+        # Interactive atom/bond picking & override system (context menu)
         self._bond_overrides = {}   # {(i,j): 'solid'|'dashed'|'none'}
         self._selected_atoms = []   # indices of currently selected atoms
         self._drag_start = None     # (x, y) of mouse press for click-vs-drag
@@ -2296,8 +2295,7 @@ class CubGLWidget(QOpenGLWidget):
 
         颜色以 0-255 元组传入（None 表示保持当前色）。仅更新 CPU 端
         颜色并标记 _needs_upload，由 paintGL 在有效 GL 上下文内重新上传，
-        避免在信号回调中直接 makeCurrent 触发原生崩溃。这正是 IboView
-        延迟上传（deferred upload）模式。
+        避免在信号回调中直接 makeCurrent 触发原生崩溃。这是常见的延迟上传（deferred upload）模式。
         """
         if pos_rgb is not None:
             self._pc = tuple(float(c) / 255.0 for c in pos_rgb)
@@ -2315,8 +2313,7 @@ class CubGLWidget(QOpenGLWidget):
         self.update()
 
     def flip_phase(self):
-        """翻转相位：交换正/负相位颜色（等价 IboView chkBox_FlipPhase 的
-        std::swap(cIsoMinus, cIsoPlus)）。多轨道（_orbital_recs）时等价于
+        """翻转相位：交换正/负相位颜色（等价于交换正负色的 swap 操作）。多轨道（_orbital_recs）时等价于
         翻转全部；单轨道时直接作用于当前配色。几何不变，延迟上传。"""
         if getattr(self, "_orbital_recs", None):
             self.flip_all_orbitals()
@@ -2427,7 +2424,7 @@ class CubGLWidget(QOpenGLWidget):
         self._sp['o_reg'] = list(o_reg)
 
     def set_shininess(self, name):
-        """Apply an IboView "shiny" preset by name (see SHININESS_PRESETS)."""
+        """Apply a gloss preset by name (see SHININESS_PRESETS)."""
         if name not in SHININESS_PRESETS:
             return
         self._shininess = name
@@ -2579,7 +2576,7 @@ class CubGLWidget(QOpenGLWidget):
     def set_mv_gradient(self, name):
         """设置 MolViewer 球体径向渐变类型（如 'full'/'glass_plus'/'flat'）。
 
-        name 为空或 None → 回退 IboView 三灯 Phong（u_MvGrad=0）。
+        name 为空或 None → 回退三灯 Phong（u_MvGrad=0）。
         同时按模式设定默认灯方向与数量（单光/双光/四光/三光）。
         """
         if not name:
@@ -2662,7 +2659,7 @@ class CubGLWidget(QOpenGLWidget):
         self.update()
 
     def set_light_dirs(self, dirs):
-        """自定义光源方向（视图空间方向，3 个 (x,y,z)，用于 IboView 三光等）。
+        """自定义光源方向（视图空间方向，3 个 (x,y,z)，用于三光等照明）。
 
         同时记录为当前模式的默认方向并清零方位/俯仰偏移；None 保持不变。
         """
@@ -2768,7 +2765,7 @@ class CubGLWidget(QOpenGLWidget):
         self.update()
 
     def reset_molviewer_style(self):
-        """清除 MolViewer 预设效果，恢复默认 IboView 球棍观感。
+        """清除 MolViewer 预设效果，恢复默认球棍观感。
 
         不触碰等值面风格（STYLE_NAMES）与相位配色。
         """
@@ -2790,7 +2787,7 @@ class CubGLWidget(QOpenGLWidget):
         self.set_fade_enabled(True)
         # 等值面不透明度回到默认（ESP 顶点色表面除外：不透明度归 ESP 面板管）
         if not self._surf_vcolor:
-            self._sp['opacity'] = float(IBOVIEW_DEFAULTS.get('OrbitalOpacity', 1.0))
+            self._sp['opacity'] = float(_RENDER_DEFAULTS.get('OrbitalOpacity', 1.0))
         # 灯光复位：数量 3、光晕 1、方位/俯仰归零、恢复默认三光方向
         self._light_count = 3
         self._light_glow = 1.0
@@ -2809,7 +2806,7 @@ class CubGLWidget(QOpenGLWidget):
 
     # ── 样式保存/载入 ──
     def _mv_grad_name(self):
-        """当前 u_MvGrad → 渐变类型名（"" = IboView 三光）。"""
+        """当前 u_MvGrad → 渐变类型名（"" = 三光 Phong）。"""
         return _MV_GRAD_BY_ID.get(self._mv_grad, "")
 
     def get_style_state(self):
@@ -2923,13 +2920,13 @@ class CubGLWidget(QOpenGLWidget):
         layers: 手动指定剥离层数（1..8，越界自动钳制）；None 用默认（4）。
         层数越多，复杂轨道的深处显示越完整，代价是每层多一遍渲染。
         """
-        n = int(layers) if layers else int(IBOVIEW_DEFAULTS['DepthPeelingLayers'])
+        n = int(layers) if layers else int(_RENDER_DEFAULTS['DepthPeelingLayers'])
         n = max(1, min(8, n))
         self._dp_layers = n if on else 0
         self.update()
 
     def set_fade_enabled(self, enabled):
-        """景深雾化（IboView Fade：远处蒙白雾）开关。默认开启以保留 IboView 原貌。"""
+        """景深雾化（远处蒙白雾）开关。默认开启。"""
         self._fade_enabled = bool(enabled)
         self.update()
 
@@ -2962,9 +2959,9 @@ class CubGLWidget(QOpenGLWidget):
         self._status(f"截图已保存: {os.path.basename(path)}")
 
     def export_image(self, path, dpi: float = 600.0, transparent: bool = False):
-        """高分辨率导出（参照 IboView 的导出思路）。
+        """高分辨率导出（实时重渲染而非位图拉伸）。
 
-        IboView 的 ExportPicture 不是把低分辨率位图拉伸缩放（那样会模糊），
+        不把低分辨率位图拉伸缩放（那样会模糊），
         而是以目标分辨率真正重新渲染场景再把像素读回。这里用分块(tile)离屏
         渲染实现：
 
@@ -3098,7 +3095,7 @@ class CubGLWidget(QOpenGLWidget):
     def _screen_to_world(self, x, y, w=None, h=None):
         """Unproject screen (x, y) to a ray origin + direction in world space.
 
-        For the orthographic projection used by IboView / CubGLWidget, the
+        For the orthographic projection used by CubGLWidget, the
         ray direction is always along the camera's -Z (look) axis.
         """
         if w is None or h is None:
@@ -3230,7 +3227,7 @@ class CubGLWidget(QOpenGLWidget):
         """Picking tolerance radius for an atom.
 
         Must match the radius actually drawn in _gen_atoms
-        (ATOM_DRAW_SCALE * _ATOM_DRAW_RADII[z] * _atom_scale), otherwise the
+        (ATOM_DRAW_SCALE * _DRAW_RADII[z] * _atom_scale), otherwise the
         ray-sphere pick test can never hit the (much larger) visible spheres.
         Enlarged by 1.15× so clicking near an atom still selects it.
         """
@@ -3772,9 +3769,9 @@ class CubGLWidget(QOpenGLWidget):
         try:
             glClearColor(*self._bg)
             glEnable(GL_DEPTH_TEST)
-            # IboView RenderBacksides = false, but orbital lobes are open
+            # RenderBacksides is off, but orbital lobes are open
             # surfaces whose insides must stay visible, so culling is disabled
-            # and the inside is lit via calc_base_color(true) instead.
+            # and the inside is lit via shade_base_color(true) instead.
             glDisable(GL_CULL_FACE)
 
             vs = compile_shader(VERT, GL_VERTEX_SHADER)
@@ -3930,17 +3927,18 @@ class CubGLWidget(QOpenGLWidget):
             if anum == 6:
                 return self._vcube_c_rgb
             return _GVIEW_COLORS.get(anum, (0.78, 0.78, 0.78))
-        # CPK (IboView ElementColors)
-        return _IBO_ELEMENT_COLORS[anum] if 0 <= anum < len(_IBO_ELEMENT_COLORS) \
+        # 默认 CPK：公开 Rasmol CPK-new 全元素配色（见 _CPK_COLORS 定义注释）
+        return _CPK_COLORS[anum] if 0 <= anum < len(_CPK_COLORS) \
             else (0.5, 0.5, 0.5)
 
     def _gen_atoms(self):
         """Generate the opaque molecule model (atoms + bonds).
 
-        Atom spheres use IboView's AtomicRadii table (scaled by ATOM_DRAW_SCALE);
-        bonds are generated with IboView's GenerateBonds() geometric heuristic:
+        Atom spheres use the empirical draw-radii table (scaled by
+        ATOM_DRAW_SCALE); bonds are detected by the covalent-radius sum
+        heuristic:
             r_ij <= 0.5 * (bf_i + bf_j) * (cov_i + cov_j)  ⇒  a bond
-        Bonds are drawn as grey cylinders (IboView default DiffuseColor
+        Bonds are drawn as grey cylinders (default DiffuseColor
         (0.2,0.2,0.2,1)) using the same opaque shader as the atoms.
         """
         if not self._cube or not self._cube.atoms:
@@ -3964,13 +3962,13 @@ class CubGLWidget(QOpenGLWidget):
         # isosurface is generated in that same Bohr frame.  The ball-and-stick
         # model must therefore stay in Bohr too: atom centres and bond vectors use
         # the raw coords, and bond-length thresholds use the covalent radii in
-        # Bohr (g_CovalentRadii, BOHR units) so the comparison is unit-consistent.
+        # Bohr (_COV_RADII_BOHR) so the comparison is unit-consistent.
         coords = np.array([[a[2], a[3], a[4]] for a in atoms], dtype=np.float64)
         anums = [int(a[0]) for a in atoms]
 
         all_v = []; all_n = []; all_c = []; all_i = []; off = 0
         # ── atom spheres ──
-        # Colours come from IboView's ElementColors table (Rasmol CPK-new),
+        # Colours come from the public CPK palette (_CPK_COLORS, Rasmol CPK-new),
         # indexed by atomic number. Two molecule styles:
         # "CPK"        : every element coloured by its CPK tint
         # "VMD single" : CPK for all non-carbon atoms, carbon uses the
@@ -4001,11 +3999,11 @@ class CubGLWidget(QOpenGLWidget):
             all_v.append(v); all_n.append(nrm); all_c.append(c)
             all_i.append(idx + off); off += len(v)
 
-        # ── bonds (IboView GenerateBonds geometric heuristic, dual-threshold) ──
+        # ── bonds (covalent-radius-sum heuristic, dual-threshold) ──
         # Solid bonds: rij <= rf_tight * cov_sum   (tapered cylinders)
         # Dashed bonds: rf_tight < rij <= rf_loose  (segmented cylinders)
         bond_r = max(BOND_DRAW_SCALE * 0.4 * self._bond_scale, 0.04 * self._bond_scale)
-        # IboView renders a solid bond as two tapered half-cylinders joined at midpoint.
+        # A solid bond is two tapered half-cylinders joined at the midpoint.
         cyl_a = make_tapered_cylinder(1.0, self._bond_thinning, 1.0, 12)   # atom side (thick → thin)
         cyl_b = make_tapered_cylinder(self._bond_thinning, 1.0, 1.0, 12)   # centre side (thin → thick)
         bf_tight = self._bond_rf_tight
@@ -4027,10 +4025,10 @@ class CubGLWidget(QOpenGLWidget):
                 if rij < 1e-4:
                     continue
                 zi = anums[i]; zj = anums[j]
-                # Use the Bohr-valued covalent radii (g_CovalentRadii) so the
+                # Use the Bohr-valued covalent radii (_COV_RADII_BOHR) so the
                 # threshold is compared in the same Bohr frame as the coords.
-                ci = _COVALENT_RADII_BOHR[zi] if 0 <= zi < len(_COVALENT_RADII_BOHR) else 0.7
-                cj = _COVALENT_RADII_BOHR[zj] if 0 <= zj < len(_COVALENT_RADII_BOHR) else 0.7
+                ci = _COV_RADII_BOHR[zi] if 0 <= zi < len(_COV_RADII_BOHR) else 0.7
+                cj = _COV_RADII_BOHR[zj] if 0 <= zj < len(_COV_RADII_BOHR) else 0.7
                 cov_sum = ci + cj
 
                 # Check manual bond override first (user context-menu action)
@@ -4260,12 +4258,12 @@ class CubGLWidget(QOpenGLWidget):
         self._vdw_balls = ball_centers
 
     def _gen_selection_marker(self):
-        """为每个选中的原子生成半透明选中标记（IboView 移植，可换形状）。
+        """为每个选中的原子生成半透明选中标记（形状可换）。
 
-        IboView 在 IvView3D.cpp 中对选中的原子额外画一个半径 = 1.8 × 原子
-        绘制半径的正二十面体（MakeIcosahedron(1.8)），颜色 = 0.4*原子色 +
-        0.6*白、alpha=0.5，在透明通道里叠加。这里把所有选中原子的标记
-        烘焙进一个网格（顶点颜色含 alpha），统一在透明通道绘制。
+        默认：半径 = 1.8 × 原子绘制半径的二十面体（MakeIcosahedron(1.8)），
+        颜色 = 0.4*原子色 + 0.6*白、alpha=0.5，在透明通道里叠加。
+        这里把所有选中原子的标记烘焙进一个网格（顶点颜色含 alpha），
+        统一在透明通道绘制。
 
         形状可选：icosahedron（二十面体）/ sphere（光滑透明球）/
         torus（圆环）/ glow（光晕：内壳 + 大透明外壳）。
@@ -4299,7 +4297,7 @@ class CubGLWidget(QOpenGLWidget):
             r = _atom_base_radius(anum) * ATOM_DRAW_SCALE * self._atom_scale
             s = 1.8 * r * pulse
             ctr = np.array([x, y, z], dtype=np.float32)
-            # 0.4*原子色 + 0.6*白（IboView 的选中标记颜色），alpha=0.5
+            # 0.4*原子色 + 0.6*白（选中标记颜色），alpha=0.5
             ac = self._atom_color(anum)
             light = (0.4 * ac[0] + 0.6, 0.4 * ac[1] + 0.6, 0.4 * ac[2] + 0.6)
 
@@ -5150,7 +5148,7 @@ class CubGLWidget(QOpenGLWidget):
             self.update()
 
     def set_dash_weight(self, value):
-        """Set dashed bond fill ratio (0..1). 0.4 = IboView default."""
+        """Set dashed bond fill ratio (0..1). 0.4 = default."""
         self._dash_weight = max(0.05, min(1.0, float(value)))
         if self._molecule is not None or self._cube is not None:
             self._gen_atoms()
@@ -5186,14 +5184,14 @@ class CubGLWidget(QOpenGLWidget):
             self._atom_outline_width = float(width)
         self.update()
 
-    # ── Projection (IboView style) ──
+    # ── Projection ──
 
     def _projection(self, w, h, vp=None):
-        """IboView-style orthographic projection.
+        """Orthographic projection.
 
-        Mirrors FView3d::ResetProjectionAndZoom: the visible half-height is
-        `BASE_EXTENT / zoom`, the camera sits at a fixed distance and the
-        near/far planes bracket it generously so rotation never clips.
+        The visible half-height is `BASE_EXTENT / zoom`, the camera sits at a
+        fixed distance, and the near/far planes bracket it generously so
+        rotation never clips.
         """
         hh = self.cam.half_height()
         if vp is not None:
@@ -5339,7 +5337,7 @@ class CubGLWidget(QOpenGLWidget):
     def render_selection_markers(self, view, nm, proj):
         """Draw semi-transparent icosahedron markers around selected atoms.
 
-        移植自 IboView 的选中标记：半透明正二十面体包裹所选原子，深度测试
+        选中标记：半透明正二十面体包裹所选原子，深度测试
         但**不写深度**，用标准 alpha 混合叠加在不透明几何之上。
         """
         if self._sel_mesh.count == 0:
@@ -5398,7 +5396,7 @@ class CubGLWidget(QOpenGLWidget):
         )
         self._set_vdw_outline_uniforms()   # 独立描边（不跟原子描边联动）
         # u_MvGrad>0 走 MolViewer 径向渐变（如 HoukMol 的 gau_default），
-        # u_MvGrad=0 走 IboView 多灯 Phong（含 FX），随当前样式变化。
+        # u_MvGrad=0 走多灯 Phong（含 FX），随当前样式变化。
         self._set_atom_mv_uniforms(True)
         self._set_atom_ring_uniforms(False)
         # ── 多球布尔差集：把所有原子 vdW 球心/半径交给片元着色器 ──
@@ -5424,7 +5422,7 @@ class CubGLWidget(QOpenGLWidget):
             glEnable(GL_CULL_FACE)
 
     def render_transparent_depth_peeling(self, view, nm, proj, w, h):
-        """Front-to-back depth peeling, following IboView's FView3d::RenderScene.
+        """Front-to-back depth peeling (order-independent transparency).
 
         Pass i renders only the fragments strictly nearer than the depth
         recorded in pass i-1 (shader FRAG_ORB_DP), and each resulting layer is
@@ -5512,7 +5510,7 @@ class CubGLWidget(QOpenGLWidget):
         """等值面透明回退（Depth peeling 关闭时）：逐三角形画家算法。
 
         按视图深度从远到近绘制（远的先画、近的盖上来）——与 Depth peeling
-        （IboView 移植）的合成方向一致，近处表面占主导：透明度越高越接近
+        的合成方向一致，近处表面占主导：透明度越高越接近
         Depth peeling 的观感，不会出现"后方的等值面反客为主透到前面"。
 
         性能：三角形世界系中心缓存（表面不变不重算）；相机不变时跳过
@@ -5594,17 +5592,17 @@ class CubGLWidget(QOpenGLWidget):
                              ambient=0.0, spec_color=(1.0, 1.0, 1.0),
                              spec_mul=1.0, fx=0, fx_strength=0.0,
                              fx_color=(1.0, 1.0, 1.0)):
-        """Upload the IboView shader registers, fade parameters, DiffuseColor
-        and the extended material uniforms (emissive ambient / tinted specular /
-        orbital FX).
+        """Upload the shader registers, fade parameters, DiffuseColor and the
+        extended material uniforms (emissive ambient / tinted specular / orbital
+        FX).
 
         DiffuseColor is kept white for orbitals so that v_Color (the green/red
-        phase colour) alone determines the hue, exactly as in IboView where the
-        per-vertex colour carries the phase and DiffuseColor.a is the opacity.
+        phase colour) alone determines the hue; the per-vertex colour carries
+        the phase and DiffuseColor.a is the opacity.
         """
         self._set_regs(prog, regs)
         glUniform1f(glGetUniformLocation(prog, 'FadeBias'), self._sp['FadeBias'])
-        # 景深雾化开关：关闭时 FadeWidth=0（无任何雾化），开启时用 IboView 默认值
+        # 景深雾化开关：关闭时 FadeWidth=0（无任何雾化），开启时用默认值
         fade_w = self._sp['FadeWidth'] if self._fade_enabled else 0.0
         glUniform1f(glGetUniformLocation(prog, 'FadeWidth'), fade_w)
         glUniform4f(glGetUniformLocation(prog, 'DiffuseColor'), *diffuse)
@@ -5616,7 +5614,7 @@ class CubGLWidget(QOpenGLWidget):
         glUniform1f(glGetUniformLocation(prog, 'u_FxStrength'), fx_strength)
         glUniform3f(glGetUniformLocation(prog, 'u_FxColor'),
                     fx_color[0], fx_color[1], fx_color[2])
-        # 光源：方向（4 盏）+ 数量 + 光晕（u_MvGrad=0 时 calc_base_color 用前 3 盏）
+        # 光源：方向（4 盏）+ 数量 + 光晕（u_MvGrad=0 时 shade_base_color 用前 3 盏）
         ld = getattr(self, "_light_dirs", None) or getattr(self, "_light_default_dirs", None) or [
             (0.5, 0.5, 0.70710678), (-0.4330127, -0.25, 0.8660254),
             (0.4330127, -0.25, 0.8660254), (0.0, 0.0, 1.0)]
@@ -5673,7 +5671,7 @@ class CubGLWidget(QOpenGLWidget):
     def _set_atom_mv_uniforms(self, on=True):
         """把 MolViewer 径向渐变类型写入原子着色器。
 
-        on=False 时强制 u_MvGrad=0（选中标记等非球棍几何仍用 IboView Phong）。
+        on=False 时强制 u_MvGrad=0（选中标记等非球棍几何仍用三灯 Phong）。
         """
         self._set_mv_grad_uniform(self._prog_atom, self._mv_grad if on else 0)
 
@@ -5706,7 +5704,7 @@ class CubGLWidget(QOpenGLWidget):
                         nv[0], nv[1], nv[2])
 
     def _set_mv_grad_uniform(self, prog, grad_id):
-        """把一个程序的 u_MvGrad uniform 设为渐变类型 id（0=IboView 三灯）。"""
+        """把一个程序的 u_MvGrad uniform 设为渐变类型 id（0=三灯 Phong）。"""
         if prog:
             glUniform1i(glGetUniformLocation(prog, 'u_MvGrad'), int(grad_id))
 
@@ -5851,16 +5849,16 @@ class CubViewer(QMainWindow):
 
         # Isovalue
         # NOTE: the "值" field below is an ABSOLUTE isovalue in cube-file units.
-        # This is NOT the same as IboView's `IsoThreshold` (default 80.0),
-        # which is a *relative* threshold: the iso surface enclosing 80 % of
-        # the total |data| weight.  Tick "IboView 相对阈值" to use that mode.
+        # This is NOT the same as the *relative* threshold mode (default
+        # 80 %): a relative threshold picks the iso surface enclosing 80 % of
+        # the total |data| weight.  Tick "相对阈值" to use that mode.
         gi = QGroupBox("等值面")
         il = QGridLayout(gi)
 
         self._rel_chk = QCheckBox(
-            f"IboView 相对阈值 ({IBOVIEW_DEFAULTS['IsoThreshold']:.0f}%)")
+            f"相对阈值 ({_RENDER_DEFAULTS['IsoThreshold']:.0f}%)")
         self._rel_chk.setToolTip(
-            "勾选后按 IboView IsoThreshold 语义取等值面：\n"
+            "勾选后按相对阈值语义取等值面：\n"
             "选取使 |data| 累积权重达到指定百分比的等值面。\n"
             "取消勾选则使用下方的绝对 isovalue（cube 文件原始单位）。")
         self._rel_chk.toggled.connect(self._on_rel_mode)
@@ -5868,12 +5866,12 @@ class CubViewer(QMainWindow):
 
         self._rel_sld = QSlider(Qt.Horizontal)
         self._rel_sld.setRange(50, 99)
-        self._rel_sld.setValue(int(IBOVIEW_DEFAULTS['IsoThreshold']))
+        self._rel_sld.setValue(int(_RENDER_DEFAULTS['IsoThreshold']))
         self._rel_sld.valueChanged.connect(self._on_rel_slider)
         self._rel_sld.setEnabled(False)
         il.addWidget(QLabel("百分比:"), 1, 0)
         il.addWidget(self._rel_sld, 1, 1)
-        self._rel_lbl = QLabel(f"{IBOVIEW_DEFAULTS['IsoThreshold']:.0f}%")
+        self._rel_lbl = QLabel(f"{_RENDER_DEFAULTS['IsoThreshold']:.0f}%")
         self._rel_lbl.setMinimumWidth(50)
         il.addWidget(self._rel_lbl, 1, 2)
 
@@ -5890,18 +5888,18 @@ class CubViewer(QMainWindow):
 
         il.addWidget(QLabel("不透明:"), 3, 0)
         self._op_sld = QSlider(Qt.Horizontal)
-        op0 = int(IBOVIEW_DEFAULTS['OrbitalOpacity'] * 100)
+        op0 = int(_RENDER_DEFAULTS['OrbitalOpacity'] * 100)
         self._op_sld.setRange(5, 100); self._op_sld.setValue(op0)
         self._op_sld.valueChanged.connect(self._on_op)
         il.addWidget(self._op_sld, 3, 1)
-        self._op_edit = QLineEdit(f"{IBOVIEW_DEFAULTS['OrbitalOpacity']:.2f}")
+        self._op_edit = QLineEdit(f"{_RENDER_DEFAULTS['OrbitalOpacity']:.2f}")
         self._op_edit.setValidator(QDoubleValidator(0.05, 1, 2))
         self._op_edit.setMaximumWidth(70)
         self._op_edit.editingFinished.connect(self._on_op_edit)
         il.addWidget(self._op_edit, 3, 2)
 
         self._dp_chk = QCheckBox(
-            f"Depth peeling ({IBOVIEW_DEFAULTS['DepthPeelingLayers']} 层)")
+            f"Depth peeling ({_RENDER_DEFAULTS['DepthPeelingLayers']} 层)")
         self._dp_chk.setChecked(True)
         self._dp_chk.setToolTip("关闭后回退到按 chunk 深度排序的 alpha 混合")
         self._dp_chk.toggled.connect(self._on_dp_toggle)
@@ -5936,7 +5934,7 @@ class CubViewer(QMainWindow):
         bl.addWidget(self._bond_scale_edit, 1, 2)
         pl.addWidget(gb)
 
-        # Bond detection thresholds (IboView BondRadiusFactor dual-threshold)
+        # Bond detection thresholds (covalent-radius-sum dual-threshold)
         gbrf = QGroupBox("成键阈值")
         brfl = QGridLayout(gbrf)
         brfl.addWidget(QLabel("实线键:"), 0, 0)
@@ -5954,7 +5952,7 @@ class CubViewer(QMainWindow):
         brfl.addWidget(QLabel("虚线键:"), 1, 0)
         self._brf_loose_sld = QSlider(Qt.Horizontal)
         self._brf_loose_sld.setRange(50, 300)   # ×0.50 .. ×3.00
-        self._brf_loose_sld.setValue(130)         # ×1.30 (IboView default)
+        self._brf_loose_sld.setValue(130)         # ×1.30 (default)
         self._brf_loose_sld.valueChanged.connect(self._on_brf_loose)
         brfl.addWidget(self._brf_loose_sld, 1, 1)
         self._brf_loose_edit = QLineEdit("1.30")
@@ -5966,7 +5964,7 @@ class CubViewer(QMainWindow):
         brfl.addWidget(QLabel("虚线密度:"), 2, 0)
         self._dash_w_sld = QSlider(Qt.Horizontal)
         self._dash_w_sld.setRange(5, 100)    # 0.05 .. 1.00
-        self._dash_w_sld.setValue(40)         # 0.40 (IboView default)
+        self._dash_w_sld.setValue(40)         # 0.40 (default)
         self._dash_w_sld.valueChanged.connect(self._on_dash_w)
         brfl.addWidget(self._dash_w_sld, 2, 1)
         self._dash_w_edit = QLineEdit("0.40")
@@ -6004,7 +6002,7 @@ class CubViewer(QMainWindow):
         btn_sc = QPushButton("截图 (S)"); btn_sc.clicked.connect(self._screenshot)
         al.addWidget(btn_sc)
 
-        # High-resolution export (IboView-style offscreen render)
+        # High-resolution export (offscreen re-render)
         ex = QHBoxLayout()
         ex.addWidget(QLabel("DPI:"))
         self._dpi_edit = QLineEdit("600")
@@ -6078,7 +6076,7 @@ class CubViewer(QMainWindow):
 
         note = ""
         if self._rel_chk.isChecked():
-            # IboView-like relative threshold: derive an absolute isovalue that
+            # Relative-threshold mode: derive an absolute isovalue that
             # encloses `percent` % of the total |data| weight.
             try:
                 cd = read_cube(p)
