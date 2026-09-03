@@ -45,7 +45,7 @@ from PyQt5.QtGui import QDoubleValidator as _QDV
 
 # ── 复用 ovcanvas 引擎组件 ──
 from ovcanvas import (
-    CubGLWidget, _ensure_pyopengl, IBOVIEW_DEFAULTS,
+    CubGLWidget, _ensure_pyopengl, _RENDER_DEFAULTS,
 )
 from marching_cubes import read_cube, compute_bounding_sphere, marching_cubes
 try:                              # 仅用于保持与引擎的依赖一致；缺失也不影响 ESP 渲染
@@ -396,7 +396,7 @@ class ESPViewer(QMainWindow):
         self._op_sld.valueChanged.connect(self._on_op)
         bl.addWidget(self._op_sld, 0, 1)
         self._dp_chk = QCheckBox(
-            f"Depth peeling ({IBOVIEW_DEFAULTS['DepthPeelingLayers']} 层)")
+            f"Depth peeling ({_RENDER_DEFAULTS['DepthPeelingLayers']} 层)")
         self._dp_chk.setChecked(True)
         self._dp_chk.toggled.connect(lambda on: self.glw.set_depth_peeling(on))
         bl.addWidget(self._dp_chk, 1, 0, 1, 2)
