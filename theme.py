@@ -593,4 +593,36 @@ QTabBar::tab:disabled {
     color: #94A3B8;
     background-color: #F1F5F9;
 }
+
+/* ── Splitter 分隔条 ──
+   左右栏宽度靠拖动这条分隔条调整。默认画成浅灰「小药丸」，
+   悬停/拖拽时变主题蓝，让用户一眼看出这里能拖（默认样式又细又透明，
+   看不出来可拖）。热区宽度也由 main_window 的 setHandleWidth(8) 保证。 */
+QSplitter::handle {
+    background-color: transparent;
+}
+
+QSplitter::handle:horizontal {
+    width: 8px;
+    margin: 6px 2px;
+    border-radius: 4px;
+    background-color: #DCE3EC;
+}
+
+QSplitter::handle:horizontal:hover,
+QSplitter::handle:horizontal:pressed {
+    background-color: #1E88E5;
+}
+
+QSplitter::handle:vertical {
+    height: 8px;
+    margin: 2px 6px;
+    border-radius: 4px;
+    background-color: #DCE3EC;
+}
+
+QSplitter::handle:vertical:hover,
+QSplitter::handle:vertical:pressed {
+    background-color: #1E88E5;
+}
 """

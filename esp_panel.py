@@ -7,7 +7,7 @@ esp_panel.py — ESP 表面可视化面板（整合自 ESPViewer v3.0）
   1. 后台调 Multiwfn 生成电子密度 cube (density.cub) 与静电势 cube (ESP.cub)，
      以及极值点 (surfanalysis.pdb)、分区面积分布；
   2. 复用 esp_viewer.extract_esp_surface —— 密度场定几何（vdW 等值面）、
-     ESP 场定顶点连续着色（BWR 等色标）；
+     ESP 场定顶点连续着色（默认 RWB：红=负电势/富电子，蓝=正电势/缺电子）；
   3. 把表面加载到左侧 OpenGL 画布显示。
 
 支持四种模式（移植自 ESPViewer）：
@@ -193,7 +193,8 @@ def parse_area_output(stdout):
 def plot_esp_area_histogram(area_data, output_path,
                             title="ESP Area Distribution",
                             xlabel="ESP (kcal/mol)"):
-    """把面积分布数据画成 BWR 配色柱状图（matplotlib，静态 PNG）。移植自 ESPViewer。"""
+    """把面积分布数据画成 RWB 配色柱状图（matplotlib，静态 PNG）。移植自 ESPViewer。
+    RWB（红-白-蓝）：低值红=负电势/富电子，高值蓝=正电势/缺电子。"""
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -209,8 +210,8 @@ def plot_esp_area_histogram(area_data, output_path,
     dmin, dmax = min(centers), max(centers)
     pad = max(0.5, (dmax - dmin) * 0.05)
     norm = mcolors.TwoSlopeNorm(vmin=dmin - pad, vcenter=0, vmax=dmax + pad)
-    cmap_bwr = plt.get_cmap('bwr')
-    colors = [cmap_bwr(norm(c)) for c in centers]
+    cmap_rwb = plt.get_cmap('bwr_r')
+    colors = [cmap_rwb(norm(c)) for c in centers]
     fig, ax = plt.subplots(figsize=(10, 5.5))
     bars = ax.bar(centers, areas, width=bin_width * 0.92, align='center',
                   color=colors, edgecolor='#333333', linewidth=0.8)
@@ -250,7 +251,7 @@ class EspWorker(QThread):
     stage_msg = pyqtSignal(str)     # 简短计算信息（进度条旁标签）
 
     def __init__(self, fchk_list, mw_exe, mode, isolevel, vmin, vmax,
-                 cmap, auto_range):
+                 cmap, auto_range, invert=False):
         super().__init__()
         self.fchk_list = fchk_list
         self.mw_exe = mw_exe
@@ -260,6 +261,7 @@ class EspWorker(QThread):
         self.vmax = vmax
         self.cmap = cmap
         self.auto_range = auto_range
+        self.invert = invert
         self._proc = None
         self._file_idx = 0        # 当前处理文件下标（进度映射用）
 
@@ -388,7 +390,8 @@ class EspWorker(QThread):
                         density, esp,
                         isolevel=self.isolevel,
                         vmin=self.vmin, vmax=self.vmax,
-                        cmap=self.cmap, auto_range=self.auto_range)
+                        cmap=self.cmap, auto_range=self.auto_range,
+                        invert=self.invert)
                     if surf.vertex_count == 0:
                         self.progress.emit("该体系密度等值面为空，跳过")
                         continue
@@ -521,6 +524,7 @@ _ESP_TR = {
         "vmax": "色标上限:",
         "auto_range": "自动范围",
         "cmap": "配色:",
+        "invert": "翻转配色",
         "opacity": "不透明度:",
         "unit_hint": "(a.u.)",
         "status_ready": "就绪 — 打开 fchk 选模式后点「生成 ESP 表面」",
@@ -590,6 +594,7 @@ _ESP_TR = {
         "vmax": "Color max:",
         "auto_range": "Auto range",
         "cmap": "Colormap:",
+        "invert": "Invert",
         "opacity": "Opacity:",
         "unit_hint": "(a.u.)",
         "status_ready": "Ready — open fchk, pick mode, then Generate ESP",
@@ -689,6 +694,7 @@ class EspPanel(QWidget):
         self.lbl_vmax.setText(self._t("vmax"))
         self.chk_auto.setText(self._t("auto_range"))
         self.lbl_cmap.setText(self._t("cmap"))
+        self.lbl_invert.setText(self._t("invert"))
         self.lbl_op.setText(self._t("opacity"))
         self.lbl_unit.setText(self._t("unit_hint"))
         self.grp_disp.setTitle(self._t("display"))
@@ -935,7 +941,7 @@ class EspPanel(QWidget):
         ph2.addWidget(self.lbl_cmap)
         self.combo_cmap = QComboBox()
         self.combo_cmap.addItems(list(ESP_CMAPS.keys()))
-        self.combo_cmap.setCurrentText("彩虹 Turbo")
+        self.combo_cmap.setCurrentText("RWB (红-白-蓝)")
         # 切换配色：色标条立即换色；已生成过表面则防抖后自动重提取着色
         #（免手点「生成 ESP 表面」）。连接须放在 setCurrentText 之后，
         # 避免初始化期间 addItems/setCurrentText 触发一次。
@@ -945,6 +951,13 @@ class EspPanel(QWidget):
         self._cmap_debounce.timeout.connect(self._rerender_surface)
         self.combo_cmap.currentTextChanged.connect(self._on_cmap_changed)
         ph2.addWidget(self.combo_cmap)
+        # 翻转配色：对任意配色方案通用（低值端↔高值端互换）
+        self.lbl_invert = QLabel()
+        ph2.addWidget(self.lbl_invert)
+        self.chk_invert = QCheckBox()
+        self.chk_invert.setChecked(False)
+        self.chk_invert.toggled.connect(self._on_cmap_changed)
+        ph2.addWidget(self.chk_invert)
         self.lbl_op = QLabel()
         ph2.addWidget(self.lbl_op)
         self.sld_op = QSlider(Qt.Horizontal)
@@ -1216,19 +1229,23 @@ class EspPanel(QWidget):
                 os.path.join(arch_dir, "ESP.cub"))
 
     @staticmethod
-    def _vmd_cmap_name(cmap_name):
-        """面板配色名 → VMD color scale method（ESP 默认 BWR）。"""
+    def _vmd_cmap_name(cmap_name, invert=False):
+        """面板配色名 → VMD color scale method。
+
+        invert=True 时翻转方向：BWR↔RWB 互换（VMD 色标方法是完整枚举，
+        反向对只有这两组发散双色；其余方法不支持反向，保持原样）。
+        """
         n = (cmap_name or "").upper()
         if "BGR" in n:
             return "BGR"
         if "RWB" in n:
-            return "RWB"
+            return "BWR" if invert else "RWB"
         if "BWR" in n:
-            return "BWR"
+            return "RWB" if invert else "BWR"
         if "JET" in n:
             return "RGB"
         if "RDBU" in n or "COOLWARM" in n:
-            return "RWB"
+            return "BWR" if invert else "RWB"
         return "BWR"
 
     def _set_mode(self, mode):
@@ -1461,7 +1478,7 @@ class EspPanel(QWidget):
         if not pairs:
             QMessageBox.information(self, "渲染 ESP 表面", self._t("detect_no_cube"))
             return
-        iso, vmin, vmax, cmap, auto = self._params()
+        iso, vmin, vmax, cmap, auto, invert = self._params()
         surfs = []
         first_density = None
         for _f, d, e in pairs:
@@ -1469,7 +1486,7 @@ class EspPanel(QWidget):
             esp = read_cube(e)
             surf, _ = extract_esp_surface(density, esp, isolevel=iso,
                                           vmin=vmin, vmax=vmax, cmap=cmap,
-                                          auto_range=auto)
+                                          auto_range=auto, invert=invert)
             if surf.vertex_count == 0:
                 continue
             surfs.append(surf)
@@ -1477,7 +1494,7 @@ class EspPanel(QWidget):
                 first_density = density
         self._apply_surface(surfs, first_density, len(pairs))
         # VMD 同步场景登记（density 定几何、ESP 定色，a.u. 范围）
-        self._register_vmd_scene(iso, vmin, vmax, cmap)
+        self._register_vmd_scene(iso, vmin, vmax, cmap, invert)
 
     def _detect_esp_range(self):
         """「检测 ESP 范围」：统计等值面上 ESP 极值 → 回填上下限（当前单位）。"""
@@ -1485,7 +1502,7 @@ class EspPanel(QWidget):
         if not pairs:
             QMessageBox.information(self, self._t("detect_range"), self._t("detect_no_cube"))
             return
-        iso, _, _, _, _ = self._params()
+        iso, _, _, _, _, _ = self._params()
         try:
             lo_au, hi_au = None, None
             for _f, d, e in pairs:
@@ -1571,7 +1588,8 @@ class EspPanel(QWidget):
         vmax = self._display_to_au(vmax)
         cmap = self.combo_cmap.currentText()
         auto = self.chk_auto.isChecked()
-        return iso, vmin, vmax, cmap, auto
+        invert = self.chk_invert.isChecked()
+        return iso, vmin, vmax, cmap, auto, invert
 
     AU_TO_KCAL = 627.509
 
@@ -1602,7 +1620,8 @@ class EspPanel(QWidget):
             return
         lo, hi = self._display_range()
         unit = f"ESP ({self._unit})"
-        self.glw.set_color_scale_cmap(self.combo_cmap.currentText())
+        self.glw.set_color_scale_cmap(self.combo_cmap.currentText(),
+                                      invert=self.chk_invert.isChecked())
         self.glw.set_color_scale(lo, hi, unit=unit,
                                  show=self.chk_cs.isChecked())
 
@@ -1647,7 +1666,7 @@ class EspPanel(QWidget):
         self._start_worker([fchk], self._mode)
 
     def _start_worker(self, fchk_list, mode):
-        iso, vmin, vmax, cmap, auto = self._params()
+        iso, vmin, vmax, cmap, auto, invert = self._params()
         self._last_fchk_list = list(fchk_list)
         self._loaded_cub_pairs = None   # 重新生成时取消「载入 cub 文件夹」覆盖
         self.btn_generate.setEnabled(False)
@@ -1655,7 +1674,7 @@ class EspPanel(QWidget):
         self._log(f"生成 ESP（模式 {mode}）：" + ", ".join(
             os.path.basename(f) for f in fchk_list))
         self._worker = EspWorker(fchk_list, (self._get_mw() or "").strip(),
-                                 mode, iso, vmin, vmax, cmap, auto)
+                                 mode, iso, vmin, vmax, cmap, auto, invert)
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.progress.connect(self._log)
@@ -1728,11 +1747,11 @@ class EspPanel(QWidget):
             glw.clear_extrema()
 
         # 色标条同步（显示单位数值）
-        iso, vmin, vmax, cmap, auto = self._params()
+        iso, vmin, vmax, cmap, auto, invert = self._params()
         self._sync_color_scale()
 
         # ── 登记 VMD 同步场景（density 定几何、ESP 定色，a.u. 范围） ──
-        self._register_vmd_scene(iso, vmin, vmax, cmap)
+        self._register_vmd_scene(iso, vmin, vmax, cmap, invert)
 
         if surf is not None:
             if mode == "pt":
@@ -1753,10 +1772,10 @@ class EspPanel(QWidget):
         self.progress_bar.hide()
         self.lbl_esp_info.hide()
 
-    def _register_vmd_scene(self, iso, vmin, vmax, cmap):
+    def _register_vmd_scene(self, iso, vmin, vmax, cmap, invert=False):
         """登记 VMD 同步场景；失败只影响「同步到 VMD」，不影响 ESP 显示。"""
         try:
-            vmd_cmap = self._vmd_cmap_name(cmap)
+            vmd_cmap = self._vmd_cmap_name(cmap, invert)
             vmd_surfs = []
             loaded = getattr(self, "_loaded_cub_pairs", None)
             if loaded:
@@ -2052,7 +2071,7 @@ class AreaChartDialog(QDialog):
         style_gl.addWidget(self._legend_cb, 0, 1)
         style_gl.addWidget(QLabel(_cv("配色 (colormap)")), 1, 0)
         self._cmap_combo = QComboBox()
-        self._cmap_combo.addItems(["BWR", "Jet", "Viridis", "RdBu", "coolwarm", "Spectral"])
+        self._cmap_combo.addItems(["RWB", "BWR", "Jet", "Viridis", "RdBu", "coolwarm", "Spectral"])
         self._cmap_combo.currentIndexChanged.connect(self._refresh_chart)
         style_gl.addWidget(self._cmap_combo, 1, 1)
         style_gl.addWidget(QLabel(_cv("透明度")), 2, 0)
@@ -2243,9 +2262,9 @@ class AreaChartDialog(QDialog):
                 w.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
     def _get_cmap(self):
-        names = ["bwr", "jet", "viridis", "RdBu", "coolwarm", "Spectral"]
+        names = ["bwr_r", "bwr", "jet", "viridis", "RdBu", "coolwarm", "Spectral"]
         idx = self._cmap_combo.currentIndex()
-        return plt.get_cmap(names[idx] if idx < len(names) else "bwr")
+        return plt.get_cmap(names[idx] if idx < len(names) else "bwr_r")
 
     def _get_alpha(self):
         return self._alpha_slider.value() / 100.0

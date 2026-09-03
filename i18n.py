@@ -189,6 +189,8 @@ TR = {
     "tab_etsnocv": {"zh": "NOCV", "en": "NOCV"},
     "tab_mpp": {"zh": "MPP", "en": "MPP"},
     "tab_irc": {"zh": "IRC", "en": "IRC"},
+    "tab_di": {"zh": "DI 分析", "en": "DI"},
+    "tab_esm": {"zh": "能量跨度", "en": "ESM"},
     "tab_viz": {"zh": "可视化", "en": "View"},
     "tab_log": {"zh": "日志", "en": "Log"},
     "tab_orbit_table": {"zh": "📊  轨道表", "en": "📊  Orbitals"},

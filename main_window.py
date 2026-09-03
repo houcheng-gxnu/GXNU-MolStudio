@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGroupBox, QLabel, QLineEdit, QPushButton, QRadioButton, QCheckBox,
     QComboBox, QTextEdit, QFileDialog, QMessageBox, QButtonGroup,
-    QFrame, QSplitter, QScrollArea, QGridLayout, QSizePolicy,
+    QFrame, QSplitter, QSplitterHandle, QScrollArea, QGridLayout, QSizePolicy,
     QSlider, QTabWidget, QDialog, QDialogButtonBox, QFormLayout,
     QTextBrowser, QTableWidget, QTableWidgetItem, QHeaderView,
     QToolButton, QListWidget, QStackedWidget, QAbstractItemView,
@@ -114,6 +114,20 @@ try:
 except Exception:
     _HAS_IRC_PANEL = False
 
+# ── DI 能量分解分析（整合自 D:\traetest\DI分析\di_analysis_gui.py） ──
+try:
+    from di_analysis_panel import DiAnalysisPanel
+    _HAS_DI_PANEL = True
+except Exception:
+    _HAS_DI_PANEL = False
+
+# ── Energetic Span Model 跨循环催化能量分析（整合自 energy_span_model.py） ──
+try:
+    from energy_span_panel import EnergySpanPanel
+    _HAS_ESM_PANEL = True
+except Exception:
+    _HAS_ESM_PANEL = False
+
 # ── 拆分后的模块 ──
 import i18n
 from theme import LIGHT_QSS
@@ -128,6 +142,50 @@ from dialogs import OrbitalBrowserDialog
 # Qt 是按改尺寸前的高度把弹出窗口对齐到选框边缘的，那样会导致弹出框
 # 与选框之间裂开一条缝（向上弹时尤其明显）。
 _PopupLimitedComboBox = LimitedPopupComboBox
+
+
+class _BodySplitterHandle(QSplitterHandle):
+    """分隔条：双击复位到默认栏宽。"""
+
+    def mouseDoubleClickEvent(self, e):
+        sp = self.splitter()
+        reset = getattr(sp, "_reset_sizes", None)
+        if reset:
+            reset()
+            e.accept()
+            return
+        super().mouseDoubleClickEvent(e)
+
+
+class BodySplitter(QSplitter):
+    """主分栏：拖动分隔条调整栏宽，双击分隔条复位到默认比例。
+
+    分隔条本身由 theme.LIGHT_QSS 的 QSplitter::handle 上色（默认浅灰药丸、
+    悬停变蓝），这里只负责热区宽度与双击复位。
+    """
+
+    #: 分隔条热区宽度（px）。Qt 默认约 4px 且透明，看不出能拖，加宽更好抓。
+    HANDLE_WIDTH = 2
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setHandleWidth(self.HANDLE_WIDTH)
+        self._default_sizes = None
+
+    def set_default_sizes(self, sizes):
+        """记录默认栏宽（setSizes 之后调用），供双击复位使用。"""
+        self._default_sizes = list(sizes)
+
+    def _reset_sizes(self):
+        if self._default_sizes:
+            self.setSizes(self._default_sizes)
+
+    def createHandle(self):
+        h = _BodySplitterHandle(self.orientation(), self)
+        h.setToolTip("拖动调整栏宽，双击复位")
+        h.setCursor(Qt.SplitHCursor if self.orientation() == Qt.Horizontal
+                    else Qt.SplitVCursor)
+        return h
 
 
 class PathsDialog(QDialog):
@@ -458,7 +516,8 @@ class OrbitalVisApp(QMainWindow):
 
         # 主水平分割：功能导航条（画布左侧） | 左栏画布 | 右栏 tabs 内容
         # 导航条与右栏参数区都用白色圆角卡片包裹（浅灰窗口底上更自然）
-        main_splitter = QSplitter(Qt.Horizontal)
+        # BodySplitter：拖动分隔条即可调左右栏宽度，双击分隔条复位
+        main_splitter = BodySplitter(Qt.Horizontal)
         main_splitter.setChildrenCollapsible(False)
         self.main_nav = QListWidget()
         self.main_nav.setObjectName("MainNav")
@@ -479,6 +538,7 @@ class OrbitalVisApp(QMainWindow):
 
         # ===== 左栏：输入文件行 + 画布（参数设置在画布下方） =====
         left_widget = QWidget()
+        self._left_widget = left_widget   # 供按 tab 隐藏画布用
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(4)
@@ -781,6 +841,32 @@ class OrbitalVisApp(QMainWindow):
             except Exception:
                 self.irc_panel = None
 
+        # ── DI 能量分解分析 tab ──
+        self.di_panel = None
+        if _HAS_DI_PANEL:
+            glw = self.cub_canvas.glw if self.cub_canvas is not None else None
+            try:
+                self.di_panel = DiAnalysisPanel(
+                    glw=glw,
+                    log_func=self._append_log,
+                    parent=self,
+                )
+                self.tabs.addWidget(self.di_panel)
+            except Exception:
+                self.di_panel = None
+
+        # ── Energetic Span Model tab ──
+        self.esm_panel = None
+        if _HAS_ESM_PANEL:
+            try:
+                self.esm_panel = EnergySpanPanel(
+                    log_func=self._append_log,
+                    parent=self,
+                )
+                self.tabs.addWidget(self.esm_panel)
+            except Exception:
+                self.esm_panel = None
+
         scroll_right.setWidget(self.tabs)
         # 参数设置区用白色圆角卡片整体包裹
         right_card = QFrame()
@@ -808,6 +894,16 @@ class OrbitalVisApp(QMainWindow):
 
         main_splitter.addWidget(left_widget)
         main_splitter.addWidget(right_widget)
+        # 左右宽度相等：忽略右侧内容的最小尺寸提示，避免分析面板撑宽分割条
+        self.tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        scroll_right.setMinimumWidth(0)
+        # 必须在 addWidget 之后设置 stretch 才生效：导航固定、画布与右栏 1:1 均分
+        main_splitter.setStretchFactor(0, 0)
+        main_splitter.setStretchFactor(1, 1)
+        main_splitter.setStretchFactor(2, 1)
+        _DEFAULT_SPLIT_SIZES = [122, 620, 620]
+        main_splitter.setSizes(_DEFAULT_SPLIT_SIZES)
+        main_splitter.set_default_sizes(_DEFAULT_SPLIT_SIZES)
         body_layout.addWidget(main_splitter, stretch=1)
 
         main_layout.addWidget(body, stretch=5)
@@ -1665,6 +1761,16 @@ class OrbitalVisApp(QMainWindow):
                 self.irc_panel.shutdown()
             except Exception:
                 pass
+        if getattr(self, "di_panel", None) is not None:
+            try:
+                self.di_panel.shutdown()
+            except Exception:
+                pass
+        if getattr(self, "esm_panel", None) is not None:
+            try:
+                self.esm_panel.shutdown()
+            except Exception:
+                pass
         # 5) 停掉自旋密度后台线程（cancel_check 使 Multiwfn 快速退出）
         if getattr(self, "_spin_worker", None) is not None:
             try:
@@ -1744,7 +1850,7 @@ class OrbitalVisApp(QMainWindow):
     # 功能导航条（画布左侧）的 i18n key（与页面顺序一一对应）
     _main_tab_keys = ["tab_viz", "tab_setup", "tab_charge_bond", "tab_nbo",
                       "tab_esp", "tab_igmh", "tab_aim", "tab_etsnocv",
-                      "tab_mpp", "tab_irc", "tab_log"]
+                      "tab_mpp", "tab_irc", "tab_di", "tab_esm", "tab_log"]
 
     def _setup_main_nav(self):
         """建立画布左侧的功能导航条（QListWidget），并联动右侧页面栈。
@@ -1757,9 +1863,22 @@ class OrbitalVisApp(QMainWindow):
         for key in self._main_tab_keys:
             nav.addItem(self._tr(key))
         nav.currentRowChanged.connect(self._on_nav_row_changed)
-        # 页面索引变化（如有代码切换页面）→ 同步导航条高亮
-        self.tabs.currentChanged.connect(lambda _i: self._sync_main_nav())
+        # 页面索引变化（如有代码切换页面）→ 同步导航条高亮 + 画布显隐
+        self.tabs.currentChanged.connect(self._on_tab_changed)
         self._sync_main_nav()
+
+    def _on_tab_changed(self, index):
+        """切换右侧页面：同步导航高亮，并按页面需要显示/隐藏左侧画布。"""
+        self._sync_main_nav()
+        # 能量跨度（ESM）纯能量分析，不需要画布 → 隐藏左侧画布，右栏占满
+        key = self._main_tab_keys[index] \
+            if 0 <= index < len(self._main_tab_keys) else ""
+        left = getattr(self, "_left_widget", None)
+        if left is not None:
+            if key == "tab_esm":
+                left.hide()
+            else:
+                left.show()
 
     def _on_nav_row_changed(self, row):
         """导航条点击 → 切换右侧页面。"""

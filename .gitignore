@@ -69,3 +69,18 @@ TinyApp.spec
 dsh_dates.txt
 debug-vdw-shell-bond-black.md
 color_wheel_demos.py
+
+# 面板设置（含本机路径，不入库）
+irc_panel_settings.ini
+di_panel_settings.ini
+esm_panel_settings.ini
+
+# 缓存 / 测试数据目录
+/_irc_test/
+/_mayer_cache/
+
+# 宣传 / 设计文档（本地工作，不入库）
+/公众号推文_MolStudio.md
+/公众号推文_新功能.html
+/界面设计方案.html
+/视频讲解台词.md

@@ -1865,6 +1865,7 @@ class CubGLWidget(QOpenGLWidget):
         self._cs_unit = "ESP (a.u.)"
         self._cs_show = False
         self._cs_cmap = None
+        self._cs_cmap_name = ""      # 当前配色名（fallback 方向判断用）
         self._cs_ticks = 5          # 色标轴刻度段数
         self._cs_orient = "vertical"  # vertical / horizontal
         self._cs_len = 0.55         # 色标条长度（画布高/宽的比例）
@@ -4606,9 +4607,14 @@ class CubGLWidget(QOpenGLWidget):
         self._cs_show = bool(show)
         self.update()
 
-    def set_color_scale_cmap(self, cmap_name):
-        """设置色标条使用的配色（与 ESP 表面配色一致）。"""
-        self._cs_cmap = self._resolve_cmap(cmap_name)
+    def set_color_scale_cmap(self, cmap_name, invert=False):
+        """设置色标条使用的配色（与 ESP 表面配色一致）。
+
+        invert=True 时翻转方向（低值端↔高值端互换），对任意配色通用。
+        """
+        self._cs_cmap = self._resolve_cmap(cmap_name, invert=invert)
+        self._cs_cmap_name = cmap_name or ""
+        self._cs_invert = bool(invert)
         self.update()
 
     def set_color_scale_ticks(self, n):
@@ -4792,11 +4798,16 @@ class CubGLWidget(QOpenGLWidget):
         k = (t - 0.5) / 0.5
         return (0.6 + 0.4 * (1.0 - k), 1.0 - k, 1.0 - k)
 
-    def _resolve_cmap(self, cmap_name):
-        """把 ESP_CMAPS 配色名解析成 matplotlib Colormap；失败返回 None（回退 BWR）。"""
+    def _resolve_cmap(self, cmap_name, invert=False):
+        """把 ESP_CMAPS 配色名解析成 matplotlib Colormap；失败返回 None。
+
+        invert=True 时翻转方向（mpl 名加/去 _r 后缀）。
+        """
         try:
             from esp_viewer import ESP_CMAPS
-            mpl_name = ESP_CMAPS.get(cmap_name, ("bwr", True))[0] if ESP_CMAPS else "bwr"
+            mpl_name = ESP_CMAPS.get(cmap_name, ("bwr_r", True))[0] if ESP_CMAPS else "bwr_r"
+            if invert:
+                mpl_name = mpl_name[:-2] if mpl_name.endswith("_r") else mpl_name + "_r"
             from matplotlib import cm as _mcm
             try:
                 return _mcm.get_cmap(mpl_name)
@@ -4806,14 +4817,27 @@ class CubGLWidget(QOpenGLWidget):
             return None
 
     def _cs_cmap_rgb(self, t):
-        """当前配色在 t∈[0,1] 处的 RGB（0..1）。"""
+        """当前配色在 t∈[0,1] 处的 RGB（0..1）。
+
+        注意 _bwr_rgb(u) 是 蓝→白→红（u=0 蓝, u=1 红）。
+        需要低值端=红时取 _bwr_rgb(1-t)（即红→白→蓝）。
+        """
         if getattr(self, "_cs_cmap", None) is not None:
             try:
                 rgba = self._cs_cmap(float(t))
                 return (rgba[0], rgba[1], rgba[2])
             except Exception:
                 pass
-        return self._bwr_rgb(t)
+        # 兜底：matplotlib 不可用时，按当前配色方向取红-白-蓝或蓝-白-红
+        name = (getattr(self, "_cs_cmap_name", "") or "").upper()
+        inverted = bool(getattr(self, "_cs_invert", False))
+        # 低值端是否为红：RWB/RdBu 名字默认低值红；BWR 默认低值蓝
+        red_low = ("RWB" in name) or ("RDBU" in name)
+        if inverted:
+            red_low = not red_low
+        if red_low:
+            return self._bwr_rgb(1.0 - t)   # 红→白→蓝
+        return self._bwr_rgb(t)             # 蓝→白→红
 
     @staticmethod
     def _fmt_tick(v):
@@ -4879,7 +4903,8 @@ class CubGLWidget(QOpenGLWidget):
                 # 注意：PyQt5 的 QLinearGradient 没有 QRectF 构造重载，必须用浮点坐标
                 # 语义统一：水平条 左=低值(负)，右=高值(正)；
                 #           竖直条 上=高值(正)，下=低值(负)。
-                # _cs_cmap_rgb(t) 的 t=0 是低值端（蓝），t=1 是高值端（红）。
+                # _cs_cmap_rgb(t) 的 t=0 是低值端（默认 RWB：红），
+                # t=1 是高值端（蓝）。
                 if horizontal:
                     grad = QLinearGradient(rect.x(), rect.y(),
                                            rect.x() + rect.width(), rect.y())

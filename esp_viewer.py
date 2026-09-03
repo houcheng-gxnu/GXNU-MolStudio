@@ -6,7 +6,8 @@ esp_viewer.py — 基于 cub_viewer 引擎的 ESP 等值面可视化
     * 用「电子密度 cube」(density.cub) 定义几何表面 —— 取 rho = isolevel
       (默认 0.001, 即 vdW 表面) 的等值面；
     * 用「静电势 cube」(ESP.cub) 在表面顶点处三线性采样，做**逐顶点连续
-      着色**（BWR 蓝-白-红色标：负=蓝, 零=白, 正=红）；
+      着色**（默认 RWB 红-白-蓝色标，符合化学惯例：红=负电势=富电子,
+      蓝=正电势=缺电子）；
     * 复用 cub_viewer.CubGLWidget 的 OpenGL 渲染管线（depth peeling + Phong）。
 
 与 cub_viewer 默认「单场 + 正/负双色」不同，这里实现标准的 ESP 表面：
@@ -83,12 +84,15 @@ def _trilinear(field, idx0, idx1, frac):
 
 # ── ESP 配色方案 ──
 # 名称 -> (matplotlib cmap 名 / None=程序内置, 是否发散型)
-# 发散型（diverging）色标以 0 为中心（蓝-白-红），适合带符号的 ESP；
+# 发散型（diverging）色标以 0 为中心，适合带符号的 ESP。
+# 化学惯例：静电势图红色=富电子（负电势），蓝色=缺电子（正电势），
+# 因此默认用 RWB（红-白-蓝，低值红=负、高值蓝=正）。
 # 顺序型（sequential）色标从低到高单向渐变（如 viridis/jet）。
 # 注：matplotlib 的 jet/rainbow/hsv 为经典彩虹，但过渡生硬（感知不均匀、
 # 两端与中段有突兀色块）；turbo 是 Google 设计的 jet 现代替代，感知均匀、
 # 颜色连续丰富，作为"彩虹"主推。nipy_spectral / gist_ncar 为更丰富的彩虹变体。
 ESP_CMAPS = {
+    "RWB (红-白-蓝)":    ("bwr_r", True),
     "BWR (蓝-白-红)":    ("bwr", True),
     "Coolwarm":          ("coolwarm", True),
     "Seismic":           ("seismic", True),
@@ -118,6 +122,14 @@ def _bwr(t):
     return rgb
 
 
+def _rwb(t):
+    """Red-White-Blue 色标: t in [0,1] -> RGB (1,0,0)->(1,1,1)->(0,0,1)
+    （RWB 兜底实现，低值红=富电子/负电势）。"""
+    arr = np.atleast_1d(np.asarray(t, dtype=np.float64))
+    out = _bwr(1.0 - arr)
+    return out[0] if np.ndim(t) == 0 else out
+
+
 _MPL_CMAP_CACHE = {}
 
 
@@ -137,23 +149,34 @@ def _mpl_cmap(name):
     return cmap
 
 
-def _apply_colormap(t, cmap_name="BWR (蓝-白-红)"):
+def _apply_colormap(t, cmap_name="RWB (红-白-蓝)", invert=False):
     """t in [0,1] -> RGB float32 (N,3)。优先用 matplotlib colormap，
-    兜底用内置 _bwr（仅对 BWR 类有效）。"""
+    兜底用内置 _bwr/_rwb（仅对 BWR/RWB 类有效）。
+
+    invert=True 时把配色方向翻转（低值↔高值互换）。
+    """
     t = np.clip(t, 0.0, 1.0)
-    spec = ESP_CMAPS.get(cmap_name, ("bwr", True))
+    spec = ESP_CMAPS.get(cmap_name, ("bwr_r", True))
     mpl_name = spec[0]
+    inverted = bool(invert)
+    if inverted:
+        mpl_name = mpl_name[:-2] if mpl_name.endswith("_r") else mpl_name + "_r"
     cmap = _mpl_cmap(mpl_name) if mpl_name else None
     if cmap is not None:
         rgba = cmap(t)
         return rgba[:, :3].astype(np.float32)
-    # 兜底：仅 BWR 类有内置实现
-    return _bwr(t)
+    # 兜底（仅 BWR/RWB 类有内置实现）：低值端是红还是蓝，
+    # 由原配色方向与 invert 共同决定（RWB/RdBu 默认低值=红）
+    up = (cmap_name or "").upper()
+    red_low = ("RWB" in up) or ("RDBU" in up)
+    if inverted:
+        red_low = not red_low
+    return _rwb(t) if red_low else _bwr(t)
 
 
 def extract_esp_surface(density_cube, esp_cube, isolevel=DEFAULT_ISOLEVEL,
                         vmin=DEFAULT_VMIN, vmax=DEFAULT_VMAX, au=1.0,
-                        cmap="BWR (蓝-白-红)", auto_range=False):
+                        cmap="RWB (红-白-蓝)", auto_range=False, invert=False):
     """用密度场定几何、ESP 场定顶点颜色，返回 (IsoSurface, CubeData)。
 
     几何（顶点 + 法线）复用引擎的 marching_cubes 从密度场提取（世界坐标）；
@@ -168,10 +191,13 @@ def extract_esp_surface(density_cube, esp_cube, isolevel=DEFAULT_ISOLEVEL,
                      与默认 a.u. 色标范围 ±0.03 自洽）。仅在你需要把
                      ESP 场显式换算到 kcal/mol 并把 vmin/vmax 也设为
                      kcal/mol 量级时，才传入 AU_TO_KCAL（=627.509）。
-        cmap:         ESP 配色方案名（见 ESP_CMAPS 的键），默认 BWR。
+        cmap:         ESP 配色方案名（见 ESP_CMAPS 的键），默认 RWB
+                      （红-白-蓝：低值红=富电子/负电势，高值蓝=缺电子/正电势）。
         auto_range:   True 时忽略 vmin/vmax，按 ESP 实际分布自适应设范围
                      （发散型色标用 ±max(|值|)，顺序型用 [min,max] 的 2~98 分位），
                      让颜色铺满整个色标、过渡更自然丰富。
+        invert:       True 时翻转配色方向（低值端↔高值端互换），
+                     对任意配色方案通用。
 
     Returns:
         (surf, density_cube) —— surf 含世界坐标顶点、梯度法线、cmap 顶点色。
@@ -218,7 +244,7 @@ def extract_esp_surface(density_cube, esp_cube, isolevel=DEFAULT_ISOLEVEL,
                 lo, hi = lo - 1e-3, hi + 1e-3
             vmin, vmax = float(lo), float(hi)
     t = (esp_vals - vmin) / (vmax - vmin)
-    rgb = _apply_colormap(t, cmap_name=cmap)
+    rgb = _apply_colormap(t, cmap_name=cmap, invert=invert)
     colors = np.column_stack([rgb, np.ones(len(rgb), dtype=np.float32)]).astype(np.float32)
     surf.colors = colors
     return surf, density_cube
@@ -355,7 +381,7 @@ class ESPViewer(QMainWindow):
         self._vmax_edit.setMaximumWidth(72)
         gl.addWidget(self._vmax_edit, 2, 1)
 
-        gl.addWidget(QLabel("蓝=负, 白=0, 红=正 (kcal/mol)"), 0, 2, 3, 1)
+        gl.addWidget(QLabel("红=负(富电子), 白=0, 蓝=正(缺电子) (kcal/mol)"), 0, 2, 3, 1)
         outer.addWidget(g, stretch=1)
 
         # 显示
@@ -467,7 +493,7 @@ def QTimer_singleshot(fn):
 
 def render_to_file(density_path, esp_path, out_png, isolevel=DEFAULT_ISOLEVEL,
                    vmin=DEFAULT_VMIN, vmax=DEFAULT_VMAX, dpi=600,
-                   cmap="BWR (蓝-白-红)", auto_range=False):
+                   cmap="RWB (红-白-蓝)", auto_range=False):
     """离屏渲染 ESP 表面并保存 PNG（复用 CubGLWidget.export_image）。"""
     if not _ensure_pyopengl():
         raise RuntimeError("PyOpenGL 不可用")
@@ -516,7 +542,7 @@ def main(argv=None):
                     help="离屏渲染输出 PNG（无此参数则打开交互窗口）")
     ap.add_argument("--dpi", type=float, default=600, help="输出 DPI (默认 600)")
     _cmap_names = "|".join(ESP_CMAPS.keys())
-    ap.add_argument("--cmap", default="BWR (蓝-白-红)",
+    ap.add_argument("--cmap", default="RWB (红-白-蓝)",
                     help=f"ESP 配色方案: {_cmap_names}")
     ap.add_argument("--auto-range", action="store_true",
                     help="按 ESP 实际分布自适应色标范围（颜色铺满、过渡更自然）")
