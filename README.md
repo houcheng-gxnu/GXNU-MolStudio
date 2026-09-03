@@ -7,195 +7,212 @@
 </p>
 
 <p align="center">
-  <b>分子可视化与量子化学分析 — 从 fchk 到期刊精美轨道图，一站式完成。</b>
+  <strong>English</strong> · <a href="./README_zh.md">简体中文</a>
+</p>
+
+<p align="center">
+  <b>Molecular visualization and quantum-chemical analysis — from fchk to publication-ready orbital images in one go.</b>
   <br>
-  <sub>侯成课题组 · 广西师范大学</sub>
+  <sub>Hou Cheng Research Group · Guangxi Normal University</sub>
 </p>
 
 ---
 
-## 界面展示
+## Screenshots
 
 <p align="center">
-  <img src="screenshots/mol_view1.png" width="32%" alt="分子视图 1">
-  <img src="screenshots/mol_view2.png" width="32%" alt="分子视图 2">
-  <img src="screenshots/mol_view3.png" width="32%" alt="分子视图 3">
+  <img src="screenshots/mol_view1.png" width="32%" alt="View 1">
+  <img src="screenshots/mol_view2.png" width="32%" alt="View 2">
+  <img src="screenshots/mol_view3.png" width="32%" alt="View 3">
 </p>
 <p align="center">
-  <img src="screenshots/mol_view4.png" width="32%" alt="分子视图 4">
-  <img src="screenshots/mol_view5.png" width="32%" alt="分子视图 5">
-  <img src="screenshots/mol_view6.png" width="32%" alt="分子视图 6">
+  <img src="screenshots/mol_view4.png" width="32%" alt="View 4">
+  <img src="screenshots/mol_view5.png" width="32%" alt="View 5">
+  <img src="screenshots/mol_view6.png" width="32%" alt="View 6">
 </p>
 
 ---
 
-## 简介
+## About
 
-GXNU MolStudio 是一款面向计算化学研究的分子可视化与量子化学分析软件。它集成了**内嵌 OpenGL 实时渲染引擎**（基于 IboView 管线移植）、**Multiwfn 波函数分析**、**IGMH/IRI 弱相互作用分析**、**ESP 静电势**、**NBO 与电荷分析**等模块，把传统上需要在多个软件间手动切换的流程封装为直观的图形界面。
+GXNU MolStudio is a molecular visualization and quantum-chemistry analysis suite built for computational chemistry research. It integrates an **embedded OpenGL real-time rendering engine** (ported from the IboView pipeline), **Multiwfn wavefunction analysis**, **IGMH/IRI weak-interaction analysis**, **ESP electrostatic potential**, **NBO and charge analysis**, and more — wrapping workflows that used to require manual switching between several programs into a single intuitive GUI.
 
-| | 传统流程 | GXNU MolStudio |
+| Task | Traditional workflow | GXNU MolStudio |
 |---|---|---|
-| cube 生成 | 手动输入命令 | 双击轨道自动生成 |
-| 3D 预览 | 手动 load、调等值面 | 内嵌 OpenGL 画布，滑块实时调整 |
-| 渲染出图 | 手动调灯光、材质 | 一键样式，即时出图 |
-| 弱相互作用 | 分开跑 IGMH/IRI 再拼图 | 面板内一键分析并可视化 |
-| 批量处理 | 逐个文件重复操作 | 拖入文件夹，全自动批处理 |
+| cube generation | type commands by hand | double-click an orbital, auto-generated |
+| 3D preview | manually load & tweak isovalues | embedded OpenGL canvas with live sliders |
+| rendering | tune lights & materials by hand | one-click styles, instant images |
+| weak interactions | run IGMH/IRI separately, then compose | one-click analysis and visualization in-panel |
+| batch processing | repeat file-by-file | drag in a folder, fully automated |
 
 ---
 
-## 功能特性
+## Features
 
-### 🧬 内嵌 OpenGL 渲染引擎（ovcanvas）
-- **深度剥离透明合成** — IboView 移植管线，多层面内透明正确排序；不可用时自动回退排序混合
-- **一键样式** — sob-art / IBOview / HoukMol / IQmol 四种默认观感，一键切换
-- **原子配色与光照正交双轴** — 原子配色（CPK / SobArt / HoukMol / Vcube …）× 光照（三光 / 单光 / 双光 / 四光）自由组合
-- **每灯独立光晕** — 光源对话框支持方向/数量/光晕精细调节并保存载入
-- **十字圆环** — HoukMol 风格球面大圆环，方位/俯仰可调、可锁定
+### 🧬 Embedded OpenGL rendering engine (ovcanvas)
+- **Depth-peeled transparency compositing** — IboView-ported pipeline, correct in-plane transparency sorting across layers; automatic fallback to sorted blending when unavailable
+- **One-click styles** — sob-art / IBOview / HoukMol / IQmol default looks, switchable in one click
+- **Atom colors × lights, two orthogonal axes** — atom palettes (CPK / SobArt / HoukMol / Vcube …) × lighting rigs (3-light / 1-light / 2-light / 4-light) in any combination
+- **Per-light glow** — light dialog for direction / count / glow with fine tuning, save & load
+- **Ring rings** — HoukMol-style equatorial great circles; azimuth / elevation adjustable, lockable
 
-### 🔬 分子显示辅助
-- **隐藏氢原子** — 一键隐藏全部 H，突出重原子骨架
-- **保留指定 H** — 输入编号（如 `1,3,5-8`），仅显示选中的 H
-- **显示原子编号 / 元素符号** — 每个原子旁标注分子内序号或元素符号
+### 🔬 Molecule display helpers
+- **Hide hydrogens** — hide all H atoms with one click to highlight the heavy-atom skeleton
+- **Keep selected H** — enter indices (e.g. `1,3,5-8`) to show only chosen hydrogens
+- **Atom indices / element symbols** — label each atom with its in-molecule number or element symbol
 
-### 🧪 IGMH / IRI 弱相互作用分析
-- **一键分析** — 选择片段，调用 Multiwfn 计算 IGMH 或 IRI 指标
-- **BGR 着色** — sign(λ₂)ρ 蓝-绿-红着色，等值面大小/透明度滑块 + 精确输入框
-- **IGM 散点图** — 内嵌散点图查看器
+### 🧪 IGMH / IRI weak-interaction analysis
+- **One-click analysis** — pick fragments, run IGMH or IRI indices through Multiwfn
+- **BGR coloring** — sign(λ₂)ρ blue-green-red coloring; isosurface size / opacity sliders plus precise input boxes
+- **IGM scatter plots** — embedded scatter-plot viewer
 
-### ⚡ 量子化学数据分析
-- **轨道浏览器** — 轨道能量、占据数、HOMO/LUMO 标注，双击自动生成 cube
-- **ESP 静电势** — 等值面 + 极值点标注 + 色标条
-- **NBO 分析** — 键级、占据、二阶微扰能（E2）轨道对
-- **电荷分析** — Mulliken / 拟合电荷、键级可视化
+### ⚡ Quantum-chemistry data analysis
+- **Orbital browser** — orbital energies, occupations, HOMO/LUMO labels; double-click to generate a cube
+- **ESP electrostatic potential** — isosurface + extrema labels + color scale bar
+- **NBO analysis** — bond orders, occupations, second-order perturbation E(2) orbital pairs
+- **Charge analysis** — Mulliken / fitted charges with bond-order visualization
+- **IRC analysis** — track Mayer bond orders and atomic charges along an IRC path, showing each structure live in the shared canvas
+- **Distortion–Interaction (DI) analysis** — fragment energy-decomposition with a report and diagram
+- **Energetic Span Model (ESM)** — catalytic-cycle analysis: identify TDI/TDTS, compute the energy span δE and TOF, step-shaped energy profiles
+- **AIM topology** — QTAIM bond critical points and bond paths from `.wfn` / `.wfx` / fchk input
+- **Charge & Mayer bond order** — combined charge-population and bond-order analysis
 
-### 🎬 传统 VMD / Tachyon 渲染（兼容模式）
-- 30+ 预置渲染风格（vcube2.0、IboView、原创精选）
-- 高分辨率输出（BMP/PNG，3000+）、可选透明背景、阴影/AO 控制
-- 中英双语即时切换、运行日志、命令行批处理
+### 🎬 Legacy VMD / Tachyon rendering (compatibility mode)
+- 30+ preset render styles (vcube2.0, IboView, original picks)
+- High-resolution output (BMP/PNG, 3000+), optional transparent background, shadow/AO control
+- Instant Chinese/English toggle, run logs, command-line batch mode
 
 ---
 
-## 快速开始
+## Quick Start
 
-### 环境要求
+### Requirements
 
-| 组件 | 用途 | 安装 |
+| Component | Purpose | Install |
 |------|------|------|
-| Python 3.8+ | 运行环境 | [python.org](https://www.python.org/) |
-| PyQt5 | GUI 界面 | `pip install PyQt5 PyOpenGL PyOpenGL-accelerate` |
-| NumPy | 数值计算 | `pip install numpy` |
-| PyMCubes | 等值面提取 | `pip install PyMCubes` |
-| matplotlib | 散点图/色标 | `pip install matplotlib` |
-| [Multiwfn](http://sobereva.com/multiwfn/) | fchk → cube、IGMH/IRI | 下载后配置路径 |
+| Python 3.8+ | runtime | [python.org](https://www.python.org/) |
+| PyQt5 | GUI | `pip install PyQt5 PyOpenGL PyOpenGL-accelerate` |
+| NumPy | numerics | `pip install numpy` |
+| PyMCubes | isosurface extraction | `pip install PyMCubes` |
+| matplotlib | scatter plots / color bars | `pip install matplotlib` |
+| [Multiwfn](http://sobereva.com/multiwfn/) | fchk → cube, IGMH/IRI | download and configure the path |
 
-> VMD / Tachyon 仅传统渲染模式需要；内嵌 OpenGL 画布不依赖它们。
+> VMD / Tachyon are only required for the legacy render mode; the embedded OpenGL canvas does not depend on them.
 
-### 安装
+### Installation
 
 ```bash
-git clone https://cnb.cool/chem311/GXNU-MolStudio.git
+git clone https://github.com/houcheng-gxnu/GXNU-MolStudio.git
 cd GXNU-MolStudio
 pip install PyQt5 PyOpenGL numpy PyMCubes matplotlib
 ```
 
-### 配置工具路径
+### Configure tool paths
 
-首次启动时在 GUI ⚙️ 设置中浏览选择 Multiwfn 等路径，自动保存到 `fchk_orbital.ini`。
+On first launch, browse and select the Multiwfn path (and others) in the GUI ⚙️ settings; they are saved automatically to `fchk_orbital.ini`.
 
-### 启动
+### Launch
 
 ```bash
-# GUI 模式（默认中文）
+# GUI mode (English UI available; 中文内置)
 python main.py
 ```
 
-### 命令行模式（批处理）
+### Command-line mode (batch)
 
 ```bash
-# 单个文件，HOMO 轨道，sob-art 风格
+# Single file, HOMO orbital, sob-art style
 python main.py input.fchk --mo h --iso 0.05 --style sob-art
 
-# 批量处理文件夹，HOMO + LUMO
+# Batch a folder, HOMO + LUMO
 python main.py ./fchk_folder/ --mo h,l --iso 0.05
 
-# 指定轨道、风格、高分辨率
+# Specific orbitals, style, high resolution
 python main.py input.fchk --mo h-1,h,l,l+1 --iso 0.04 --style lakers --res 3000,2250
 
-# 仅生成 cube，不渲染（用于调试）
+# cube only, no rendering (for debugging)
 python main.py ./folder/ --mo h --grid 3 --no-render
 ```
 
-| 参数 | 类型 | 默认值 | 说明 |
+| Argument | Type | Default | Description |
 |------|------|--------|------|
-| `input` | str | — | fchk 文件路径或文件夹路径 |
-| `--mo` | str | `h` | 轨道选择：`h` (HOMO)、`l` (LUMO)、`h-1`、数字编号、逗号分隔 |
-| `--iso` | float | `0.05` | 等值面阈值 |
-| `--grid` | int | `2` | 网格质量：1=低, 2=中, 3=高 |
-| `--style` | str | `sob-art` | 渲染风格 |
-| `--res` | str | `2000,1500` | 输出分辨率 `宽,高`（也支持 `宽x高`） |
-| `--no-render` | flag | — | 仅生成 cube，不渲染 |
-| `--out` | str | 输入同目录 | 输出目录 |
+| `input` | str | — | fchk file path or folder path |
+| `--mo` | str | `h` | orbitals: `h` (HOMO), `l` (LUMO), `h-1`, numeric indices, comma-separated |
+| `--iso` | float | `0.05` | isosurface threshold |
+| `--grid` | int | `2` | grid quality: 1=low, 2=medium, 3=high |
+| `--style` | str | `sob-art` | render style |
+| `--res` | str | `2000,1500` | output resolution `width,height` (`widthxheight` also accepted) |
+| `--no-render` | flag | — | generate cubes only, skip rendering |
+| `--out` | str | same as input | output directory |
 
 ---
 
-## 项目结构
+## Project Structure
 
 ```
 GXNU-MolStudio/
-├── main.py                # 入口（GUI 启动 + 命令行批处理）
-├── main_window.py         # 主窗口（UI 布局、面板集成、日志）
-├── ovcanvas/              # 内嵌 OpenGL 渲染引擎（IboView 管线移植）
-│   ├── _glwidget.py       # GL 渲染核心（深度剥离/光照/球棍/等值面）
-│   ├── _panel.py          # 画布面板（一键样式/参数/光源/圆环）
-│   ├── _colorwheel.py     # IboView 风格色轮
-│   └── _molviewer_style.py# MolViewer 预设
-├── igmh_panel.py          # IGMH/IRI 弱相互作用分析面板
-├── esp_panel.py           # ESP 静电势分析面板
-├── nbo_viewer.py          # NBO 分析查看器
-├── charge_viewer.py       # 电荷分析查看器
-├── fchk_orbital.py        # 后端引擎（cube 生成、VMD 控制、Tachyon 渲染、风格定义）
-├── fchk_parser.py         # fchk 解析
-├── marching_cubes.py      # 等值面提取（PyMCubes 封装）
-├── file_dialogs.py        # 文件对话框（记住上次目录）
-├── i18n.py                # 国际化（中/English）
-├── theme.py               # QSS 主题
-├── workers.py             # 后台工作线程
-├── OrbitalViewer.spec     # PyInstaller 打包配置（onedir）
-└── README.md
+├── main.py                  # Entry point (GUI launch + CLI batch)
+├── main_window.py           # Main window (UI layout, panel docking, logs)
+├── ovcanvas/                # Embedded OpenGL rendering engine (IboView port)
+│   ├── _glwidget.py         # GL core: depth peeling / lighting / ball-stick / isosurfaces
+│   ├── _panel.py            # Canvas controls (one-click styles / params / lights / ring)
+│   ├── _colorwheel.py       # IboView-style color wheel
+│   └── _molviewer_style.py  # MolViewer preset
+├── etsnocv/                 # ETS-NOCV analysis package
+├── igmh_panel.py            # IGMH/IRI weak-interaction panel
+├── irc_panel.py             # IRC panel: Mayer bond order / charge along the path
+├── esp_panel.py             # ESP electrostatic-potential panel
+├── aim_panel.py             # AIM topology analysis (QTAIM BCPs & bond paths)
+├── charge_bond_panel.py     # Charge + Mayer bond-order combined panel
+├── charge_viewer.py         # Charge analysis viewer
+├── nbo_viewer.py            # NBO analysis viewer
+├── di_analysis_panel.py     # Distortion–Interaction energy decomposition
+├── energy_span_panel.py     # Energetic Span Model (energy span δE / TOF)
+├── fchk_orbital.py          # Backend engine (cube gen, VMD control, Tachyon render, styles)
+├── fchk_parser.py           # fchk parsing
+├── marching_cubes.py        # Isosurface extraction (PyMCubes wrapper)
+├── file_dialogs.py          # File dialogs (remember last directory)
+├── i18n.py                  # Internationalization (简体中文 / English)
+├── theme.py                 # QSS themes
+├── workers.py               # Background worker threads
+├── OrbitalViewer.spec       # PyInstaller config (onedir)
+├── screenshots/             # Preview screenshots
+├── README.md                # English (default)
+└── README_zh.md             # 简体中文
 ```
 
 ---
 
-## 打包为独立 EXE
+## Build a Standalone EXE
 
-无需安装 Python 即可运行，适合分发给非技术用户：
+No Python installation required on the target machine — handy for non-technical users:
 
 ```bash
 pip install pyinstaller
 pyinstaller OrbitalViewer.spec --clean
 ```
 
-输出：`dist/GXNU MolStudio/`（文件夹形式，双击 `GXNU MolStudio.exe` 启动）。
+Output: `dist/GXNU MolStudio/` (a folder; double-click `GXNU MolStudio.exe` to start).
 
-> 打包时已处理 360 安全卫士对个别系统 DLL 的写入拦截（见 spec 内注释）。
+> Packaging already handles 360 Security guard's write interception on a few system DLLs (see comments in the spec).
 
 ---
 
-## 致谢
+## Acknowledgments
 
-GXNU MolStudio 站在巨人的肩膀上：
+GXNU MolStudio stands on the shoulders of giants:
 
-- **[Multiwfn](http://sobereva.com/multiwfn/)** — 卢天老师开发的量子化学波函数分析程序，引用超 4 万篇论文。本项目使用其生成 cube、执行 IGMH/IRI 分析。
-- **[vcube2.0](https://github.com/Zhong-Cheng-2020/vcube2.0)** — 钟成老师提供的多套精美 VMD 轨道渲染配置。
+- **[Multiwfn](http://sobereva.com/multiwfn/)** — the wavefunction analysis program by Prof. Tian Lu (sobereva), cited by over 40,000 papers. Used here to generate cubes and run IGMH/IRI analyses.
+- **[vcube2.0](https://github.com/Zhong-Cheng-2020/vcube2.0)** — the collection of polished VMD orbital render configurations by Prof. Cheng Zhong.
 - **[VMD](https://www.ks.uiuc.edu/Research/vmd/)** — Humphrey, W., Dalke, A. and Schulten, K., "VMD: Visual Molecular Dynamics", J. Molec. Graphics, 1996, 14, 33–38.
 - **[Tachyon](http://jedi.ks.uiuc.edu/~johns/raytracer/)** — Stone, J. E., "An Efficient Library for Parallel Ray Tracing and Animation", M.Sc. Thesis, 1998.
-- **[IboView](https://www.iboview.org)** — Gerald Knizia 开发的量子化学可视化程序。本项目的 OpenGL 渲染引擎（深度剥离透明合成、Phong 光照、球棍模型几何与原子半径/颜色表）参考并部分移植自 IboView（Copyright (c) 2015 Gerald Knizia, GPLv3），特此致谢。
+- **[IboView](https://www.iboview.org)** — the quantum-chemistry visualization program by Gerald Knizia. Our OpenGL engine (depth-peeled transparent compositing, Phong lighting, ball-and-stick geometry, atomic radii/color tables) is modeled on and partly ported from IboView (Copyright (c) 2015 Gerald Knizia, GPLv3). Many thanks.
 
 ---
 
-## 引用
+## Citation
 
-如果 GXNU MolStudio 对你的研究有帮助，请在论文中引用：
+If GXNU MolStudio helps your research, please cite:
 
 ```bibtex
 @software{GXNUMolStudio2026,
@@ -203,17 +220,17 @@ GXNU MolStudio 站在巨人的肩膀上：
   author       = {Hou Cheng},
   year         = {2026},
   version      = {1.0},
-  url          = {https://cnb.cool/chem311/GXNU-MolStudio},
+  url          = {https://github.com/houcheng-gxnu/GXNU-MolStudio},
 }
 ```
 
-同时请引用上述致谢中的对应工具文献。另见 [CITATION.cff](./CITATION.cff) 和 [CITATION.bib](./CITATION.bib)。
+Also cite the corresponding tools from the acknowledgments above. See also [CITATION.cff](./CITATION.cff) and [CITATION.bib](./CITATION.bib).
 
 ---
 
-## 许可证
+## License
 
-本项目作为 IboView 的衍生作品，依 **GNU General Public License v3 (GPLv3)** 发布，详见 [LICENSE](./LICENSE) 文件。
+This project is a derivative work of IboView and is distributed under the **GNU General Public License v3 (GPLv3)**. See the [LICENSE](./LICENSE) file.
 
 ---
 

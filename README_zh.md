@@ -1,4 +1,4 @@
-# GXNU MolStudio（分子可视化与量子化学分析）
+# GXNU MolStudio
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-1.0-blue.svg" alt="Version 1.0">
@@ -7,20 +7,35 @@
 </p>
 
 <p align="center">
+  <a href="./README.md">English</a> · <strong>简体中文</strong>
+</p>
+
+<p align="center">
   <b>分子可视化与量子化学分析 — 从 fchk 到期刊精美轨道图，一站式完成。</b>
   <br>
   <sub>侯成课题组 · 广西师范大学</sub>
 </p>
 
+---
+
+## 界面展示
+
 <p align="center">
-  <a href="./README.md">English / 英文版</a>
+  <img src="screenshots/mol_view1.png" width="32%" alt="分子视图 1">
+  <img src="screenshots/mol_view2.png" width="32%" alt="分子视图 2">
+  <img src="screenshots/mol_view3.png" width="32%" alt="分子视图 3">
+</p>
+<p align="center">
+  <img src="screenshots/mol_view4.png" width="32%" alt="分子视图 4">
+  <img src="screenshots/mol_view5.png" width="32%" alt="分子视图 5">
+  <img src="screenshots/mol_view6.png" width="32%" alt="分子视图 6">
 </p>
 
 ---
 
 ## 简介
 
-GXNU MolStudio 是一款面向计算化学研究的分子可视化与量子化学分析软件。它集成了**内嵌 OpenGL 实时渲染引擎**（基于 IboView 管线移植）、**Multiwfn 波函数分析**、**IGMH/IRI 弱相互作用分析**、**ESP 静电势**、**NBO 与电荷分析**等模块，把传统上需要在多个软件间手动切换的流程封装为直观的图形界面。
+GXNU MolStudio 是一款面向计算化学研究的分子可视化与量子化学分析软件。它集成了**内嵌 OpenGL 实时渲染引擎**（基于 IboView 管线移植）、**Multiwfn 波函数分析**、**IGMH/IRI 弱相互作用分析**、**ESP 静电势**、**AIM 拓扑**、**IRC / DI / 能量跨度（ESM）分析**、**NBO 与电荷分析**等模块，把传统上需要在多个软件间手动切换的流程封装为直观的图形界面。
 
 | | 传统流程 | GXNU MolStudio |
 |---|---|---|
@@ -56,6 +71,11 @@ GXNU MolStudio 是一款面向计算化学研究的分子可视化与量子化�
 - **ESP 静电势** — 等值面 + 极值点标注 + 色标条
 - **NBO 分析** — 键级、占据、二阶微扰能（E2）轨道对
 - **电荷分析** — Mulliken / 拟合电荷、键级可视化
+- **IRC 分析** — 沿反应路径追踪 Mayer 键级与原子电荷变化，共享画布实时显示对应结构
+- **Distortion–Interaction（DI）分析** — 片段能量分解，附分析报告与示意图
+- **Energetic Span Model（ESM）** — 催化循环分析：识别 TDI/TDTS，计算能量跨度 δE 与 TOF，绘制台阶式能量剖面
+- **AIM 拓扑** — 基于 `.wfn` / `.wfx` / fchk 输入的 QTAIM 键临界点（BCP）与键径分析
+- **电荷与 Mayer 键级** — 电荷布居与 Mayer 键级组合面板
 
 ### 🎬 传统 VMD / Tachyon 渲染（兼容模式）
 - 30+ 预置渲染风格（vcube2.0、IboView、原创精选）
@@ -82,7 +102,7 @@ GXNU MolStudio 是一款面向计算化学研究的分子可视化与量子化�
 ### 安装
 
 ```bash
-git clone https://cnb.cool/chem311/GXNU-MolStudio.git
+git clone https://github.com/houcheng-gxnu/GXNU-MolStudio.git
 cd GXNU-MolStudio
 pip install PyQt5 PyOpenGL numpy PyMCubes matplotlib
 ```
@@ -94,7 +114,7 @@ pip install PyQt5 PyOpenGL numpy PyMCubes matplotlib
 ### 启动
 
 ```bash
-# GUI 模式（默认中文）
+# GUI 模式（默认中文；内置英文界面）
 python main.py
 ```
 
@@ -131,26 +151,34 @@ python main.py ./folder/ --mo h --grid 3 --no-render
 
 ```
 GXNU-MolStudio/
-├── main.py                # 入口（GUI 启动 + 命令行批处理）
-├── main_window.py         # 主窗口（UI 布局、面板集成、日志）
-├── ovcanvas/              # 内嵌 OpenGL 渲染引擎（IboView 管线移植）
-│   ├── _glwidget.py       # GL 渲染核心（深度剥离/光照/球棍/等值面）
-│   ├── _panel.py          # 画布面板（一键样式/参数/光源/圆环）
-│   ├── _colorwheel.py     # IboView 风格色轮
-│   └── _molviewer_style.py# MolViewer 预设
-├── igmh_panel.py          # IGMH/IRI 弱相互作用分析面板
-├── esp_panel.py           # ESP 静电势分析面板
-├── nbo_viewer.py          # NBO 分析查看器
-├── charge_viewer.py       # 电荷分析查看器
-├── fchk_orbital.py        # 后端引擎（cube 生成、VMD 控制、Tachyon 渲染、风格定义）
-├── fchk_parser.py         # fchk 解析
-├── marching_cubes.py      # 等值面提取（PyMCubes 封装）
-├── file_dialogs.py        # 文件对话框（记住上次目录）
-├── i18n.py                # 国际化（中/English）
-├── theme.py               # QSS 主题
-├── workers.py             # 后台工作线程
-├── OrbitalViewer.spec     # PyInstaller 打包配置（onedir）
-└── README.md / README_zh.md
+├── main.py                  # 入口（GUI 启动 + 命令行批处理）
+├── main_window.py           # 主窗口（UI 布局、面板集成、日志）
+├── ovcanvas/                # 内嵌 OpenGL 渲染引擎（IboView 管线移植）
+│   ├── _glwidget.py         # GL 渲染核心（深度剥离/光照/球棍/等值面）
+│   ├── _panel.py            # 画布面板（一键样式/参数/光源/圆环）
+│   ├── _colorwheel.py       # IboView 风格色轮
+│   └── _molviewer_style.py  # MolViewer 预设
+├── etsnocv/                 # ETS-NOCV 分析子包
+├── igmh_panel.py            # IGMH/IRI 弱相互作用分析面板
+├── irc_panel.py             # IRC 面板：沿路径的 Mayer 键级 / 电荷追踪
+├── esp_panel.py             # ESP 静电势分析面板
+├── aim_panel.py             # AIM 拓扑分析（QTAIM BCP 与键径）
+├── charge_bond_panel.py     # 电荷 + Mayer 键级组合面板
+├── charge_viewer.py         # 电荷分析查看器
+├── nbo_viewer.py            # NBO 分析查看器
+├── di_analysis_panel.py     # Distortion–Interaction 能量分解
+├── energy_span_panel.py     # Energetic Span Model（能量跨度 δE / TOF）
+├── fchk_orbital.py          # 后端引擎（cube 生成、VMD 控制、Tachyon 渲染、风格定义）
+├── fchk_parser.py           # fchk 解析
+├── marching_cubes.py        # 等值面提取（PyMCubes 封装）
+├── file_dialogs.py          # 文件对话框（记住上次目录）
+├── i18n.py                  # 国际化（中 / English）
+├── theme.py                 # QSS 主题
+├── workers.py               # 后台工作线程
+├── OrbitalViewer.spec       # PyInstaller 打包配置（onedir）
+├── screenshots/             # 展示截图
+├── README.md                # English（默认）
+└── README_zh.md             # 简体中文
 ```
 
 ---
@@ -192,7 +220,7 @@ GXNU MolStudio 站在巨人的肩膀上：
   author       = {Hou Cheng},
   year         = {2026},
   version      = {1.0},
-  url          = {https://cnb.cool/chem311/GXNU-MolStudio},
+  url          = {https://github.com/houcheng-gxnu/GXNU-MolStudio},
 }
 ```
 
