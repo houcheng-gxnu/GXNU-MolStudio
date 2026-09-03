@@ -44,6 +44,7 @@ fchk_orbital.ini
 
 # Local / temp artifacts (not for the repo)
 *.png
+!/screenshots/*.png
 build_log*.txt
 _repro_*.py
 _repro_out.txt

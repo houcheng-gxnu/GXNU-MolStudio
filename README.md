@@ -14,6 +14,21 @@
 
 ---
 
+## 界面展示
+
+<p align="center">
+  <img src="screenshots/mol_view1.png" width="32%" alt="分子视图 1">
+  <img src="screenshots/mol_view2.png" width="32%" alt="分子视图 2">
+  <img src="screenshots/mol_view3.png" width="32%" alt="分子视图 3">
+</p>
+<p align="center">
+  <img src="screenshots/mol_view4.png" width="32%" alt="分子视图 4">
+  <img src="screenshots/mol_view5.png" width="32%" alt="分子视图 5">
+  <img src="screenshots/mol_view6.png" width="32%" alt="分子视图 6">
+</p>
+
+---
+
 ## 简介
 
 GXNU MolStudio 是一款面向计算化学研究的分子可视化与量子化学分析软件。它集成了**内嵌 OpenGL 实时渲染引擎**（基于 IboView 管线移植）、**Multiwfn 波函数分析**、**IGMH/IRI 弱相互作用分析**、**ESP 静电势**、**NBO 与电荷分析**等模块，把传统上需要在多个软件间手动切换的流程封装为直观的图形界面。
