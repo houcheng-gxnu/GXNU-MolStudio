@@ -68,8 +68,8 @@ STYLE_DISPLAY = [f"{k}  — {STYLES[k]['desc']}" for k in STYLES.keys()]
 # tuned parameter sets (matte → shiny). FadeWidth/FadeBias control the
 # depth fog (see FRAG_* shaders).
 # ═══════════════════════════════════════════════════════════════
-_REG_DEFAULT_A = [0.8, 0.7, 0.4, -0.5]   # default opaque (atoms)
-_REG_DEFAULT_O = [0.8, 0.7, 0.7, -0.5]   # default orbital (used by style_params)
+_REG_DEFAULT_A = [0.85, 0.72, 0.45, -0.55]   # default opaque (atoms)
+_REG_DEFAULT_O = [0.85, 0.72, 0.78, -0.55]   # default orbital (used by style_params)
 
 # Gloss presets — MolStudio tuned parameter sets for the three-light Phong
 # model, applied as (a_reg, o_reg) overrides:
@@ -77,11 +77,11 @@ _REG_DEFAULT_O = [0.8, 0.7, 0.7, -0.5]   # default orbital (used by style_params
 #   o_reg = [o0, o1, o2, o3]  (isosurfaces)
 # a0/a1 = diffuse exponent/strength, a2 = specular strength, a3 = specular balance.
 SHININESS_PRESETS = {
-    "not very shiny":      ([0.7, 0.7, 0.25, -0.5], [0.7, 0.7, 0.25, -0.5]),
-    "reasonably shiny":    ([0.8, 0.7, 0.40, -0.5], [0.8, 0.7, 0.70, -0.5]),
-    "extra shiny":        ([0.9, 0.7, 1.00, -0.5], [0.9, 0.7, 1.00, -0.5]),
-    "sooooo shiny":       ([1.0, 0.7, 2.00, -0.5], [1.0, 0.7, 2.00, -0.5]),
-    "cgk's shiny chic '21": ([0.7, 0.7, 0.90, -0.5], [0.7, 0.7, 0.90, -0.5]),
+    "not very shiny":      ([0.75, 0.72, 0.28, -0.55], [0.75, 0.72, 0.28, -0.55]),
+    "reasonably shiny":    ([0.85, 0.72, 0.45, -0.55], [0.85, 0.72, 0.78, -0.55]),
+    "extra shiny":        ([0.95, 0.72, 1.05, -0.55], [0.95, 0.72, 1.05, -0.55]),
+    "sooooo shiny":       ([1.05, 0.72, 1.95, -0.55], [1.05, 0.72, 1.95, -0.55]),
+    "cgk's shiny chic '21": ([0.75, 0.72, 0.95, -0.55], [0.75, 0.72, 0.95, -0.55]),
 }
 SHININESS_DEFAULT = "reasonably shiny"
 
@@ -300,9 +300,9 @@ VDW_MAX_ATOMS = 128
 # radii share the same internal (Bohr-like) units; we normalize to
 # Angstrom-like units with these factors so the ball-and-stick proportions
 # look right.
-ATOM_DRAW_SCALE = 0.225    # sphere radius = ATOM_DRAW_SCALE * _DRAW_RADII[z]
-BOND_DRAW_SCALE = 0.18     # bond radius   = BOND_DRAW_SCALE * fBondScaleOuter-equivalent
-BOND_RADIUS_FACTOR = 1.3   # bond heuristic scale factor (MolStudio default)
+ATOM_DRAW_SCALE = 0.22     # sphere radius = ATOM_DRAW_SCALE * _DRAW_RADII[z]
+BOND_DRAW_SCALE = 0.185    # bond radius   = BOND_DRAW_SCALE * fBondScaleOuter-equivalent
+BOND_RADIUS_FACTOR = 1.32  # bond heuristic scale factor (MolStudio default)
 # Absolute upper bound for bond detection (in Angstrom). Distances up to this
 # value are still treated as solid bonds even if they exceed the covalent
 # radius heuristic, so longer contacts show a bond. Kept modest (1.8 Å) to
@@ -311,7 +311,7 @@ BOND_MAX_DIST_ANG = 1.8
 # Tighter absolute cap for bonds involving hydrogen (H only bonds to its
 # nearest heavy atom, C-H ≈ 1.09 Å), preventing distant H…X contacts.
 BOND_MAX_DIST_H_ANG = 1.3
-BOND_THINNING_DEFAULT = 0.72   # bond narrows to 72% of its radius at the midpoint
+BOND_THINNING_DEFAULT = 0.70   # bond narrows to 70% of its radius at the midpoint
                                # (runtime-adjustable; MolStudio default)
 
 # MolStudio renderer default properties (view / isosurface / fog / peeling).
@@ -319,13 +319,13 @@ _RENDER_DEFAULTS = {
     'IsoResolution': 12.0,
     'IsoThreshold': 80.0,       # *relative* threshold, in percent (see below)
     'FadeType': 1,
-    'FadeWidth': 9.0,
-    'FadeBias': 0.0,
+    'FadeWidth': 8.6,
+    'FadeBias': 0.05,
     'DepthPeelingLayers': 4,
     'RenderBacksides': False,
     'SuperSample': True,
     'FakeAntiAliasing': True,
-    'OrbitalOpacity': 0.8,      # orbitals are semi-transparent by default
+    'OrbitalOpacity': 0.78,     # orbitals are semi-transparent by default
 }
 
 # ── Style catalogue ──
@@ -489,10 +489,12 @@ uniform float u_Glow;         // overall glow size (1.0 = default; >1 wider/soft
 uniform vec4  u_Glows;        // per-light glow sizes (u_Glows[i] for light i)
 
 // Default three-light layout: one key from the upper right and two
-// symmetric fill lights below (a conventional studio setup).
-const vec3 D_L0 = vec3(0.5, 0.5, 0.70710678);
-const vec3 D_L1 = vec3(-0.4330127, -0.25, 0.8660254);
-const vec3 D_L2 = vec3(0.4330127, -0.25, 0.8660254);
+// symmetric fill lights below (a conventional studio setup). The three
+// directions are the canonical arrangement rotated 8 deg around the view
+// axis (relative geometry preserved).
+const vec3 D_L0 = vec3(0.4256, 0.5647, 0.7071);
+const vec3 D_L1 = vec3(-0.3940, -0.3079, 0.8660);
+const vec3 D_L2 = vec3(0.4636, -0.1873, 0.8660);
 
 // Per-light contribution:
 //   diffuse  = ShaderReg1 * pow(NdotL, ShaderReg0) * DiffuseColor
@@ -522,7 +524,7 @@ vec4 shade_base_color(bool two_sided) {
         vec3 L = (i == 0) ? u_L0 : (i == 1) ? u_L1 : (i == 2) ? u_L2 : u_L3;
         if (u_UseCustomLights < 0.5)
             L = (i == 0) ? D_L0 : (i == 1) ? D_L1 : (i == 2) ? D_L2 : vec3(0.0, 0.0, 1.0);
-        float intensity = (i == 0) ? 1.0 : (i == 1) ? 0.6 : (i == 2) ? 0.5 : 0.4;
+        float intensity = (i == 0) ? 1.0 : (i == 1) ? 0.58 : (i == 2) ? 0.48 : 0.38;
         float glow = (i == 0) ? u_Glows.x : (i == 1) ? u_Glows.y
                      : (i == 2) ? u_Glows.z : u_Glows.w;
         color += light_contrib(N, L, intensity, glow);
@@ -530,7 +532,7 @@ vec4 shade_base_color(bool two_sided) {
 
     // Grazing-angle alpha boost: silhouettes of translucent surfaces are
     // made more opaque so edges do not wash out over the background.
-    color[3] /= clamp(abs(N.z), 0.1, 1.0);
+    color[3] /= clamp(abs(N.z), 0.12, 1.0);
 
     // Depth fog (far fragments fade toward white), controlled by
     // FadeWidth/FadeBias on window-depth gl_FragCoord.z.
@@ -1236,7 +1238,7 @@ def style_params(surface_mat, style=None):
     """
     amb, diff, spec, shin, mir, opac = surface_mat[:6]
     o = [_REG_DEFAULT_O[0], diff, max(spec, 0.0), shin]
-    a = [_REG_DEFAULT_A[0], 0.65, 0.4, -0.5]
+    a = [_REG_DEFAULT_A[0], 0.66, 0.44, -0.55]
     sp = {
         'o_reg': o, 'a_reg': a,
         'FadeBias': _RENDER_DEFAULTS['FadeBias'],
@@ -1543,8 +1545,8 @@ class Camera:
     translates by -CAM_DIST.
     """
 
-    CAM_DIST = 100.0        # fixed eye distance (ortho projection)
-    BASE_EXTENT = 8.0       # base ortho half-height
+    CAM_DIST = 105.0        # fixed eye distance (ortho projection)
+    BASE_EXTENT = 7.8       # base ortho half-height
 
     def __init__(self):
         self.q = np.array([0.,0.,0.,1.])  # rotation quat
@@ -1789,8 +1791,8 @@ class CubGLWidget(QOpenGLWidget):
         self._carbon_rgb = None                   # 通用碳色覆盖（任意分子风格，预设 c_color）
         self._hydrogen_rgb = None                 # 通用氢色覆盖（预设 h_color）
         self._light_default_dirs = [               # 当前光照模式的默认灯方向（视图空间）
-            (0.5, 0.5, 0.70710678), (-0.4330127, -0.25, 0.8660254),
-            (0.4330127, -0.25, 0.8660254), (0.0, 0.0, 1.0)]
+            (0.4256, 0.5647, 0.7071), (-0.3940, -0.3079, 0.8660),
+            (0.4636, -0.1873, 0.8660), (0.0, 0.0, 1.0)]
         self._light_dirs = [list(d) for d in self._light_default_dirs]  # 当前（含方位/俯仰）
         self._light_az = 0.0                      # 方位角偏移（度，绕视图轴）
         self._light_el = 0.0                      # 俯仰角偏移（度，>0 向上）
@@ -2582,8 +2584,8 @@ class CubGLWidget(QOpenGLWidget):
         if not name:
             self._mv_grad = 0
             self._light_default_dirs = [
-                (0.5, 0.5, 0.70710678), (-0.4330127, -0.25, 0.8660254),
-                (0.4330127, -0.25, 0.8660254), (0.0, 0.0, 1.0)]
+                (0.4256, 0.5647, 0.7071), (-0.3940, -0.3079, 0.8660),
+                (0.4636, -0.1873, 0.8660), (0.0, 0.0, 1.0)]
             self._light_count = 3
         else:
             self._mv_grad = _MV_GRAD_IDS.get(name, 0)
@@ -5616,8 +5618,8 @@ class CubGLWidget(QOpenGLWidget):
                     fx_color[0], fx_color[1], fx_color[2])
         # 光源：方向（4 盏）+ 数量 + 光晕（u_MvGrad=0 时 shade_base_color 用前 3 盏）
         ld = getattr(self, "_light_dirs", None) or getattr(self, "_light_default_dirs", None) or [
-            (0.5, 0.5, 0.70710678), (-0.4330127, -0.25, 0.8660254),
-            (0.4330127, -0.25, 0.8660254), (0.0, 0.0, 1.0)]
+            (0.4256, 0.5647, 0.7071), (-0.3940, -0.3079, 0.8660),
+            (0.4636, -0.1873, 0.8660), (0.0, 0.0, 1.0)]
         glUniform1f(glGetUniformLocation(prog, 'u_UseCustomLights'), 1.0)
         for i in range(4):
             d = ld[i] if i < len(ld) else (0.0, 0.0, 1.0)
