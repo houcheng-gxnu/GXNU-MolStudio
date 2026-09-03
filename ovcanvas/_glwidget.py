@@ -3752,7 +3752,7 @@ class CubGLWidget(QOpenGLWidget):
         self._set_xforms(self._prog_atom, view, nm, proj)
         # 关键：unlit 纯色（reg 漫反射/高光全 0 + ambient=1 直接叠加顶点色）。
         # 若走 Phong，斜视角 cos→0 时填充面几乎全黑，看起来像"没有填充"。
-        self.set_iboview_uniforms(
+        self.set_shader_uniforms(
             self._prog_atom, [1.0, 0.0, 0.0, 1.0],
             diffuse=(1.0, 1.0, 1.0, 1.0), ambient=1.0)
         self._set_atom_mv_uniforms(False)
@@ -4260,8 +4260,8 @@ class CubGLWidget(QOpenGLWidget):
     def _gen_selection_marker(self):
         """为每个选中的原子生成半透明选中标记（形状可换）。
 
-        默认：半径 = 1.8 × 原子绘制半径的二十面体（MakeIcosahedron(1.8)），
-        颜色 = 0.4*原子色 + 0.6*白、alpha=0.5，在透明通道里叠加。
+        默认：半径 = 1.9 × 原子绘制半径的二十面体（MakeIcosahedron(1.9)），
+        颜色 = 0.5*原子色 + 0.5*白、alpha=0.45，在透明通道里叠加。
         这里把所有选中原子的标记烘焙进一个网格（顶点颜色含 alpha），
         统一在透明通道绘制。
 
@@ -4295,11 +4295,11 @@ class CubGLWidget(QOpenGLWidget):
                 continue
             anum, (x, y, z) = atoms[k]
             r = _atom_base_radius(anum) * ATOM_DRAW_SCALE * self._atom_scale
-            s = 1.8 * r * pulse
+            s = 1.9 * r * pulse
             ctr = np.array([x, y, z], dtype=np.float32)
-            # 0.4*原子色 + 0.6*白（选中标记颜色），alpha=0.5
+            # 0.5*原子色 + 0.5*白（选中标记颜色），alpha=0.45
             ac = self._atom_color(anum)
-            light = (0.4 * ac[0] + 0.6, 0.4 * ac[1] + 0.6, 0.4 * ac[2] + 0.6)
+            light = (0.5 * ac[0] + 0.5, 0.5 * ac[1] + 0.5, 0.5 * ac[2] + 0.5)
 
             if shape == "glow":
                 # 内壳（主体）+ 大透明外壳（光晕）
@@ -4314,7 +4314,7 @@ class CubGLWidget(QOpenGLWidget):
                     off += len(v)
             else:
                 v = base_v * s + ctr
-                c = np.tile(np.array([*light, 0.5], dtype=np.float32), (len(v), 1))
+                c = np.tile(np.array([*light, 0.45], dtype=np.float32), (len(v), 1))
                 verts.append(v)
                 norms.append(base_n)
                 cols.append(c)
@@ -5293,7 +5293,7 @@ class CubGLWidget(QOpenGLWidget):
         glDisable(GL_BLEND)
         glUseProgram(self._prog_atom)
         self._set_xforms(self._prog_atom, view, nm, proj)
-        self.set_iboview_uniforms(self._prog_atom, self._sp['a_reg'],
+        self.set_shader_uniforms(self._prog_atom, self._sp['a_reg'],
                                   diffuse=(0.8, 0.8, 0.8, 1.0))
         self._set_atom_outline_uniforms()
         self._set_atom_mv_uniforms(True)
@@ -5305,7 +5305,7 @@ class CubGLWidget(QOpenGLWidget):
         if self._esp_point_mode:
             glUseProgram(self._prog_orb)
             self._set_xforms(self._prog_orb, view, nm, proj)
-            self.set_iboview_uniforms(self._prog_orb, self._sp['o_reg'],
+            self.set_shader_uniforms(self._prog_orb, self._sp['o_reg'],
                                       diffuse=(1.0, 1.0, 1.0, 1.0))
             self._set_mv_grad_uniform(self._prog_orb, self._mv_grad)
             # 点云也走完整轨道 uniform 推送，保证描边/渐变设置即时生效
@@ -5327,7 +5327,7 @@ class CubGLWidget(QOpenGLWidget):
         glDisable(GL_BLEND)
         glUseProgram(self._prog_bond)
         self._set_xforms(self._prog_bond, view, nm, proj)
-        self.set_iboview_uniforms(self._prog_bond, self._sp['a_reg'],
+        self.set_shader_uniforms(self._prog_bond, self._sp['a_reg'],
                                   diffuse=(0.8, 0.8, 0.8, 1.0))
         self._set_mv_grad_uniform(self._prog_bond, self._mv_grad)
         self._bond_mesh.draw()
@@ -5349,7 +5349,7 @@ class CubGLWidget(QOpenGLWidget):
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         glUseProgram(self._prog_atom)
         self._set_xforms(self._prog_atom, view, nm, proj)
-        self.set_iboview_uniforms(self._prog_atom, self._sp['a_reg'],
+        self.set_shader_uniforms(self._prog_atom, self._sp['a_reg'],
                                   diffuse=(1.0, 1.0, 1.0, 1.0))
         self._set_atom_outline_uniforms()
         self._set_atom_mv_uniforms(False)
@@ -5384,7 +5384,7 @@ class CubGLWidget(QOpenGLWidget):
         #    与一键样式（sob-art / IBOVIEW / HoukMol / IQmol）的等值面观感一致，
         #    而非原子球的固定 a_reg。──
         sp = self._sp
-        self.set_iboview_uniforms(
+        self.set_shader_uniforms(
             self._prog_atom, sp['o_reg'],
             diffuse=(1.0, 1.0, 1.0, 1.0),
             ambient=sp.get('ambient', 0.0),
@@ -5451,7 +5451,7 @@ class CubGLWidget(QOpenGLWidget):
         glDisable(GL_BLEND)
         glUseProgram(self._prog_atom)
         self._set_xforms(self._prog_atom, view, nm, proj)
-        self.set_iboview_uniforms(self._prog_atom, self._sp['a_reg'],
+        self.set_shader_uniforms(self._prog_atom, self._sp['a_reg'],
                                   diffuse=(0.8, 0.8, 0.8, 1.0))
         self._set_atom_outline_uniforms()
         self._set_atom_mv_uniforms(True)
@@ -5588,7 +5588,7 @@ class CubGLWidget(QOpenGLWidget):
         for i in range(4):
             glUniform1f(loc[i], regs[i])
 
-    def set_iboview_uniforms(self, prog, regs, diffuse,
+    def set_shader_uniforms(self, prog, regs, diffuse,
                              ambient=0.0, spec_color=(1.0, 1.0, 1.0),
                              spec_mul=1.0, fx=0, fx_strength=0.0,
                              fx_color=(1.0, 1.0, 1.0)):
@@ -5635,7 +5635,7 @@ class CubGLWidget(QOpenGLWidget):
     def _set_orbital_uniforms(self, prog):
         """Upload orbital material uniforms (registers + extended FX channels)."""
         sp = self._sp
-        self.set_iboview_uniforms(
+        self.set_shader_uniforms(
             prog, sp['o_reg'],
             diffuse=(1.0, 1.0, 1.0, sp['opacity']),
             ambient=sp.get('ambient', 0.0),

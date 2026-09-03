@@ -42,13 +42,6 @@ from molcanvas import (
 # 便于处理 "C"/"cl"/"CL" 等写法；查不到时回退 0。
 _SYMBOL_TO_AN = {sym: an for an, sym in ELEMENT_SYMBOLS.items()}
 
-# ── OpenGL 渲染器（替代 VMD 预览） ──
-try:
-    from orbital_gl_viewer import OrbitalGLViewer
-    _HAS_GL_VIEWER = True
-except ImportError:
-    _HAS_GL_VIEWER = False
-
 # ── 内嵌 OpenGL cube 画布（左侧面板） ──
 try:
     from ovcanvas import OVCanvas as CubCanvasPanel
@@ -3339,8 +3332,6 @@ class OrbitalVisApp(QMainWindow):
                 self._current_fchk = None
                 self.btn_run.setEnabled(False)
                 self.btn_preview.setEnabled(True)
-                if _HAS_GL_VIEWER:
-                    getattr(self, "btn_gl_preview", None)  # OpenGL 按钮已移除
                 self.btn_render.setEnabled(False)
                 self.btn_dash_mode.setEnabled(True)
                 self._update_color_buttons()
@@ -3363,8 +3354,6 @@ class OrbitalVisApp(QMainWindow):
                 self._current_fchk = None
                 self.btn_run.setEnabled(False)
                 self.btn_preview.setEnabled(True)
-                if _HAS_GL_VIEWER:
-                    getattr(self, "btn_gl_preview", None)  # OpenGL 按钮已移除
                 self.btn_render.setEnabled(False)
                 self.btn_dash_mode.setEnabled(True)
                 self._update_color_buttons()
@@ -3400,8 +3389,6 @@ class OrbitalVisApp(QMainWindow):
                 if ext in (".cub", ".cube"):
                     self._current_cubes = [path]
                     self.btn_preview.setEnabled(True)
-                    if _HAS_GL_VIEWER:
-                        getattr(self, "btn_gl_preview", None)  # OpenGL 按钮已移除
                     self.btn_run.setEnabled(False)
                     self._append_log(
                         self._tr("log_start_preview").format(os.path.basename(path)))
@@ -3524,8 +3511,6 @@ class OrbitalVisApp(QMainWindow):
             self._current_cubes = cubes
             self._append_log(self._tr("log_done_hint"))
             self.btn_preview.setEnabled(True)
-            if _HAS_GL_VIEWER:
-                getattr(self, "btn_gl_preview", None)  # OpenGL 按钮已移除
 
         # cube 生成完毕 —— 自动送进左侧画布渲染
         if cubes:
@@ -3816,7 +3801,7 @@ class OrbitalVisApp(QMainWindow):
             self._append_log(f"[画布] 加载失败: {e}")
 
     def _gl_preview(self):
-        """在左侧内嵌画布中预览轨道；画布不可用时回退到独立 OpenGL 窗口。"""
+        """在左侧内嵌画布中预览轨道。"""
         # 优先使用左侧内嵌画布
         if self._canvas_ready():
             path0 = self.var_path.text().strip()
@@ -3833,71 +3818,8 @@ class OrbitalVisApp(QMainWindow):
             self._push_cubes_to_canvas(cubes, auto_load=True)
             return
 
-        if not _HAS_GL_VIEWER:
-            QMessageBox.warning(self, self._tr("msg_title_hint"),
-                                self._tr("msg_need_pyopengl"))
-            return
-
-        path = self.var_path.text().strip()
-        out = self._get_out_dir(path)
-        ext = os.path.splitext(path)[1].lower() if os.path.isfile(path) else ""
-
-        # 获取 cube 文件
-        if ext in (".cub", ".cube") and self._current_cubes:
-            all_cubes = list(self._current_cubes)
-        else:
-            all_cubes = sorted(glob.glob(os.path.join(out, "*.cub")))
-
-        if not all_cubes:
-            QMessageBox.warning(self, self._tr("msg_title_hint"),
-                                self._tr("msg_no_cube"))
-            return
-
-        # 取第一个 cube
-        cube_path = all_cubes[0]
-        if len(all_cubes) > 1:
-            # 如果有多个，用对话框选择
-            from PyQt5.QtWidgets import QListWidget
-            dlg = QDialog(self)
-            dlg.setWindowTitle(self._tr("dlg_select_orb_gl"))
-            dlg.resize(500, 400)
-            dlg_layout = QVBoxLayout(dlg)
-            dlg_layout.addWidget(QLabel(self._tr("lbl_select_orb_gl")))
-            list_widget = QListWidget()
-            for i, c in enumerate(all_cubes):
-                list_widget.addItem(os.path.basename(c))
-                list_widget.item(i).setSelected(i == 0)
-            dlg_layout.addWidget(list_widget)
-            btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-            btn_box.accepted.connect(dlg.accept)
-            btn_box.rejected.connect(dlg.reject)
-            dlg_layout.addWidget(btn_box)
-            if dlg.exec_() != QDialog.Accepted:
-                return
-            selected = [all_cubes[i.row()] for i in list_widget.selectedIndexes()]
-            if not selected:
-                return
-            cube_path = selected[0]
-
-        try:
-            iso = float(self.iso_edit.text().strip())
-        except ValueError:
-            iso = 0.05
-
-        style_name = self._get_style_name()
-
-        # 创建或复用 OpenGL 窗口
-        if not hasattr(self, '_gl_viewer') or self._gl_viewer is None:
-            self._gl_viewer = OrbitalGLViewer(self)
-            self._gl_viewer.setAttribute(Qt.WA_DeleteOnClose, True)
-            self._gl_viewer.destroyed.connect(lambda: setattr(self, '_gl_viewer', None))
-
-        self._gl_viewer.load_cube_file(cube_path, iso, style_name)
-        self._gl_viewer.show()
-        self._gl_viewer.raise_()
-        self._gl_viewer.activateWindow()
-
-        self._append_log(f"OpenGL 预览: {os.path.basename(cube_path)} | 风格: {style_name}")
+        QMessageBox.warning(self, self._tr("msg_title_hint"),
+                            self._tr("msg_gl_unavailable"))
 
     def _do_preview_multi(self, cubes):
         self._close_persist_sock()
@@ -4740,8 +4662,6 @@ class OrbitalVisApp(QMainWindow):
         if state == "running":
             self.btn_run.setEnabled(False)
             self.btn_preview.setEnabled(False)
-            if _HAS_GL_VIEWER:
-                getattr(self, "btn_gl_preview", None)  # OpenGL 按钮已移除
             self.btn_render.setEnabled(False)
             self.btn_h_filter.setEnabled(False)
             self.btn_dash_mode.setEnabled(False)

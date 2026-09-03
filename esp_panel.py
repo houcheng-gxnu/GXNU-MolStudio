@@ -67,7 +67,7 @@ from ovcanvas._glwidget import (
     merge_iso_surfaces, ANGSTROM_TO_BOHR,
     SHININESS_PRESETS, SHININESS_DEFAULT,
     MOL_STYLE_DISPLAY, MOL_STYLE_NAMES,
-    IBOVIEW_DEFAULTS,
+    _RENDER_DEFAULTS,
 )
 from esp_viewer import (
     extract_esp_surface, ESP_CMAPS,
@@ -713,7 +713,7 @@ class EspPanel(QWidget):
         self.grp_param.setTitle(self._t("param_grp"))
         self.lbl_iso_mat.setText(self._t("iso_mat"))
         self.chk_peel.setText(self._t("iso_peel",
-                                       n=IBOVIEW_DEFAULTS.get("DepthPeelingLayers", 4)))
+                                       n=_RENDER_DEFAULTS.get("DepthPeelingLayers", 4)))
         self.lbl_atom_style.setText(self._t("atom_style"))
         self.lbl_atom_r.setText(self._t("atom_r"))
         self.lbl_bond_r.setText(self._t("bond_r"))

@@ -31,9 +31,9 @@ from PyQt5.QtGui import (
 )
 
 from ._glwidget import (
-    CubGLWidget, STYLE_NAMES, STYLE_DISPLAY, IBOVIEW_DEFAULTS,
+    CubGLWidget, STYLE_NAMES, STYLE_DISPLAY, _RENDER_DEFAULTS,
     MOL_STYLE_NAMES, MOL_STYLE_DISPLAY, _ensure_pyopengl,
-    SHININESS_PRESETS, SHININESS_DEFAULT, _IBO_ELEMENT_COLORS, GlMesh,
+    SHININESS_PRESETS, SHININESS_DEFAULT, _CPK_COLORS, GlMesh,
 )
 from file_dialogs import open_file, save_file
 from marching_cubes import read_cube, relative_iso_threshold, IsoSurface
@@ -357,7 +357,7 @@ class ElementColorDialog(QDialog):
         else:
             self._elems = [1, 6, 7, 8, 9, 15, 16, 17, 35, 53]
 
-        # 当前颜色：已有元素覆盖优先，否则默认 CPK 表（_IBO_ELEMENT_COLORS）
+        # 当前颜色：已有元素覆盖优先，否则默认 CPK 表（_CPK_COLORS）
         try:
             self._cur = dict(getattr(glw, "element_colors", lambda: {})())
         except Exception:
@@ -415,7 +415,7 @@ class ElementColorDialog(QDialog):
 
     def _default_color(self, anum):
         try:
-            return tuple(_IBO_ELEMENT_COLORS[anum])
+            return tuple(_CPK_COLORS[anum])
         except (IndexError, TypeError):
             return (0.55, 0.55, 0.55)
 
@@ -1645,7 +1645,7 @@ class CubCanvasPanel(QWidget):
         # 的控件会变成游离的顶层窗口）。此前是先进布局再 hide()，白占着网格
         # 行号、让行序难以阅读；现在行号与可见行一一对应。
         self._rel_chk = QCheckBox(
-            f"IboView 相对阈值 ({IBOVIEW_DEFAULTS['IsoThreshold']:.0f}%)", gi)
+            f"相对阈值 ({_RENDER_DEFAULTS['IsoThreshold']:.0f}%)", gi)
         self._rel_chk.setToolTip(
             "勾选后按 IboView IsoThreshold 语义取等值面：\n"
             "选取使 |data| 累积权重达到指定百分比的等值面。\n"
@@ -1658,12 +1658,12 @@ class CubCanvasPanel(QWidget):
 
         self._rel_sld = QSlider(Qt.Horizontal, gi)
         self._rel_sld.setRange(50, 99)
-        self._rel_sld.setValue(int(IBOVIEW_DEFAULTS['IsoThreshold']))
+        self._rel_sld.setValue(int(_RENDER_DEFAULTS['IsoThreshold']))
         self._rel_sld.setEnabled(False)
         self._rel_sld.valueChanged.connect(self._on_rel_slider)
         self._rel_sld.hide()
 
-        self._rel_lbl = QLabel(f"{IBOVIEW_DEFAULTS['IsoThreshold']:.0f}%", gi)
+        self._rel_lbl = QLabel(f"{_RENDER_DEFAULTS['IsoThreshold']:.0f}%", gi)
         self._rel_lbl.setMinimumWidth(44)
         self._rel_lbl.hide()
 
@@ -1682,7 +1682,7 @@ class CubCanvasPanel(QWidget):
         self._op_sld = QSlider(Qt.Horizontal)
         self._op_sld.setRange(0, 100)
         # 滑块值直接表示“透明度(%)”，与 opacity 互补：opacity = 1 - 值/100
-        self._op_sld.setValue(int((1.0 - IBOVIEW_DEFAULTS['OrbitalOpacity']) * 100))
+        self._op_sld.setValue(int((1.0 - _RENDER_DEFAULTS['OrbitalOpacity']) * 100))
         self._op_sld.setMinimumWidth(200)
         self._op_sld.valueChanged.connect(self._on_op)
         self._op_edit = QLineEdit("20")
@@ -1704,7 +1704,7 @@ class CubCanvasPanel(QWidget):
         self._dp_chk.toggled.connect(self._on_dp_toggle)
         self._dp_layers_spin = QSpinBox()
         self._dp_layers_spin.setRange(0, 8)
-        self._dp_layers_spin.setValue(int(IBOVIEW_DEFAULTS['DepthPeelingLayers']))
+        self._dp_layers_spin.setValue(int(_RENDER_DEFAULTS['DepthPeelingLayers']))
         self._dp_layers_spin.setSuffix(" 层")
         self._dp_layers_spin.setToolTip(
             "深度剥离层数：0 = 关闭；层数越多，复杂轨道（折叠/交叠的等值面）"
@@ -2966,7 +2966,7 @@ class CubCanvasPanel(QWidget):
             if on and layers <= 0:
                 # 勾选时 spin 仍为 0（“关闭”占位）→ 落到引擎默认层数，
                 # 并回填 spin，避免“显示 0 层、实际默认 4 层”的不一致。
-                layers = int(IBOVIEW_DEFAULTS['DepthPeelingLayers'])
+                layers = int(_RENDER_DEFAULTS['DepthPeelingLayers'])
                 self._dp_layers_spin.blockSignals(True)
                 self._dp_layers_spin.setValue(layers)
                 self._dp_layers_spin.blockSignals(False)
