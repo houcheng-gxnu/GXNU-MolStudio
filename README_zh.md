@@ -230,7 +230,7 @@ GXNU MolStudio 站在巨人的肩膀上：
 
 ## 许可证
 
-本项目作为 IboView 的衍生作品，依 **GNU General Public License v3 (GPLv3)** 发布，详见 [LICENSE](./LICENSE) 文件。
+本项目作为 IboView 的衍生作品，依 **GNU General Public License v3 (GPLv3)** 发布，详见 [LICENSE](./LICENSE) 文件。第三方组件归属详见 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)。
 
 ---
 

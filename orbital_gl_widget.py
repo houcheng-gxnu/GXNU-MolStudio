@@ -1,6 +1,11 @@
 """
 OpenGL Orbital Renderer — QOpenGLWidget with Depth Peeling
 ===========================================================
+Based on IboView (c) 2015 Gerald Knizia, GPLv3 — modified.
+Contains a verbatim port of IboView's covalent-radii table (g_CovalentRadii)
+and shader-derived code (via glsl_shaders); distributed under the GNU GPLv3
+as part of a derivative work of IboView.
+
 Replaces VMD for orbital visualization. Features:
   - IboView-inspired three-directional Phong lighting
   - Depth peeling for correct transparency ordering

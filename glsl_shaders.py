@@ -1,5 +1,6 @@
 """
 GLSL Shader Module — Ported from IboView's shader pipeline.
+Based on IboView (c) 2015 Gerald Knizia, GPLv3 — modified.
 Provides vertex/fragment shaders for:
   - Three-directional Phong lighting (Mayavi light setup)
   - Depth peeling for correct transparency ordering

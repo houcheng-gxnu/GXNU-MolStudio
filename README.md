@@ -230,7 +230,7 @@ Also cite the corresponding tools from the acknowledgments above. See also [CITA
 
 ## License
 
-This project is a derivative work of IboView and is distributed under the **GNU General Public License v3 (GPLv3)**. See the [LICENSE](./LICENSE) file.
+This project is a derivative work of IboView and is distributed under the **GNU General Public License v3 (GPLv3)**. See the [LICENSE](./LICENSE) file. Third-party attribution details are listed in [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md).
 
 ---
 
