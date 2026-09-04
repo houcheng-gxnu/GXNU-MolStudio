@@ -46,7 +46,7 @@ Publication-style renders — molecular views and quantum-chemistry analysis fig
 
 ## About
 
-GXNU MolStudio is a molecular visualization and quantum-chemistry analysis suite built for computational chemistry research. It integrates an **embedded OpenGL real-time rendering engine** (ported from the IboView pipeline), **Multiwfn wavefunction analysis**, **IGMH/IRI weak-interaction analysis**, **ESP electrostatic potential**, **NBO and charge analysis**, and more — wrapping workflows that used to require manual switching between several programs into a single intuitive GUI.
+GXNU MolStudio is a molecular visualization and quantum-chemistry analysis suite built for computational chemistry research. It integrates an **embedded OpenGL real-time rendering engine**, **Multiwfn wavefunction analysis**, **IGMH/IRI weak-interaction analysis**, **ESP electrostatic potential**, **NBO and charge analysis**, and more — wrapping workflows that used to require manual switching between several programs into a single intuitive GUI.
 
 | Task | Traditional workflow | GXNU MolStudio |
 |---|---|---|
@@ -61,7 +61,7 @@ GXNU MolStudio is a molecular visualization and quantum-chemistry analysis suite
 ## Features
 
 ### 🧬 Embedded OpenGL rendering engine (ovcanvas)
-- **Depth-peeled transparency compositing** — IboView-ported pipeline, correct in-plane transparency sorting across layers; automatic fallback to sorted blending when unavailable
+- **Order-independent transparency compositing (depth peeling)** — correct in-plane transparency sorting across layers; automatic fallback to sorted blending when unavailable
 - **One-click styles** — sob-art / IBOview / HoukMol / IQmol default looks, switchable in one click
 - **Atom colors × lights, two orthogonal axes** — atom palettes (CPK / SobArt / HoukMol / Vcube …) × lighting rigs (3-light / 1-light / 2-light / 4-light) in any combination
 - **Per-light glow** — light dialog for direction / count / glow with fine tuning, save & load
@@ -89,7 +89,7 @@ GXNU MolStudio is a molecular visualization and quantum-chemistry analysis suite
 - **Charge & Mayer bond order** — combined charge-population and bond-order analysis
 
 ### 🎬 Legacy VMD / Tachyon rendering (compatibility mode)
-- 30+ preset render styles (vcube2.0, IboView, original picks)
+- 30+ curated render styles (vcube2.0, in-house and custom)
 - High-resolution output (BMP/PNG, 3000+), optional transparent background, shadow/AO control
 - Instant Chinese/English toggle, run logs, command-line batch mode
 
@@ -164,10 +164,10 @@ python main.py ./folder/ --mo h --grid 3 --no-render
 GXNU-MolStudio/
 ├── main.py                  # Entry point (GUI launch + CLI batch)
 ├── main_window.py           # Main window (UI layout, panel docking, logs)
-├── ovcanvas/                # Embedded OpenGL rendering engine (IboView port)
+├── ovcanvas/                # Embedded OpenGL rendering engine
 │   ├── _glwidget.py         # GL core: depth peeling / lighting / ball-stick / isosurfaces
 │   ├── _panel.py            # Canvas controls (one-click styles / params / lights / ring)
-│   ├── _colorwheel.py       # IboView-style color wheel
+│   ├── _colorwheel.py       # Interactive color wheel
 │   └── _molviewer_style.py  # MolViewer preset
 ├── etsnocv/                 # ETS-NOCV analysis package
 ├── igmh_panel.py            # IGMH/IRI weak-interaction panel
@@ -217,7 +217,7 @@ GXNU MolStudio stands on the shoulders of giants:
 - **[vcube2.0](https://github.com/Zhong-Cheng-2020/vcube2.0)** — the collection of polished VMD orbital render configurations by Prof. Cheng Zhong.
 - **[VMD](https://www.ks.uiuc.edu/Research/vmd/)** — Humphrey, W., Dalke, A. and Schulten, K., "VMD: Visual Molecular Dynamics", J. Molec. Graphics, 1996, 14, 33–38.
 - **[Tachyon](http://jedi.ks.uiuc.edu/~johns/raytracer/)** — Stone, J. E., "An Efficient Library for Parallel Ray Tracing and Animation", M.Sc. Thesis, 1998.
-- **[IboView](https://www.iboview.org)** — the quantum-chemistry visualization program by Gerald Knizia. Our OpenGL engine (depth-peeled transparent compositing, Phong lighting, ball-and-stick geometry, atomic radii/color tables) is modeled on and partly ported from IboView (Copyright (c) 2015 Gerald Knizia, GPLv3). Many thanks.
+- **[IboView](https://www.iboview.org)** — the quantum-chemistry visualization program by Gerald Knizia. Its open-source design inspired parts of our renderer; many thanks.
 
 ---
 
@@ -241,14 +241,15 @@ Also cite the corresponding tools from the acknowledgments above. See also [CITA
 
 ## License
 
-This project is a derivative work of IboView and is distributed under the
-**GNU General Public License version 3 (GPLv3-only)**. See the [LICENSE](./LICENSE) file.
+MolStudio is free software distributed under the
+**GNU General Public License version 3 (GPLv3)**. See the [LICENSE](./LICENSE) file.
 
-Two notes:
+Notes:
 
-- **GPLv3-only, not "or later"** — IboView (Copyright (c) 2015 Gerald Knizia) is
-  licensed under GPLv3 *only*, so this work cannot be re-declared as
-  "GPLv3 or later" while it still contains IboView code.
+- **License version** — some bundled third-party components are licensed
+  GPLv3-only, so this project is distributed as **GPLv3-only** (not
+  "GPLv3 or later"). Component attributions and license details are listed in
+  [THIRD-PARTY-NOTICES](./THIRD-PARTY-NOTICES.md).
 - **Citing is a request, not a condition** — the citations above are kindly
   requested for academic work; they are not additional license terms
   (GPLv3 §10 would void them as further restrictions).
