@@ -47,7 +47,7 @@
 
 ## 简介
 
-GXNU MolStudio 是一款面向计算化学研究的分子可视化与量子化学分析软件。它集成了**内嵌 OpenGL 实时渲染引擎**（基于 IboView 管线移植）、**Multiwfn 波函数分析**、**IGMH/IRI 弱相互作用分析**、**ESP 静电势**、**AIM 拓扑**、**IRC / DI / 能量跨度（ESM）分析**、**NBO 与电荷分析**等模块，把传统上需要在多个软件间手动切换的流程封装为直观的图形界面。
+GXNU MolStudio 是一款面向计算化学研究的分子可视化与量子化学分析软件。它集成了**内嵌 OpenGL 实时渲染引擎**、**Multiwfn 波函数分析**、**IGMH/IRI 弱相互作用分析**、**ESP 静电势**、**AIM 拓扑**、**IRC / DI / 能量跨度（ESM）分析**、**NBO 与电荷分析**等模块，把传统上需要在多个软件间手动切换的流程封装为直观的图形界面。
 
 | | 传统流程 | GXNU MolStudio |
 |---|---|---|
@@ -62,7 +62,7 @@ GXNU MolStudio 是一款面向计算化学研究的分子可视化与量子化�
 ## 功能特性
 
 ### 🧬 内嵌 OpenGL 渲染引擎（ovcanvas）
-- **深度剥离透明合成** — IboView 移植管线，多层面内透明正确排序；不可用时自动回退排序混合
+- **顺序无关透明合成（深度剥离）** — 多层面内透明正确排序；不可用时自动回退排序混合
 - **一键样式** — sob-art / IBOview / HoukMol / IQmol 四种默认观感，一键切换
 - **原子配色与光照正交双轴** — 原子配色（CPK / SobArt / HoukMol / Vcube …）× 光照（三光 / 单光 / 双光 / 四光）自由组合
 - **每灯独立光晕** — 光源对话框支持方向/数量/光晕精细调节并保存载入
@@ -90,7 +90,7 @@ GXNU MolStudio 是一款面向计算化学研究的分子可视化与量子化�
 - **电荷与 Mayer 键级** — 电荷布居与 Mayer 键级组合面板
 
 ### 🎬 传统 VMD / Tachyon 渲染（兼容模式）
-- 30+ 预置渲染风格（vcube2.0、IboView、原创精选）
+- 30+ 精选渲染风格（vcube2.0、原创与自定义）
 - 高分辨率输出（BMP/PNG，3000+）、可选透明背景、阴影/AO 控制
 - 中英双语即时切换、运行日志、命令行批处理
 
@@ -165,10 +165,10 @@ python main.py ./folder/ --mo h --grid 3 --no-render
 GXNU-MolStudio/
 ├── main.py                  # 入口（GUI 启动 + 命令行批处理）
 ├── main_window.py           # 主窗口（UI 布局、面板集成、日志）
-├── ovcanvas/                # 内嵌 OpenGL 渲染引擎（IboView 管线移植）
+├── ovcanvas/                # 内嵌 OpenGL 渲染引擎
 │   ├── _glwidget.py         # GL 渲染核心（深度剥离/光照/球棍/等值面）
 │   ├── _panel.py            # 画布面板（一键样式/参数/光源/圆环）
-│   ├── _colorwheel.py       # IboView 风格色轮
+│   ├── _colorwheel.py       # 交互式色轮
 │   └── _molviewer_style.py  # MolViewer 预设
 ├── etsnocv/                 # ETS-NOCV 分析子包
 ├── igmh_panel.py            # IGMH/IRI 弱相互作用分析面板
@@ -218,7 +218,7 @@ GXNU MolStudio 站在巨人的肩膀上：
 - **[vcube2.0](https://github.com/Zhong-Cheng-2020/vcube2.0)** — 钟成老师提供的多套精美 VMD 轨道渲染配置。
 - **[VMD](https://www.ks.uiuc.edu/Research/vmd/)** — Humphrey, W., Dalke, A. and Schulten, K., "VMD: Visual Molecular Dynamics", J. Molec. Graphics, 1996, 14, 33–38.
 - **[Tachyon](http://jedi.ks.uiuc.edu/~johns/raytracer/)** — Stone, J. E., "An Efficient Library for Parallel Ray Tracing and Animation", M.Sc. Thesis, 1998.
-- **[IboView](https://www.iboview.org)** — Gerald Knizia 开发的量子化学可视化程序。本项目的 OpenGL 渲染引擎（深度剥离透明合成、Phong 光照、球棍模型几何与原子半径/颜色表）参考并部分移植自 IboView（Copyright (c) 2015 Gerald Knizia, GPLv3），特此致谢。
+- **[IboView](https://www.iboview.org)** — Gerald Knizia 开发的量子化学可视化程序。其开源设计启发了本项目渲染器的部分思路，特此致谢。
 
 ---
 
@@ -242,17 +242,16 @@ GXNU MolStudio 站在巨人的肩膀上：
 
 ## 许可证
 
-本项目作为 IboView 的衍生作品，依 **GNU General Public License version 3（GPLv3-only）** 发布，
+MolStudio 是自由软件，依 **GNU General Public License version 3（GPLv3）** 发布，
 详见 [LICENSE](./LICENSE) 文件。
 
-两点说明：
+说明：
 
-- **是 GPLv3-only，不是 "or later"** —— IboView（Copyright (c) 2015 Gerald Knizia）为
-  **GPLv3-only**，故本项目在仍含其代码时不得改称 "GPLv3 或更高版本"。
+- **许可证版本** —— 部分随附第三方组件为 GPLv3-only，故本项目以 **GPLv3-only**（而非
+  "GPLv3 或更高版本"）分发。各组件署名与许可细节见
+  [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)。
 - **引用是请求，不是许可条件** —— 上文引用文献是学术层面的恳请，不构成附加许可条款
   （作为许可条件会因 GPLv3 §10 而无效）。
-
-第三方组件及其许可证详见 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)。
 
 ---
 
