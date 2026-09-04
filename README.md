@@ -35,8 +35,9 @@
   <b>Analysis panels</b>
 </p>
 <p align="center">
-  <img src="screenshots/aim_analysis.png" width="48%" alt="AIM topology analysis (QTAIM bond critical points & paths)">
-  <img src="screenshots/esp_analysis.png" width="48%" alt="ESP electrostatic potential map">
+  <img src="screenshots/igmh_analysis.png" width="32%" alt="IGMH/IRI weak-interaction analysis">
+  <img src="screenshots/aim_analysis.png" width="32%" alt="AIM topology analysis (QTAIM bond critical points & paths)">
+  <img src="screenshots/esp_analysis.png" width="32%" alt="ESP electrostatic potential map">
 </p>
 
 ---

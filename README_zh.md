@@ -35,8 +35,9 @@
   <b>分析面板</b>
 </p>
 <p align="center">
-  <img src="screenshots/aim_analysis.png" width="48%" alt="AIM 拓扑分析（QTAIM 键临界点与键路径）">
-  <img src="screenshots/esp_analysis.png" width="48%" alt="ESP 静电势图">
+  <img src="screenshots/igmh_analysis.png" width="32%" alt="IGMH/IRI 弱相互作用分析">
+  <img src="screenshots/aim_analysis.png" width="32%" alt="AIM 拓扑分析（QTAIM 键临界点与键路径）">
+  <img src="screenshots/esp_analysis.png" width="32%" alt="ESP 静电势图">
 </p>
 
 ---
