@@ -31,6 +31,14 @@
   <img src="screenshots/mol_view6.png" width="32%" alt="分子视图 6">
 </p>
 
+<p align="center">
+  <b>分析面板</b>
+</p>
+<p align="center">
+  <img src="screenshots/aim_analysis.png" width="48%" alt="AIM 拓扑分析（QTAIM 键临界点与键路径）">
+  <img src="screenshots/esp_analysis.png" width="48%" alt="ESP 静电势图">
+</p>
+
 ---
 
 ## 简介
@@ -230,7 +238,17 @@ GXNU MolStudio 站在巨人的肩膀上：
 
 ## 许可证
 
-本项目作为 IboView 的衍生作品，依 **GNU General Public License v3 (GPLv3)** 发布，详见 [LICENSE](./LICENSE) 文件。第三方组件归属详见 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)。
+本项目作为 IboView 的衍生作品，依 **GNU General Public License version 3（GPLv3-only）** 发布，
+详见 [LICENSE](./LICENSE) 文件。
+
+两点说明：
+
+- **是 GPLv3-only，不是 "or later"** —— IboView（Copyright (c) 2015 Gerald Knizia）为
+  **GPLv3-only**，故本项目在仍含其代码时不得改称 "GPLv3 或更高版本"。
+- **引用是请求，不是许可条件** —— 上文引用文献是学术层面的恳请，不构成附加许可条款
+  （作为许可条件会因 GPLv3 §10 而无效）。
+
+第三方组件及其许可证详见 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)。
 
 ---
 

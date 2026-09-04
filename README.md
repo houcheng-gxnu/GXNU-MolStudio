@@ -31,6 +31,14 @@
   <img src="screenshots/mol_view6.png" width="32%" alt="View 6">
 </p>
 
+<p align="center">
+  <b>Analysis panels</b>
+</p>
+<p align="center">
+  <img src="screenshots/aim_analysis.png" width="48%" alt="AIM topology analysis (QTAIM bond critical points & paths)">
+  <img src="screenshots/esp_analysis.png" width="48%" alt="ESP electrostatic potential map">
+</p>
+
 ---
 
 ## About
@@ -230,7 +238,20 @@ Also cite the corresponding tools from the acknowledgments above. See also [CITA
 
 ## License
 
-This project is a derivative work of IboView and is distributed under the **GNU General Public License v3 (GPLv3)**. See the [LICENSE](./LICENSE) file. Third-party attribution details are listed in [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md).
+This project is a derivative work of IboView and is distributed under the
+**GNU General Public License version 3 (GPLv3-only)**. See the [LICENSE](./LICENSE) file.
+
+Two notes:
+
+- **GPLv3-only, not "or later"** — IboView (Copyright (c) 2015 Gerald Knizia) is
+  licensed under GPLv3 *only*, so this work cannot be re-declared as
+  "GPLv3 or later" while it still contains IboView code.
+- **Citing is a request, not a condition** — the citations above are kindly
+  requested for academic work; they are not additional license terms
+  (GPLv3 §10 would void them as further restrictions).
+
+Third-party components and their licenses are listed in
+[THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md).
 
 ---
 
