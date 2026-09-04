@@ -18,7 +18,10 @@
 
 ---
 
-## 界面展示
+## 效果图展示（Gallery）
+
+渲染效果图 —— 分子视图与量子化学分析结果图。
+
 
 <p align="center">
   <img src="screenshots/mol_view1.png" width="32%" alt="分子视图 1">
@@ -32,7 +35,7 @@
 </p>
 
 <p align="center">
-  <b>分析面板</b>
+  <b>分析结果 — IGMH · AIM · ESP</b>
 </p>
 <p align="center">
   <img src="screenshots/igmh_analysis.png" width="32%" alt="IGMH/IRI 弱相互作用分析">

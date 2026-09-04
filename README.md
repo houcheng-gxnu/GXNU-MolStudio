@@ -18,7 +18,9 @@
 
 ---
 
-## Screenshots
+## Gallery
+
+Publication-style renders — molecular views and quantum-chemistry analysis figures.
 
 <p align="center">
   <img src="screenshots/mol_view1.png" width="32%" alt="View 1">
@@ -32,7 +34,7 @@
 </p>
 
 <p align="center">
-  <b>Analysis panels</b>
+  <b>Analysis results — IGMH · AIM · ESP</b>
 </p>
 <p align="center">
   <img src="screenshots/igmh_analysis.png" width="32%" alt="IGMH/IRI weak-interaction analysis">
