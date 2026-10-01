@@ -1,0 +1,10 @@
+# GXNU MolStudio 运行依赖（Python >= 3.8）
+# 安装：pip install -r requirements.txt
+# 打包 exe 另需：pip install pyinstaller
+
+PyQt5>=5.15
+PyOpenGL>=3.1
+PyOpenGL-accelerate>=3.1 ; platform_system == "Windows"
+numpy>=1.20
+PyMCubes>=0.1.4
+matplotlib>=3.5

@@ -1,0 +1,500 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GXNU MolStudio 各分析模块 · 文献引用对照</title>
+<style>
+  :root{
+    --ink:#2b2b2b; --ink-2:#585858; --ink-3:#8c8c8c; --line:#e8e8e8;
+    --accent:#14806a; --accent-soft:#eaf5f1;
+    --method:#14806a; --method-bg:#eaf5f1;
+    --engine:#2b6cb0; --engine-bg:#eaf1fa;
+    --render:#6b46a8; --render-bg:#f1ecfa;
+    --style:#a86e00;  --style-bg:#fdf4e3;
+    --own:#5f6b7a;    --own-bg:#eef1f4;
+  }
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    margin:0; background:#f5f6f7; color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",Roboto,sans-serif;
+    font-size:16px; line-height:1.75; letter-spacing:.01em;
+  }
+  .wrap{max-width:720px;margin:0 auto;background:#fff;min-height:100vh;padding:0 0 56px;box-shadow:0 0 24px rgba(0,0,0,.05);}
+  .hero{padding:34px 28px 26px;background:linear-gradient(160deg,#14806a 0%,#1a6f8f 100%);color:#fff;}
+  .hero .kicker{font-size:12px;letter-spacing:.22em;text-transform:uppercase;opacity:.8;margin:0 0 12px;}
+  .hero h1{margin:0 0 10px;font-size:24px;line-height:1.45;font-weight:700;}
+  .hero p{margin:0;font-size:13.5px;line-height:1.72;opacity:.9;}
+  .hero .meta{margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.24);font-size:12.5px;opacity:.85;display:flex;flex-wrap:wrap;gap:6px 18px;}
+  .body{padding:0 28px;}
+  .lead{margin:26px 0 0;padding:16px 18px;background:var(--accent-soft);border-radius:8px;font-size:14.5px;line-height:1.8;color:#245c4d;}
+  .lead b{color:#0f5c4a;}
+  h2.sec{margin:38px 0 14px;font-size:18px;font-weight:700;line-height:1.5;padding-left:11px;border-left:4px solid var(--accent);color:#1b1b1b;}
+  p.note{margin:0 0 10px;font-size:14px;color:var(--ink-2);line-height:1.8;}
+  .legend{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px;}
+  .legend .item{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-2);background:#fafafa;border:1px solid var(--line);border-radius:999px;padding:4px 12px 4px 4px;}
+  .table-scroll{overflow-x:auto;margin:6px 0 0;border:1px solid var(--line);border-radius:8px;}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:520px;}
+  thead th{background:#fafbfb;text-align:left;padding:10px 12px;font-weight:600;color:#444;border-bottom:1px solid var(--line);white-space:nowrap;}
+  tbody td{padding:9px 12px;border-bottom:1px solid #f1f1f1;vertical-align:top;line-height:1.6;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody td:first-child{white-space:nowrap;font-weight:600;color:#222;}
+  .tab{border:1px solid var(--line);border-radius:10px;padding:18px 20px 8px;margin:0 0 18px;}
+  .tab-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:2px;}
+  .tab-idx{font-size:12px;font-weight:700;color:#fff;background:var(--accent);border-radius:5px;padding:1px 7px;letter-spacing:.04em;align-self:center;}
+  .tab-head h3{margin:0;font-size:17px;font-weight:700;color:#161616;}
+  .tab-head .en{font-size:12.5px;font-weight:500;color:var(--ink-3);}
+  .tab-head code{font-size:11.5px;color:#8a8a8a;background:#f6f6f6;border:1px solid #ededed;border-radius:4px;padding:1px 6px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .what{margin:7px 0 14px;font-size:13.5px;color:var(--ink-2);line-height:1.72;}
+  .ref{padding:13px 0;border-top:1px solid #f0f0f0;}
+  .ref:first-of-type{border-top:none;padding-top:2px;}
+  .ref-top{display:flex;align-items:center;gap:8px;margin-bottom:5px;}
+  .chip{font-size:11px;font-weight:600;border-radius:4px;padding:2px 7px;white-space:nowrap;letter-spacing:.02em;}
+  .chip.method{color:var(--method);background:var(--method-bg);}
+  .chip.engine{color:var(--engine);background:var(--engine-bg);}
+  .chip.render{color:var(--render);background:var(--render-bg);}
+  .chip.style{color:var(--style);background:var(--style-bg);}
+  .chip.own{color:var(--own);background:var(--own-bg);}
+  .ref-no{font-size:12.5px;font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums;}
+  .cite{margin:0;font-size:13.5px;line-height:1.72;color:#2f2f2f;padding-left:14px;text-indent:-14px;}
+  .cite i{font-style:italic;}
+  .cite b{font-weight:600;}
+  .doi{color:#3f6fa8;word-break:break-all;}
+  .use{margin:5px 0 0;font-size:12.5px;line-height:1.65;color:#7d7d7d;}
+  .use:before{content:"▸ 用于：";color:#b8b8b8;}
+  .none{margin:2px 0 14px;font-size:13px;color:#8a6a10;background:#fffaf0;border-left:3px solid #f0c060;border-radius:0 6px 6px 0;padding:8px 12px;line-height:1.7;}
+  .foot{margin:38px 28px 0;padding-top:18px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-3);line-height:1.8;}
+  @media (max-width:520px){
+    body{font-size:15.5px;}
+    .hero{padding:26px 18px 22px;}
+    .hero h1{font-size:20px;}
+    .body{padding:0 18px;}
+    .foot{margin-left:18px;margin-right:18px;}
+    .cite{font-size:13px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <p class="kicker">References by Analysis</p>
+    <h1>GXNU MolStudio 各分析模块 · 文献引用对照</h1>
+    <p>程序每个 tab 用到的功能，逐条给出可直接抄进论文的标准文献引用格式。</p>
+    <div class="meta">
+      <span>17 个模块</span>
+      <span>27 条文献</span>
+      <span>1–24 与预印本长稿一致，25 起为后补</span>
+    </div>
+  </header>
+
+  <div class="body">
+
+    <div class="lead">
+      <b>使用说明。</b>每一节下方按 ACS 格式给出该模块所需的<b>完整引用</b>，可直接复制到稿件中。每条标注两件事：所属类别（方法学原文 / 计算引擎 / 渲染移植 / 风格预设 / 本组在先工作），以及它在程序里<b>具体用在哪一步</b>。
+      <br><br>
+      MolStudio 的多数定量结果并非自己重新实现的算法，而是脚本化调用 <b>Multiwfn</b> 得到的（见论文 §2.2）。因此多数模块同时列出「方法学原文」与「引擎文献」两类，引用时两者都应给出。
+    </div>
+
+    <h2 class="sec">类别图例</h2>
+    <div class="legend">
+      <span class="item"><span class="chip method">方法</span>方法学原文，提出该方法</span>
+      <span class="item"><span class="chip engine">引擎</span>计算引擎 / 实现</span>
+      <span class="item"><span class="chip render">渲染</span>渲染引擎与移植来源</span>
+      <span class="item"><span class="chip style">风格</span>配色与样式预设</span>
+      <span class="item"><span class="chip own">本组</span>课题组在先工作</span>
+    </div>
+
+    <h2 class="sec">文献编号索引</h2>
+    <p class="note">只需编号时查这张表；完整引用见下面逐模块部分。</p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>模块</th><th>文献编号</th></tr></thead>
+        <tbody>
+          <tr><td>可视化 View</td><td>3 · 4 · 17 · 18（渲染与 IBO）；1 · 10 · 11（VMD / Tachyon / 风格）</td></tr>
+          <tr><td>轨道 MO</td><td>5 · 6</td></tr>
+          <tr><td>电荷键级 Charge</td><td>14 · 19（方法）；5 · 6（引擎）</td></tr>
+          <tr><td>NBO</td><td>20</td></tr>
+          <tr><td>ESP</td><td>21 · 25 · 26（方法）；5 · 6（引擎）；27（教程）</td></tr>
+          <tr><td>IGMH</td><td>7 · 16（方法）；8（引擎）；15（本组）</td></tr>
+          <tr><td>AIM</td><td>22（方法）；5 · 6（引擎）</td></tr>
+          <tr><td>NOCV</td><td>9（方法）；5 · 6（引擎）</td></tr>
+          <tr><td>MPP</td><td>24（方法）；5 · 6（引擎）</td></tr>
+          <tr><td>IRC</td><td>23 · 19（方法）；5 · 6（引擎）</td></tr>
+          <tr><td>DI 分析</td><td>13</td></tr>
+          <tr><td>ASM 扫描</td><td>13 · 23</td></tr>
+          <tr><td>CUB 叠加</td><td>5 · 6</td></tr>
+          <tr><td>晶体 Crystal</td><td>3（渲染）</td></tr>
+          <tr><td>能量跨度 ESM</td><td>12</td></tr>
+          <tr><td>IRC 拆分</td><td>23（方法）；6（思路来源）</td></tr>
+          <tr><td>日志 Log</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="sec">逐模块完整引用</h2>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">01</span><h3>可视化 <span class="en">View</span></h3><code>tab_viz</code></div>
+      <p class="what">内嵌 OpenGL 画布：一键风格预设、光照、原子配色、按性质着色、原子拾取与框选。</p>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip render">渲染</span><span class="ref-no">[3]</span></div>
+        <p class="cite">Knizia, G. <i>IboView — A program for chemical analysis</i>; http://www.iboview.org/ (accessed 2026). The port was made against the official distribution <i>ibo-view.20211019-RevA</i>.</p>
+        <p class="use"><b>两处用途。</b>① 整个渲染管线的移植来源（深度剥离透明、Phong/Blinn-Phong 光照、球棍几何、原子半径与共价半径表）；② 画布一键样式「IBOview」——同步自 IboView 的默认观感（CPK 原子、三光源、白底、紫–蓝相位、不透明度 0.75）。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[4]</span></div>
+        <p class="cite">Knizia, G. Intrinsic Atomic Orbitals: An Unbiased Bridge between Quantum Theory and Chemical Concepts. <i>J. Chem. Theory Comput.</i> <b>2013</b>, <i>9</i>, 4834–4843.</p>
+        <p class="use">IboView 所实现的内禀原子轨道（IAO/IBO）分析，渲染管线的理论背景。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[17]</span></div>
+        <p class="cite">Knizia, G.; Klein, J. E. M. N. Electron Flow in Reaction Mechanisms — Revealed from First Principles. <i>Angew. Chem. Int. Ed.</i> <b>2015</b>, <i>54</i>, 5518–5522.</p>
+        <p class="use">内禀成键轨道在反应机理中的应用，轨道显示方式的依据之一。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip render">渲染</span><span class="ref-no">[18]</span></div>
+        <p class="cite">KoehnLab. <i>iboview — patched source code of IboView</i>; https://github.com/KoehnLab/iboview (accessed 2026).</p>
+        <p class="use">移植过程中的参照实现；正式移植依据仍为官方发布版（文献 3）。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip engine">引擎</span><span class="ref-no">[1]</span></div>
+        <p class="cite">Humphrey, W.; Dalke, A.; Schulten, K. VMD: Visual Molecular Dynamics. <i>J. Mol. Graphics</i> <b>1996</b>, <i>14</i>, 33–38.</p>
+        <p class="use">兼容渲染通道的宿主程序；「同步到 VMD」把画布视角镜像过去。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip engine">引擎</span><span class="ref-no">[10]</span></div>
+        <p class="cite">Stone, J. E. <i>An Efficient Library for Parallel Ray Tracing and Animation</i>. M.S. Thesis, University of Missouri—Rolla, 1998.</p>
+        <p class="use">Tachyon 光线追踪器，产出高分辨率期刊级插图（测试至 3000 px 以上）。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip style">风格</span><span class="ref-no">[11]</span></div>
+        <p class="cite">Zhong, C. <i>vcube 2.0 — Tcl scripts for batch rendering of Gaussian cube files with VMD</i>; 计算化学公社 (Computational Chemistry Commune), thread 18150; http://bbs.keinsci.com/thread-18150-1-1.html (accessed 2026).</p>
+        <p class="use">VMD 渲染风格预设的来源（sob-art 等 30 余套配色 / 材质 / 光照）。</p>
+      </div>
+
+      <p class="none"><b>画布的五套一键样式与出处：</b>sob-art（源自 vcube 2.0 的 sob-art 观感，含手工摆放的四光源）、<b>IBOview</b>（同步自 IboView 默认观感——见 [3]）、HoukMol（单光径向渐变 + 十字圆环）、HoukMol3d（四光源 + Clear-coat 清漆 + 次表面散射 0.32）、IQmol（CPK 双光 + 每灯独立光晕 + 红蓝相位 + GaussView 原子配色）。其中 HoukMol / HoukMol3d / IQmol 三套是<b>按其再现的观感命名</b>，并非从对应程序移植代码，故依原稿未单列引用；<b>IBOview 一套不同</b>——它与渲染管线同源，须一并引用 [3]。</p>
+      <p class="none">另需致谢但未单列条目的公有数据：范德华半径取自 Bondi, R. S. <i>J. Phys. Chem.</i> <b>1964</b>, <i>68</i>, 441–451；元素配色为公开的 Jmol/CPK 与 GaussView 调色板。</p>
+    </section>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">02</span><h3>轨道 <span class="en">MO</span></h3><code>tab_setup</code></div>
+      <p class="what">轨道能量表（占据数、HOMO/LUMO 标记）、双击生成 cube、等值面渲染、开壳层体系的自旋密度。</p>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip engine">引擎</span><span class="ref-no">[5]</span></div>
+        <p class="cite">Lu, T.; Chen, F. Multiwfn: A Multifunctional Wavefunction Analyzer. <i>J. Comput. Chem.</i> <b>2012</b>, <i>33</i>, 580–592.</p>
+        <p class="use">由 .fchk 生成轨道与自旋密度的 cube 网格。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip engine">引擎</span><span class="ref-no">[6]</span></div>
+        <p class="cite">Lu, T. <i>Multiwfn, version 2026.4.10</i> [computer software]; http://sobereva.com/multiwfn/ (accessed 2026).</p>
+        <p class="use">本开发周期实际测试的版本，应在方法部分注明以便复现。</p>
+      </div>
+    </section>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">03</span><h3>电荷键级 <span class="en">Charge</span></h3><code>tab_charge_bond</code></div>
+      <p class="what">6 种原子电荷方案 + 选定原子对的 Mayer 键级；可导出 CSV、按电荷给分子着色。</p>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[14]</span></div>
+        <p class="cite">Lu, T.; Chen, F. Atomic Dipole Moment Corrected Hirshfeld (ADCH) Population Method. <i>J. Theor. Comput. Chem.</i> <b>2012</b>, <i>11</i>, 163–183. <span class="doi">doi:10.1142/S0219633612500113</span></p>
+        <p class="use">ADCH 电荷方案。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[19]</span></div>
+        <p class="cite">Mayer, I. Charge, Bond Order and Valence in the Ab Initio SCF Theory. <i>Chem. Phys. Lett.</i> <b>1983</b>, <i>97</i>, 270–274.</p>
+        <p class="use">Mayer 键级的原始定义。延伸阅读：Mayer, I. <i>Int. J. Quantum Chem.</i> <b>1986</b>, <i>29</i>, 73–84.</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip engine">引擎</span><span class="ref-no">[5] [6]</span></div>
+        <p class="cite">Lu, T.; Chen, F. Multiwfn: A Multifunctional Wavefunction Analyzer. <i>J. Comput. Chem.</i> <b>2012</b>, <i>33</i>, 580–592；Lu, T. <i>Multiwfn, version 2026.4.10</i> [computer software]; http://sobereva.com/multiwfn/ (accessed 2026).</p>
+        <p class="use">Hirshfeld / Mulliken / CM5 / SCPA / VDD 五种电荷方案与键级的实际计算。</p>
+      </div>
+    </section>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">04</span><h3>NBO <span class="en">NBO</span></h3><code>tab_nbo</code></div>
+      <p class="what">自然轨道占据数与 E(2) 二阶微扰给体–受体相互作用；NBO 能级与 MO 序号匹配以便出等值面。</p>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[20]</span></div>
+        <p class="cite">Weinhold, F.; Landis, C. R. <i>Valency and Bonding: A Natural Bond Orbital Donor–Acceptor Perspective</i>; Cambridge University Press: Cambridge, 2005.</p>
+        <p class="use">自然键轨道图像与 E(2) 给体–受体相互作用的解释框架。</p>
+      </div>
+
+      <p class="none">本模块直接解析 Gaussian <code>pop=nbo</code> 的日志输出，不经过 Multiwfn，因此没有引擎文献。若方法部分需交代计算来源，应引用 Gaussian 程序本身。</p>
+    </section>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">05</span><h3>ESP <span class="en">ESP</span></h3><code>tab_esp</code></div>
+      <p class="what">分子静电势表面：ISO / PT / EXT / ALL 四种显示模式、极值点标记、<b>表面静电势分区面积统计（分区柱状图）</b>、可选配色标库。</p>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[21]</span></div>
+        <p class="cite">Murray, J. S.; Politzer, P. The Electrostatic Potential: An Overview. <i>WIREs Comput. Mol. Sci.</i> <b>2011</b>, <i>1</i>, 153–163.</p>
+        <p class="use">分子静电势的物理含义与表面分析的标准诠释。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[25]</span></div>
+        <p class="cite">Manzetti, S.; Lu, T. The Geometry and Electronic Structure of Aristolochic Acid: Possible Implications for a Frozen Resonance. <i>J. Phys. Org. Chem.</i> <b>2013</b>, <i>26</i>, 473–483. <span class="doi">doi:10.1002/poc.3111</span></p>
+        <p class="use">表面静电势分区面积统计（分区柱状图）的思想首次提出与使用——凡在论文里用这张图，除 Multiwfn 原文外也应引用（Multiwfn 官方教程 sobereva.com/196 原话）。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[26]</span></div>
+        <p class="cite">Lu, T.; Manzetti, S. Wavefunction and Reactivity Study of Benzo[a]pyrene Diol Epoxide and Its Enantiomeric Forms. <i>Struct. Chem.</i> <b>2014</b>, <i>25</i>, 1521–1533. <span class="doi">doi:10.1007/s11224-014-0430-6</span></p>
+        <p class="use">同一分区面积统计思想在致癌物多环芳烃体系中的应用与展示，与 [25] 一并引用。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip engine">引擎</span><span class="ref-no">[5] [6]</span></div>
+        <p class="cite">Lu, T.; Chen, F. Multiwfn: A Multifunctional Wavefunction Analyzer. <i>J. Comput. Chem.</i> <b>2012</b>, <i>33</i>, 580–592；Lu, T. <i>Multiwfn, version 2026.4.10</i> [computer software]; http://sobereva.com/multiwfn/ (accessed 2026).</p>
+        <p class="use">电子密度与 ESP 网格生成、范德华等值面提取（默认 ρ = 0.001 a.u.）。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip engine">教程</span><span class="ref-no">[27]</span></div>
+        <p class="cite">Lu, T. 使用 Multiwfn 结合 VMD 分析和绘制分子表面静电势分布; http://sobereva.com/196 (accessed 2026).</p>
+        <p class="use">分区面积统计的操作流程与推荐作图参数，本模块「📊 分区面积图」即按此流程实现。</p>
+      </div>
+    </section>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">06</span><h3>IGMH <span class="en">IGMH</span></h3><code>tab_igmh</code></div>
+      <p class="what">片段定义（点选或框选）、弱相互作用等值面、sign(λ₂)ρ 的 BGR 着色、IGM Map 散点图。</p>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[7]</span></div>
+        <p class="cite">Lu, T.; Chen, Q. Independent Gradient Model Based on Hirshfeld Partition (IGMH): A New Method for Visual Study of Interactions in Chemical Systems. <i>J. Comput. Chem.</i> <b>2022</b>, <i>43</i>, 539–555. <span class="doi">doi:10.1002/jcc.26812</span></p>
+        <p class="use">IGMH 方法本身；等值面几何由片段间 dg_inter 场决定。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[16]</span></div>
+        <p class="cite">Lu, T.; Chen, Q. Interaction Region Indicator (IRI): A Simple Real Space Function Clearly Revealing Both Chemical Bonds and Weak Interactions. <i>Chemistry–Methods</i> <b>2021</b>, <i>1</i>, 231–239. <span class="doi">doi:10.1002/cmtd.202100007</span></p>
+        <p class="use">IRI 指标，本模块可切换使用的第二个弱相互作用指示函数。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip engine">引擎</span><span class="ref-no">[8]</span></div>
+        <p class="cite">Lu, T. <i>IGMH/IRI analysis in Multiwfn</i>; http://sobereva.com/multiwfn/ (accessed 2026).</p>
+        <p class="use">本模块实际调用的 Multiwfn 子程序，生成 dg_inter / dg_intra / dg / sl2r 网格。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip own">本组</span><span class="ref-no">[15]</span></div>
+        <p class="cite">Hou, C. <i>IGMH_Toolbox (Version 1.0.0)</i> [Computer software]. Zenodo, 2026. <span class="doi">doi:10.5281/zenodo.20791253</span></p>
+        <p class="use">该面板的前身，已在 GPLv3 下一并重新许可。</p>
+      </div>
+    </section>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">07</span><h3>AIM <span class="en">AIM</span></h3><code>tab_aim</code></div>
+      <p class="what">QTAIM 拓扑：临界点搜索与键径追踪、按类型着色、点击查询 ρ / ∇²ρ / 动能与能量密度 / 椭率。</p>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[22]</span></div>
+        <p class="cite">Bader, R. F. W. <i>Atoms in Molecules: A Quantum Theory</i>; Oxford University Press: Oxford, 1990.</p>
+        <p class="use">分子中原子量子理论（QTAIM）与键临界点、键径的定义。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip engine">引擎</span><span class="ref-no">[5] [6]</span></div>
+        <p class="cite">Lu, T.; Chen, F. Multiwfn: A Multifunctional Wavefunction Analyzer. <i>J. Comput. Chem.</i> <b>2012</b>, <i>33</i>, 580–592；Lu, T. <i>Multiwfn, version 2026.4.10</i> [computer software]; http://sobereva.com/multiwfn/ (accessed 2026).</p>
+        <p class="use">完整的拓扑分析实现（临界点搜索与键径追踪）。</p>
+      </div>
+    </section>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">08</span><h3>ETS-NOCV <span class="en">ETS-NOCV</span></h3><code>tab_etsnocv</code></div>
+      <p class="what">复合物 + 两个片段的能量分解；NOCV 对表格（ΔE_pair、轨道标签、本征值），按需生成形变密度 cube。</p>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[9]</span></div>
+        <p class="cite">Mitoraj, M. P.; Michalak, A.; Ziegler, T. A Combined Charge and Energy Decomposition Scheme for Bond Analysis. <i>J. Chem. Theory Comput.</i> <b>2009</b>, <i>5</i>, 962–975.</p>
+        <p class="use">ETS-NOCV 电荷与能量联合分解方案。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip engine">引擎</span><span class="ref-no">[5] [6]</span></div>
+        <p class="cite">Lu, T.; Chen, F. Multiwfn: A Multifunctional Wavefunction Analyzer. <i>J. Comput. Chem.</i> <b>2012</b>, <i>33</i>, 580–592；Lu, T. <i>Multiwfn, version 2026.4.10</i> [computer software]; http://sobereva.com/multiwfn/ (accessed 2026).</p>
+        <p class="use">在持久 Multiwfn 会话中执行能量分解与形变密度生成。</p>
+      </div>
+    </section>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">09</span><h3>MPP <span class="en">MPP</span></h3><code>tab_mpp</code></div>
+      <p class="what">分子平面性参数与带符号平面偏离跨度（SDP），原子按到拟合平面的带符号距离着色（±0.5 Å）。</p>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[24]</span></div>
+        <p class="cite">Lu, T. Simple, Reliable, and Universal Metrics of Molecular Planarity. <i>J. Mol. Model.</i> <b>2021</b>, <i>27</i>, 263. <span class="doi">doi:10.1007/s00894-021-04884-0</span></p>
+        <p class="use">分子平面性参数（MPP）与平面偏离跨度（SDP）的定义与推荐用法。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip engine">引擎</span><span class="ref-no">[5] [6]</span></div>
+        <p class="cite">Lu, T.; Chen, F. Multiwfn: A Multifunctional Wavefunction Analyzer. <i>J. Comput. Chem.</i> <b>2012</b>, <i>33</i>, 580–592；Lu, T. <i>Multiwfn, version 2026.4.10</i> [computer software]; http://sobereva.com/multiwfn/ (accessed 2026).</p>
+        <p class="use">MPP 子程序；输入文件在内部转为 XYZ 后交给 Multiwfn。</p>
+      </div>
+    </section>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">10</span><h3>IRC 分析 <span class="en">IRC</span></h3><code>tab_irc</code></div>
+      <p class="what">批量提取 IRC 各点总能量与选定原子对的 Mayer 键级，双轴作图，点选即把结构载入画布。</p>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[23]</span></div>
+        <p class="cite">Fukui, K. The Path of Chemical Reactions — The IRC Approach. <i>Acc. Chem. Res.</i> <b>1981</b>, <i>14</i>, 363–368.</p>
+        <p class="use">内禀反应坐标（IRC）方法，横轴反应坐标的物理含义。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[19]</span></div>
+        <p class="cite">Mayer, I. Charge, Bond Order and Valence in the Ab Initio SCF Theory. <i>Chem. Phys. Lett.</i> <b>1983</b>, <i>97</i>, 270–274.</p>
+        <p class="use">沿路径逐点计算的键级。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip engine">引擎</span><span class="ref-no">[5] [6]</span></div>
+        <p class="cite">Lu, T.; Chen, F. Multiwfn: A Multifunctional Wavefunction Analyzer. <i>J. Comput. Chem.</i> <b>2012</b>, <i>33</i>, 580–592；Lu, T. <i>Multiwfn, version 2026.4.10</i> [computer software]; http://sobereva.com/multiwfn/ (accessed 2026).</p>
+        <p class="use">每个 IRC 点的键级计算（结果按文件路径 MD5 缓存）。</p>
+      </div>
+    </section>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">11</span><h3>DI 分析 <span class="en">DI</span></h3><code>tab_di</code></div>
+      <p class="what">由 5 个 Gaussian log（两个优化片段、两个 TS 几何片段、TS 复合物）做扭曲–相互作用分解，输出能量阶梯图与条形图。</p>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[13]</span></div>
+        <p class="cite">Bickelhaupt, F. M.; Houk, K. N. Analyzing Reaction Rates with the Distortion/Interaction–Activation Strain Model. <i>Angew. Chem. Int. Ed.</i> <b>2017</b>, <i>56</i>, 10070–10086.</p>
+        <p class="use">扭曲/相互作用–活化张力模型；ΔE_strain,1、ΔE_strain,2、ΔE_int 与 ΔE‡ = ΔE_strain + ΔE_int。</p>
+      </div>
+
+      <p class="none">本模块只解析 Gaussian 输出的 SCF 能量（可选 ZPE 或 Gibbs 校正），不调用 Multiwfn，故无引擎文献。</p>
+    </section>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">12</span><h3>ASM 扫描 <span class="en">ASM</span></h3><code>tab_asm_irc</code></div>
+      <p class="what">把 DI 分解应用到 IRC 的<b>每一个点</b>，绘制 ΔE_strain、ΔE_int 与 ΔE 沿反应坐标的变化。</p>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[13]</span></div>
+        <p class="cite">Bickelhaupt, F. M.; Houk, K. N. Analyzing Reaction Rates with the Distortion/Interaction–Activation Strain Model. <i>Angew. Chem. Int. Ed.</i> <b>2017</b>, <i>56</i>, 10070–10086.</p>
+        <p class="use">活化张力模型；公式与 DI 面板完全一致，只是逐点重复。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[23]</span></div>
+        <p class="cite">Fukui, K. The Path of Chemical Reactions — The IRC Approach. <i>Acc. Chem. Res.</i> <b>1981</b>, <i>14</i>, 363–368.</p>
+        <p class="use">扫描所沿的 IRC 路径本身。</p>
+      </div>
+    </section>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">13</span><h3>CUB 叠加 <span class="en">CUB Stack</span></h3><code>tab_cub_stack</code></div>
+      <p class="what">在同一结构上叠加多个 cube 的等值面（不同 MO、自旋密度、密度差），相位配色逐轨道独立。</p>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip engine">引擎</span><span class="ref-no">[5] [6]</span></div>
+        <p class="cite">Lu, T.; Chen, F. Multiwfn: A Multifunctional Wavefunction Analyzer. <i>J. Comput. Chem.</i> <b>2012</b>, <i>33</i>, 580–592；Lu, T. <i>Multiwfn, version 2026.4.10</i> [computer software]; http://sobereva.com/multiwfn/ (accessed 2026).</p>
+        <p class="use">上游的 cube 网格生成；本模块本身负责可视化。</p>
+      </div>
+
+      <p class="none">本模块是纯可视化功能，方法学上无独立文献。等值面提取由第三方库 PyMCubes 完成，其版本与许可见仓库 <code>THIRD-PARTY-NOTICES.md</code>。</p>
+    </section>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">14</span><h3>晶体 <span class="en">Crystal</span></h3><code>tab_crystal</code></div>
+      <p class="what">CIF / POSCAR 读入、晶胞框与球棍模型、晶胞参数与原子表。</p>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip render">渲染</span><span class="ref-no">[3]</span></div>
+        <p class="cite">Knizia, G. <i>IboView — A program for chemical analysis</i>; http://www.iboview.org/ (accessed 2026). The port was made against the official distribution <i>ibo-view.20211019-RevA</i>.</p>
+        <p class="use">晶体显示沿用同一套画布渲染管线。</p>
+      </div>
+
+      <p class="none">CIF / POSCAR 解析与晶胞绘制为本项目自有实现，无专属方法学文献。</p>
+    </section>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">15</span><h3>能量跨度 <span class="en">ESM</span></h3><code>tab_esm</code></div>
+      <p class="what">催化循环能量跨度分析：识别 TDI / TDTS，计算 δE 与 TOF，绘制逐级自由能剖面（含双循环处理）。</p>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[12]</span></div>
+        <p class="cite">Kozuch, S.; Shaik, S. How to Conceptualize Catalytic Cycles? The Energetic Span Model. <i>Acc. Chem. Res.</i> <b>2011</b>, <i>44</i>, 101–110.</p>
+        <p class="use">能量跨度模型：TDI/TDTS 识别、δE 与 TOF = (k<sub>B</sub>T/h)·exp(−δE/RT)。</p>
+      </div>
+    </section>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">16</span><h3>IRC 拆分 <span class="en">IRC Split</span></h3><code>tab_ircsplit</code></div>
+      <p class="what">解析 Gaussian IRC 输出为逐点结构，画布上逐点浏览，并一键导出为逐点单点能计算的 .gjf。</p>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip method">方法</span><span class="ref-no">[23]</span></div>
+        <p class="cite">Fukui, K. The Path of Chemical Reactions — The IRC Approach. <i>Acc. Chem. Res.</i> <b>1981</b>, <i>14</i>, 363–368.</p>
+        <p class="use">IRC 点的物理含义（TS + 正向点 + 反向点）与排序依据。</p>
+      </div>
+
+      <div class="ref">
+        <div class="ref-top"><span class="chip engine">引擎</span><span class="ref-no">[6]</span></div>
+        <p class="cite">Lu, T. <i>Multiwfn, version 2026.4.10</i> [computer software]; http://sobereva.com/multiwfn/ (accessed 2026).</p>
+        <p class="use">本模块的解析与编号逻辑参考了 Multiwfn 作者卢天的 IRCsplit 思路（仅思路，未使用其代码）。</p>
+      </div>
+    </section>
+
+    <section class="tab">
+      <div class="tab-head"><span class="tab-idx">17</span><h3>日志 <span class="en">Log</span></h3><code>tab_log</code></div>
+      <p class="what">共享运行日志：所有面板的后台任务进度与外部进程输出。</p>
+      <p class="none">纯运行状态输出，无文献依赖。</p>
+    </section>
+
+    <h2 class="sec">非模块专属的通用文献</h2>
+    <p class="note">以下文献不对应某个具体模块，用于论文整体的定位与同类工具对照。</p>
+
+    <div class="ref" style="border-top:none;">
+      <div class="ref-top"><span class="chip own">背景</span><span class="ref-no">[2]</span></div>
+      <p class="cite">Hanwell, M. D.; Curtis, D. E.; Lonie, D. C.; Vandermeersch, T.; Zurek, E.; Hutchison, G. R. Avogadro: An Advanced Semantic Chemical Editor, Visualization, and Analysis Platform. <i>J. Cheminform.</i> <b>2012</b>, <i>4</i>, 17. <span class="doi">doi:10.1186/1758-2946-4-17</span></p>
+      <p class="use">同类分子编辑与可视化平台，用于说明 MolStudio 的定位差异。</p>
+    </div>
+
+    <div class="ref">
+      <div class="ref-top"><span class="chip own">背景</span><span class="ref-no">[1]</span></div>
+      <p class="cite">Humphrey, W.; Dalke, A.; Schulten, K. VMD: Visual Molecular Dynamics. <i>J. Mol. Graphics</i> <b>1996</b>, <i>14</i>, 33–38.</p>
+      <p class="use">经典分子可视化程序；在 MolStudio 中同时充当兼容渲染通道的宿主。</p>
+    </div>
+
+    <div class="ref">
+      <div class="ref-top"><span class="chip own">背景</span><span class="ref-no">[5] [6]</span></div>
+      <p class="cite">Lu, T.; Chen, F. Multiwfn: A Multifunctional Wavefunction Analyzer. <i>J. Comput. Chem.</i> <b>2012</b>, <i>33</i>, 580–592；Lu, T. <i>Multiwfn, version 2026.4.10</i> [computer software]; http://sobereva.com/multiwfn/ (accessed 2026).</p>
+      <p class="use">绝大多数模块的共同计算引擎，同时作为波函数分析的参照实现。</p>
+    </div>
+
+  </div>
+
+  <div class="foot">
+    <p>引用编号 1–24 与预印本长稿 <code>docs/chemrxiv_draft.md</code> 一致，已按 2026-09-18 审计结果修订；<b>25–27</b> 为本软件后补条目（ESP 表面静电势分区面积统计的两篇原文与 Multiwfn + VMD 教程），预印本参考文献表尚未收录。模块名称与顺序取自 <code>i18n.py</code> 与 <code>main_window.py</code>。</p>
+    <p>配套稿件：<code>docs/software_note_short.md</code>（短稿）、<code>docs/chemrxiv_draft.md</code> 与 <code>chemrxiv_draft_zh.md</code>（长稿）。插图见 <code>docs/paper_figures/</code>。</p>
+    <p>未标 DOI 的条目在原稿中亦无 DOI，未作补全以免引入错误；若目标期刊要求全部 DOI，可另行核对后补入。</p>
+  </div>
+
+</div>
+</body>
+</html>

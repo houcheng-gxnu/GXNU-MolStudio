@@ -2,55 +2,69 @@
 
 # MolStudio — 分子可视化与量子化学分析
 # PyInstaller onedir（文件夹形式）打包配置。
-# 用法: pyinstaller OrbitalViewer.spec
+#
+# 用法（在仓库根目录执行）:
+#     pyinstaller OrbitalViewer.spec --noconfirm --clean
+#
+# 约定:
+#   * 所有路径都以本 spec 所在目录为基准，不再出现 D:\... 之类的绝对路径，
+#     换机器 / 换目录都能直接打包；
+#   * 应用代码全部在 molstudio 包内，模块清单由 collect_submodules 自动收集，
+#     新增面板或模块不必手工登记（旧版手写 hiddenimports 容易漏，漏了就是
+#     打包版里整个页签消失）；
+#   * 内置资源统一在 molstudio/assets/，打包后落在 _internal/molstudio/assets/，
+#     由 molstudio/paths.py 统一查找。
 
 import os
 import shutil
 
+from PyInstaller.utils.hooks import collect_submodules
+
+# SPECPATH 即本 spec 所在目录；再做一次兜底，保证指向仓库根目录
+ROOT = os.path.abspath(SPECPATH)
+if not os.path.isfile(os.path.join(ROOT, "main.py")):
+    ROOT = os.path.dirname(ROOT)
+ASSETS = os.path.join(ROOT, "molstudio", "assets")
+
+# VC++ 运行库：Qt5Core/Qt5Gui 依赖 MSVCP140.dll，PyInstaller 默认会从 System32
+# 解析到它并跳过（假定目标机装了 VC++ Redistributable）。显式捆绑，保证分发给
+# 未装运行库的机器也能启动；本机没有该文件时自动跳过。
+_MSVCP140 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"),
+                         "System32", "MSVCP140.dll")
+binaries = [(_MSVCP140, ".")] if os.path.exists(_MSVCP140) else []
+
+hiddenimports = collect_submodules("molstudio") + [
+    # 第三方（部分在函数内延迟 import，显式声明确保收集）
+    "numpy", "mcubes", "matplotlib",
+    # 导出 SVG 用 QSvgGenerator（PyQt5.QtSvg 是独立扩展模块，
+    # 只有 Qt5Svg.dll / qsvg.dll 不会自动带上 Python 绑定）
+    "PyQt5.QtSvg",
+]
+
 a = Analysis(
-    ['main.py'],
-    pathex=[r'D:\OrbitalViewer 5.3'],
-    binaries=[
-        # VC++ 运行库：Qt5Core/Qt5Gui 依赖 MSVCP140.dll，而 PyInstaller 只会
-        # 从 System32 解析到它并默认跳过（假定目标机装有 VC++ Redistributable）。
-        # 显式捆绑，保证分发给未装运行库的机器也能启动。
-        (r'C:\Windows\System32\MSVCP140.dll', '.'),
-    ],
+    [os.path.join(ROOT, "main.py")],
+    pathex=[ROOT],
+    binaries=binaries,
     datas=[
-        # 窗口/任务栏图标 + 启动画面校徽（main.py 运行时从 exe 同目录加载）
-        ('molstudio.ico', '.'),
-        ('校徽.png', '.'),
+        # 窗口/任务栏图标、启动画面校徽、内置样式 json
+        (ASSETS, os.path.join("molstudio", "assets")),
     ],
-    hiddenimports=[
-        # 主程序依赖
-        'main_window', 'i18n', 'theme', 'dialogs', 'workers',
-        'fchk_parser', 'fchk_orbital', 'file_dialogs',
-        'molcanvas', 'widgets', 'marching_cubes', 'glsl_shaders',
-        # 第三方（部分为延迟 import，显式声明确保收集）
-        'numpy', 'mcubes', 'matplotlib',
-        # ovcanvas 渲染包（旧 cub_canvas/cub_viewer/color_wheel 已并入）
-        'ovcanvas', 'ovcanvas._panel', 'ovcanvas._glwidget',
-        'ovcanvas._molviewer_style', 'ovcanvas._colorwheel',
-        # 各分析面板
-        'esp_panel', 'esp_viewer', 'charge_viewer', 'charge_bond_panel',
-        'nbo_viewer', 'nbo_parser', 'igmh_panel',
-        'aim_panel', 'aim_visualize',
-        'etsnocv_panel', 'etsnocv', 'etsnocv.viewer', 'etsnocv.molcanvas',
-        # MPP 分子平面性参数分析（移植自 mpp_auto_qt.py）
-        'mpp_panel',
-        # 旧版独立查看器（保留兼容）
-        'orbital_viewer_v53', 'orbital_viewer_lib',
-        'orbital_gl_viewer', 'orbital_gl_widget',
-        'cubviewer',
-    ],
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['PySide6', 'PyQt5.QtWebEngineWidgets', 'PyQt5.QtWebEngineCore',
-               'PyQt5.QtWebEngine', 'PyQt5.QtWebChannel', 'PyQt5.QtWebEngineQuick',
-               # 以下仅存在于站点包、项目代码未引用，排除以减小体积
-               'IPython', 'pandas', 'sympy', 'bokeh', 'astropy',
-               'distributed', 'numba', 'sklearn'],
+    excludes=[
+        # Qt 里没用到的重模块
+        "PySide6",
+        "PyQt5.QtWebEngineWidgets", "PyQt5.QtWebEngineCore", "PyQt5.QtWebEngine",
+        "PyQt5.QtWebChannel", "PyQt5.QtWebEngineQuick",
+        # 仅存在于 Anaconda 站点包、项目代码未引用（留着会让产物从 ~350 MB
+        # 涨到 1 GB 以上）
+        "IPython", "jupyter", "jupyterlab", "notebook", "nbconvert", "nbformat",
+        "ipykernel", "ipywidgets", "ipympl", "qtconsole",
+        "pandas", "sympy", "bokeh", "astropy", "distributed", "numba", "sklearn",
+        "skimage", "vtk", "vtkmodules", "pytest", "sphinx",
+    ],
     noarchive=False,
     optimize=0,
 )
@@ -91,7 +105,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     upx=False,
-    icon=r'D:\OrbitalViewer 5.3\molstudio.ico',
+    icon=os.path.join(ASSETS, "molstudio.ico"),
 )
 
 coll = COLLECT(
@@ -105,7 +119,7 @@ coll = COLLECT(
 )
 
 # ── 事后放回被拦截的 DLL（写 .tmp 再改名，绕过 360 按名拦截） ──
-_internal = os.path.join(r'D:\OrbitalViewer 5.3\dist', 'MolStudio', '_internal')
+_internal = os.path.join(DISTPATH, 'MolStudio', '_internal')
 os.makedirs(_internal, exist_ok=True)
 for _dest, _src, _tc in _blocked_entries:
     _name = _dest.replace('\\', '/').rsplit('/', 1)[-1]

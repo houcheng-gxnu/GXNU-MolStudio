@@ -1,9 +1,167 @@
 # MolStudio GL 渲染内核：IboView 移植部分盘点（行号级）
 
-> 范围：`ovcanvas/_glwidget.py`（渲染内核，约 6290 行）
+> 范围：`ovcanvas/_glwidget.py`（渲染内核，约 6290 行；原版快照 `ovcanvas/_glwidget_iboview.py`）
 > 目的：合规自查 —— 区分「IboView 逐字移植的表达」（重写候选）与「自研/通用算法/其他来源」。
-> 依据：IboView © 2015 Gerald Knizia, GPLv3；官方 README 含"请勿分发修改版"的意愿声明。
-> 状态：**已由主核对 + 独立子核对完成**（子核对 16 项 + 全文 grep 补充，见文末附注）
+> 依据：IboView © 2015 Gerald Knizia, GPLv3（**GPLv3-only**，源文件头写 "version 3"，无 "or later"）。
+
+---
+
+## ⚠️ 当前状态（2026-09-03 复核，请以此为准）
+
+**结论：本文件构成 IboView 的衍生作品，项目按 GPLv3 分发即可合规；但"重写"远未完成。**
+
+### 1. 「重写表达层」的实际结果：只完成了 8 项中的 1 项
+
+2026 年的 `2ca52e0`（重写表达层）+ `11800c4`（观感参数调校）两次提交，做的是
+**改名 + 注释改写 + 数值微调**，不是重写。实测（对照 IboView RevA 源码）：
+
+| 项目 | plan 编号 | 实际状态 |
+|---|---|---|
+| 元素颜色表 `_IBO_ELEMENT_COLORS_HEX` | 1.1 | ✅ **已完成** —— 删除，改用 `_CPK_COLORS`（Jmol/CPK 公开配色） |
+| 共价半径表 `_COV_RADII_BOHR` | 1.2 | ✅ **已完成（2026-09-03）** —— 改为 Cordero et al. *Dalton Trans.* **2008**, 2832–2838 单键共价半径（Å→Bohr），数据取自仓库内 `etsnocv/config.py` 的课题组 Cordero 副本；前 54 号经 `ELEMENT_SYMBOLS` 顺序交叉校验，103 项无缺失。引用原为 IboView `g_CovalentRadii` 的注释已整段改写 |
+| 原子绘制半径表 `_DRAW_RADII` | 1.3 | ✅ **已完成（2026-09-03）** —— 不再逐字抄 IboView `AtomicRadii[104]`；改为由上面的 Cordero 共价半径表 × `COV_TO_DRAW`（按碳标定，整体球大小与改动前一致）。相对碳的半径比例与旧表偏差：C/N/O/P/S/Cl/Br/I 及多数金属 ±5% 内，F −15%、H −33%。**H 已于 2026-09-04 单独 ×`HYDROGEN_DRAW_SCALE`=1.5**（显示系数，绝对值 0.875 ≈ 旧表 0.87），共价半径仍用于成键判定、未改动|
+| `IBO_DEFAULT_A/O` + `SHININESS_PRESETS` | 1.4 | ✅ **已完成（2026-09-04）** —— 改名 `_REG_DEFAULT_A/O` 并重标定数值；`SHININESS_PRESETS` 5 档预设（IboView 风格命名）已删除，改为 `gloss` 滑块（`set_gloss` 0..1 连续调节镜面强度），旧预设名经 `_LEGACY_SHININESS_TO_GLOSS` 兼容映射 |
+| GLSL `FRAG_COMBINE_DP` | — | ✅ **已解决** —— 自研 WBOIT 路径（McGuire & Bavoil 2013）已等价替代；**depth-peeling 路径已于 2026-09-03 整条删除**，最后一份逐字符相同的着色器（`FRAG_COMBINE_DP`）随之移除 |
+| `_GLSL_COMMON` 光照/雾化公式 | — | ✅ **已完成（2026-09-04）**：`ShaderReg0-3`→`u_DiffusePow/Str`+`u_SpecStr/Sharp`、`Fade*`→`u_FogWidth/Bias`、三灯硬编码方向（死代码 `D_L0-2`+`u_UseCustomLights` 分支）已删、`0.12` 截止提取为具名常量、**材质数值自定重标定**（`_REG_DEFAULT_A/O`、`SHININESS_PRESETS`、`FogWidth/Bias`、投影 near/far 系数） |
+| `IBOVIEW_DEFAULTS` 参数字典 | — | ✅ **已完成（2026-09-04）**：改名为 `_RENDER_DEFAULTS`，`FadeType` 已删、`FadeWidth/FadeBias`→`FogWidth/FogBias`、死键已删、`FogWidth/Bias` 数值自定 |
+| 选中标记 | — | ✅ **已重做**：改为「原子本体染琥珀高亮 + 1.10× 贴合半透明包裹壳」，参数全部自定；二十面体形状与 IboView 三常数（`1.8×`、`0.4:0.6`、`alpha 0.5`）一并移除 |
+| 二十面体表 | `_ICOSA_COORDS/_ICOSA_TRIS` | ✅ **已删除**：随二十面体形状一同移除，`make_icosahedron` 已删 |
+| 相机常量 | — | ✅ **已改为项目自定**（2026-09-03）：`CAM_DIST=105`、`BASE_EXTENT=7.8`（原 100/8.0）|
+
+整体量化：新旧两版代码骨架（剥离注释/字符串后）相似度 **98.93%**；152 个同名函数相似度
+**中位数 100%**，其中 150 个 ≥90%。
+
+### 2. 已纠正的合规事故
+
+`2ca52e0`/`11800c4` 同时删除了文件头的 `Copyright (c) 2015 Gerald Knizia` 声明，并写入两处
+**与事实不符**的说明（"着色器/几何/参数均为本项目实现"、"数据来自 Bondi/Cordero 2008"）。
+
+这触犯了 GPLv3 §5(c)（保留版权声明），并依 §8 使授权**自动终止**。2026-09-03 已修复：
+
+- 恢复 `ovcanvas/_glwidget.py` 文件头的 IboView 版权与 GPLv3 声明
+- 改正 `_DRAW_RADII`、`_COV_RADII_BOHR`、`FRAG_COMBINE_DP`、`SHININESS_PRESETS` 的来源标注
+- 本文件改为如实记录进度
+
+依 GPLv3 §8，停止违规后授权**临时恢复**；停止后 60 天权利人未主张则**永久恢复**。
+
+### 3. 法律定性（供参考，非法律意见）
+
+- **分发修改版本身完全合法**：GPLv3 §5 授予该权利。IboView README 中
+  "Do not fork / 请勿分发修改版" 属于 **further restriction**，依 GPLv3 §10 无效，
+  且 §7 末段明文允许接收方移除该条款。
+- **风险来自未满足 §5 条件**，尤其 §5(c) 保留版权声明。
+- ✅ §5(d) 要求 GUI 程序显示 Appropriate Legal Notices —— **已完成**
+  （`main_window.py` 中 `AboutDialog` 已含 GPLv3 声明、IboView 版权署名与第三方归属，
+  经「关于」按钮 `btn_about` → `_open_about_dialog()` 打开；双语 `_LEGAL_CN`/`_LEGAL_EN`）。
+- IboView 为 **GPLv3-only**，故本项目整体**不得**改称 "GPLv3 or later"。
+
+---
+
+## ✅ 已完成并观感验证：WBOIT 透明合成（2026-09-03）
+
+**这是本项目第一个从 IboView 路径中彻底剥离、并经逐场景观感验证的渲染组件。**
+
+> ### ✅ 验证结论（2026-09-03）
+> 与 Depth peeling 逐场景对照：**观感几乎一致**。
+> 原本由 `FRAG_COMBINE_DP`（与 IboView `pixel5_combine_dp.glsl` **9/12 行逐字符
+> 相同**）承担的透明合成，现已可由本项目自研的 WBOIT 路径**等价替代**。
+> 至此 A 类清单中的「depth-peeling 合成着色器」一项**实际已解决**。
+
+`ovcanvas/_glwidget.py` 新增了一条**自研**的顺序无关透明路径，与 IboView 无关：
+
+| | Depth peeling（IboView 方案） | **WBOIT（本项目自研）** |
+|---|---|---|
+| 趟数 | N 趟（层数越多越慢） | **1 趟** |
+| 缓冲 | 2 组 color+depth，FBO ping-pong | MRT：累积(RGBA16F) + 显现(R16F) + 深度 |
+| 层数上限 | 受 `DepthPeelingLayers` 限制（默认 4） | 无上限 |
+| 开销 | 随层数线性增长 | 恒定 |
+
+- **算法来源**：Morgan McGuire, Louis Bavoil, *"Weighted Blended Order-Independent
+  Transparency"*, Journal of Computer Graphics Techniques **2**(2):122–141, **2013**。
+  公开发表的算法，GLSL 为本项目按论文公式**自行实现**，未参考任何现有实现的源码。
+- **新增内容**：`FRAG_ORB_OIT`、`FRAG_COMBINE_OIT` 着色器；`OitTarget` 类（MRT，
+  含浮点渲染能力探测与逐级降级）；`render_transparent_oit()`；
+  `_render_transparency()` 分派（oit / peel / sorted 三选一，失败自动回退）。
+- **能力门槛**：需要 `glBlendFunci`（GL 4.0 或 `GL_ARB_draw_buffers_blend`）与可渲染
+  浮点纹理；任一不具备则自动回退到 depth peeling，再不行回退排序混合。
+- **UI**：参数面板「透明合成」下拉框切换三种模式；另有「WBOIT 衰减」滑块
+  （0–12，默认 4.0）用于微调前/后层权重比。
+- **默认**：`oit`（自研路径优先）。
+
+### 踩过的坑：论文公式的隐含前提
+
+初版照搬论文 eq.10 的 `1e8 * pow(1 - z*0.9, 3)`，结果**观感偏暗**。根因是
+该系数为**透视投影**标定；本项目是**正交投影**（`CAM_DIST` 固定 105，
+near/far = 2.1/210），全场景 `gl_FragCoord.z ≈ 0.495`，`pow(1-0.9z,3) ≈ 0.17`
+是个"大"数，乘 1e8 后**所有片元一律顶到 3e3 上限**，深度权重彻底失效，
+退化为等权平均（前后比 1:1）。
+
+修正：按包围球直径归一化 z 到 [0,1]（0=最前、1=最后），改用 `exp(-k·t)`
+指数衰减。实测前后权重比：
+
+| k | 0（bug 态） | 2 | 3 | **4（默认）** | 6 | 8 |
+|---|---|---|---|---|---|---|
+| 前:后 | 1:1 | 7.4:1 | 20:1 | **54.6:1** | 403:1 | 2981:1 |
+
+> **教训**：论文公式常带隐含前提。移植算法前必须核对其标定假设是否与自身
+> 场景匹配 —— 后续重写光照/雾化表达式时同样要逐常数检查。
+
+### 选中高亮已重做（2026-09-03）
+
+原方案沿用 IboView `IvView3D.cpp`：半径 **1.8–1.9×** 原子绘制半径的**正二十面体**
+外壳，颜色 `0.4×原子色 + 0.6×白`、`alpha 0.5`，**原子本体不着色**。两个问题：
+
+1. 多边形壳离原子很远且边角生硬，观感像"外面套了个盒子"而非"这颗原子被选中"；
+2. 那几个比例与配色常数是 IboView 的调参结果。
+
+**新方案（本项目自定）**：
+
+| 项 | 取值 | 依据 |
+|---|---|---|
+| `SEL_TINT_DEFAULT` | 琥珀 `(1.00, 0.72, 0.18)` | 对 CPK/GaussView 常见配色（灰碳、红氧、蓝氮、白氢）区分度最好；不会像纯红与氧混、纯蓝与氮混 |
+| `SEL_TINT_MIX` | `0.5` | 原子本体向高亮色混合一半：既一眼可辨，又保留元素身份 |
+| `SEL_WRAP_SCALE` | `1.10` | 只比球面大 10%：不会 z-fighting，也不显得是独立物体 |
+| `SEL_WRAP_ALPHA` | `0.38` | 半透明，能透出本体颜色 |
+
+实测混合效果（`_mix_toward`，亮度 = 0.2126R+0.7152G+0.0722B）：
+
+| 原子 | 原色 → 混合后 | 亮度变化 |
+|---|---|---|
+| 碳 灰 | (0.56,0.56,0.56) → (0.78,0.64,0.37) | 0.560 → 0.650 ↑ |
+| 氧 红 | (0.90,0.00,0.00) → (0.95,0.36,0.09) | 0.191 → 0.466 ↑ |
+| 氮 蓝 | (0.19,0.31,0.97) → (0.59,0.52,0.57) | 0.332 → 0.536 ↑ |
+| 氢 白 | (1.00,1.00,1.00) → (1.00,0.86,0.59) | 1.000 → 0.870（转为琥珀，仍清晰可辨）|
+
+伴随清理：`make_icosahedron()` 与 `_ICOSA_COORDS/_ICOSA_TRIS` 已删除
+（二十面体形状移除后成为死代码）。顺带说明：该表虽在早期审计中记为
+"取自 `IvMesh.cpp`"，但正二十面体是数学对象（顶点由黄金比 φ 唯一确定），
+任何人实现都得到同一组数值——所以删除它属于**代码清理**而非合规必需。
+
+新增 API：`set_selection_tint()` / `get_selection_tint()` /
+`set_selection_wrap_alpha()`。面板下拉项改为「包裹 / 透明球 / 圆环 / 光晕」，
+默认「包裹」。
+
+### 遗留：Depth peeling 路径已删除（2026-09-03）
+
+`render_transparent_depth_peeling()`、`FRAG_ORB_DP` / `FRAG_COMBINE_DP` 以及
+depth-peeling 专用的双缓冲 `PeelTarget` 已**整条删除**（WBOIT 合成趟复用了同一
+全屏 quad VAO，故该 VAO 保留）。最后一份与 IboView 逐字符相同的着色器
+（`FRAG_COMBINE_DP`）随之移除。透明模式现仅 `"oit"` / `"sorted"` 两种，
+历史 `"peel"` 模式在分派时落到排序混合（旧样式文件兼容）。
+
+> **2026 更新**：depth peeling 作为**可选项**重新加入，但为**独立实现**——
+> 按 Everitt (2001) 白皮书自行编写（`FRAG_PEEL_ORB` / `FRAG_PEEL_COMBINE`
+> 着色器、`PeelTargets` FBO 组、`render_transparent_peel()`，层数上限
+> `_peel_layers` 默认 4），未参考 IboView 的 `pixel5_orb_dp/combine_dp` 移植
+> 文本（git 历史与 `_glwidget_iboview.py` 快照中的旧实现均不参与）。透明模式
+> 现为 `"oit"` / `"peel"` / `"sorted"` 三选，运行失败时在 `_render_transparency`
+> 内逐级回退（peel ↔ oit 互备，最后落到排序混合）。算法本身为公开方法，
+> 与 IboView 无表达层关联。
+
+> 此改动替换了透明合成算法，并清除了使 `_DRAW_RADII` / `_COV_RADII_BOHR`
+> 替换得以成立的障碍。仍待重写的是 `_GLSL_COMMON` 光照/雾化公式（清单 #4）。
+
+---
 
 ## 图例
 
@@ -79,25 +237,47 @@
 | 5880–5899 | 绝对 isovalue 控件 + 不透明度默认 0.8（=OrbitalOpacity） | C（默认值） |
 | 5939–5969 | 键检测阈值滑块默认（bf×1.30、dash 0.40、键距上限） | C（默认值） |
 
-## 汇总
+## 汇总（2026-09-03 修订：变量名已按现版本更新，并标注完成状态）
 
-- **A 类（数值/表达照抄，重写候选，估 ~350–450 行）**：
-  1. `_ATOM_DRAW_RADII`（90–102）+ 金属缩放逻辑（104–128）
-  2. `_IBO_ELEMENT_COLORS_HEX`（169–183）
-  3. `_COVALENT_RADII_BOHR`（262–274）
-  4. 缩放常量 ATOM_DRAW_SCALE/BOND_DRAW_SCALE/BOND_RADIUS_FACTOR/BOND_THINNING_DEFAULT（315–327）
-  5. `IBOVIEW_DEFAULTS`（331–342）
-  6. `IBO_DEFAULT_A/O`、`SHININESS_PRESETS`（65–80）
-  7. `_GLSL_COMMON` pixel_common.glsl 移植段（472–562）
-  8. `_ICOSA_COORDS/_ICOSA_TRIS`（1006–1026）
-  9. 相机常量 CAM_DIST/BASE_EXTENT 与投影 near/far（1547–1548、1594–1596、5198–5216）
-- **B 类（算法思路复刻、可辩护；若需彻底脱离衍生身份建议连带重写观感相关处）**：depth peeling 循环、GenerateBonds 判定、选中标记、shader 翻译函数、uniforms 上传、相对阈值实现
-- **D 类（自研/其他公开来源，无 IboView 问题）**：MolViewer 球体渐变（MolCanvas 自研，含 Houk/gau_default）、vdW 半径（Bondi 1964 公开表）、虚线键、torus、画家回退、分块高分导出、所有 UI 布局、全部分析面板与 VMD 通道
+> 改名对照：`_ATOM_DRAW_RADII`→`_DRAW_RADII`、`_COVALENT_RADII_BOHR`→`_COV_RADII_BOHR`、
+> `_COVALENT_RADII`→`_COV_RADII`、`IBO_DEFAULT_A/O`→`_REG_DEFAULT_A/O`。
 
-### 法律要点
-- A 类中的元素色/半径表本质是科学常数/配色，**单独看版权保护弱**；真正构成"表达"的是 shader 文本 + preset 数值集 + IBOVIEW_DEFAULTS 参数集。
-- 只需重写 shader 文本、SHININESS_PRESETS/IBOVIEW_DEFAULTS/相机常量这些"配方"，并**自洽重调观感**，即可大幅降低衍生身份；三张元素/半径表可换用公开 CPK/Bondi/文献数据（MolCanvas 与 GaussView 配色已是另一来源，见 `_SOB_ART_COLORS`、`_GVIEW_COLORS`）。
-- vdW 半径表（Bondi 1964）与 `_GVIEW_COLORS`（卢天 gview_color.tcl）**不属于 IboView**，是公开/第三方来源。
+- **A 类（数值/表达照抄）—— 重写候选，估 ~350–450 行**：
+
+  | # | 内容 | 现变量名 | 完成状态 |
+  |---|---|---|---|
+  | 1 | 元素颜色表 | ~~`_IBO_ELEMENT_COLORS_HEX`~~ → `_CPK_COLORS` | ✅ 已替换 |
+  | 2 | 共价半径表 | `_COV_RADII_BOHR` | ✅ 已替换为 Cordero 2008（2026-09-03） |
+  | 3 | 原子绘制半径表 | `_DRAW_RADII` | ✅ 已由 Cordero 共价半径导出（2026-09-03） |
+  | 4 | 缩放/键判定常量 | `BOND_RADIUS_FACTOR` 等 | ✅ 已改项目自定（2026-09-03；原 1.3→1.32 等微调，注释重写） |
+  | 5 | 默认参数字典 | 拆散引用（原 `IBOVIEW_DEFAULTS`）→ `_RENDER_DEFAULTS` | ✅ 已改名 + `Fade*`→`Fog*` + 数值自定（2026-09-04） |
+  | 6 | shader 寄存器与光泽预设 | `_REG_DEFAULT_A/O`、`SHININESS_PRESETS` | ✅ 已语义化命名 + 数值自定重标定（2026-09-04） |
+  | 7 | `pixel_common.glsl` 移植段 | `_GLSL_COMMON` | ✅ **已完成**（命名/结构/雾化参数/材质数值全部自定） |
+  | 8 | depth-peeling 合成着色器 | `FRAG_COMBINE_DP` | ✅ 已由自研 WBOIT 替代；**depth-peeling 路径整条删除**（2026-09-03） |
+  | 9 | 二十面体顶点/面表 | ~~`_ICOSA_COORDS/_ICOSA_TRIS`~~ | ✅ **已删除**（随二十面体形状移除） |
+  | 10 | 相机常量与投影 | `CAM_DIST`/`BASE_EXTENT` | ✅ 已改项目自定（2026-09-03：105 / 7.8） |
+  | 11 | 选中标记 | `1.8×`、`0.4:0.6`、`alpha 0.5` | ✅ **已重做**：琥珀高亮 `SEL_TINT_*` + 1.10× 包裹壳，全部自定 |
+
+- **B 类（算法思路复刻、可辩护）**：depth peeling 循环、GenerateBonds 判定、选中标记形状/动画、
+  shader 翻译函数、uniforms 上传、相对阈值实现
+- **D 类（自研/其他公开来源，无 IboView 问题）**：MolViewer 球体渐变（MolCanvas 自研，含
+  Houk/gau_default）、vdW 半径（Bondi 1964 公开表）、元素配色（Jmol/CPK、GaussView、
+  MolCanvas）、虚线键、torus、画家回退、分块高分导出、所有 UI 布局、全部分析面板与 VMD 通道
+
+### 法律要点（2026-09-03 修订）
+
+- **合规路径已确定**：本项目按 **GPLv3** 分发即完全合规，无需完成重写。
+  「重写」的目的只是**摆脱衍生身份**（从而可以选择其他许可证），不是为了满足 GPLv3。
+- **分发修改版是权利，不是违约**：GPLv3 §5 明文授予。IboView README 的
+  "Do not fork / 请勿分发修改版" 依 §10 无效，且 §7 末段允许移除该条款。
+- **真正的违规点是 §5(c) 保留版权声明** —— 已修复（见文首「当前状态」）。
+  §5(d) 的 GUI 法律声明 —— **已完成**：`main_window.py::AboutDialog` 显示 GPLv3 声明、
+  IboView 版权署名与第三方归属（「关于」按钮打开，双语）。
+- A 类中的半径/配色表本质是科学数据，**单独看版权保护弱**；真正构成"表达"的是
+  shader 文本 + preset 数值集 + 默认参数集。若日后要脱离衍生身份，优先重写这三类。
+- 已确认**非** IboView 来源：vdW 半径（Bondi 1964）、`_GVIEW_COLORS`（卢天 gview_color.tcl）、
+  `_CPK_COLORS`（Jmol/CPK）、MolCanvas 自研配色与渐变。
+- 若日后要改称 "GPLv3 or later"，必须先把 IboView 部分彻底重写剥离 —— IboView 是 **GPLv3-only**。
 
 ---
 
@@ -126,14 +306,27 @@
 
 **子核对补充的遗漏点（全部并入上述分级）**：文件头 7–11 行自我披露声明；707–729 / 898–946（FRAG_ORB_DP / FRAG_COMBINE_DP 骨架，A/B）；972–1001（make_sphere 通用，D）；1296–1299、1651–1652、1724、2932、3101–3102（概念注释 C）；1769–1779（球棍默认块 _bond_rf_loose=1.3、_dash_weight=0.4，C）；2771–2793（reset_molviewer_style 回填 IBOVIEW_DEFAULTS，C）；3743–3765（render_plane_fill 自研 D）；3769–3778（RenderBacksides 行为对照注释 C）；5339–5361（render_selection_markers pass 自写 B/C）；5514–5516（排序回退 docstring 注释 C）；5588–5591（_set_regs 循环封装 D）。
 
-### 高风险（A 级）最终清单（8 项，重写优先级）
-1. `_IBO_ELEMENT_COLORS_HEX`（169–183）→ 源 IvDataOptions.cpp ElementColors[110]
-2. `_COVALENT_RADII_BOHR`（262–274）→ 源 CxAtomData.cpp g_CovalentRadii
-3. `_ATOM_DRAW_RADII`（90–102）→ 源 IvDataOptions.cpp AtomicRadii
-4. `IBO_DEFAULT_A/O`（65–66）+ `SHININESS_PRESETS`（74–80）→ 源 preset_*.js
-5. `IBOVIEW_DEFAULTS` 整 dict（331–342）→ 源 prop_FView3d.cpp.inl
-6. `_ICOSA_COORDS/_ICOSA_TRIS`（1006–1026）→ 源 IvMesh.cpp
-7. `_GLSL_COMMON` 主体（478–562，源 pixel_common.glsl）+ FRAG_ORB_DP / FRAG_COMBINE_DP 骨架（707–729 / 933–946，mirror pixel5_*.glsl）
-8. 选中标记三常数 1.8×、0.4/0.6、alpha 0.5（4299–4304）→ 源 IvView3D.cpp
+### 待重写清单（仅当目标是摆脱 GPLv3 衍生身份时才需要做）
 
-（核对由主核对 + 独立子核对共同完成，双方对 A 类 8 项结论一致；行号以 `ovcanvas/_glwidget.py` 2026 版本为准。）
+| # | 内容 | IboView 来源 | 替代方案 |
+|---|---|---|---|
+| 1 | `_COV_RADII_BOHR` | `CxAtomData.cpp::g_CovalentRadii` | Cordero et al., *Dalton Trans.* **2008**, 2832–2838（Å），自行换算 Bohr |
+| 2 | `_DRAW_RADII` | `IvDataOptions.cpp::AtomicRadii[104]` | 基于 Bondi vdW 表 × 项目自定系数，或自拟合绘制半径表 |
+| 3 | ~~`FRAG_COMBINE_DP`~~ | ~~`shader/pixel5_combine_dp.glsl`~~ | ✅ **已完成**：改用 McGuire & Bavoil 2013 的 WBOIT，单趟实现，观感验证一致；**depth-peeling 路径已于 2026-09-03 整条删除** |
+| 4 | `_GLSL_COMMON` 光照/雾化公式 | `shader/pixel_common.glsl` | ✅ **已完成**：语义化命名 + 材质数值自定重标定 |
+| 5 | `_REG_DEFAULT_A/O`、`SHININESS_PRESETS` | `preset_*.js`、`prop_FView3d.cpp.inl` | ✅ **已完成**：数值自定重标定 |
+| 6 | 默认参数字典 | `prop_FView3d.cpp.inl` | ✅ **已完成**：项目自有默认值（`FogWidth/Bias` 等） |
+| 7 | 相机常量 `CAM_DIST`/`BASE_EXTENT` | `FView3d::ResetProjectionAndZoom` | 自定义 |
+| 8 | 选中标记三常数 | `IvView3D.cpp` | 自定义 |
+
+> 说明：原清单第 1 项（元素颜色表）已完成，不在上表。
+> 第 6 项 `_ICOSA_COORDS/_ICOSA_TRIS` 虽取自 `IvMesh.cpp`，但二十面体是通用几何、
+> 表达空间极小，风险可忽略，优先级最低。
+
+**重要**：重写必须由**未接触过 IboView 源码的人**完成才构成 clean room。
+本项目 git 历史已记录了 access（`2ca52e0`、`11800c4` 等提交信息），
+由同一批人"重写"在法律上不构成独立创作。
+
+（核对由主核对 + 独立子核对共同完成；2026-09-03 由第三次复核补充完成状态与法律定性。
+行号以旧版快照 `ovcanvas/_glwidget_iboview.py` 为准，现版本 `ovcanvas/_glwidget.py`
+已改名，内容对照见文首「当前状态」表。）

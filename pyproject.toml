@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gxnu-molstudio"
+version = "1.0.0"
+description = "分子可视化与量子化学分析工具：fchk/cube 轨道、电荷、NBO、ESP、IGMH、AIM、ETS-NOCV、IRC、晶体"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "GPL-3.0-only" }
+authors = [
+    { name = "Cheng Hou", email = "houcheng@gxnu.edu.cn" },
+]
+keywords = ["molecular orbital", "isosurface", "visualization", "quantum chemistry",
+            "IGMH", "IRI", "Multiwfn"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Chemistry",
+]
+dependencies = [
+    "PyQt5>=5.15",
+    "PyOpenGL>=3.1",
+    "PyOpenGL-accelerate>=3.1 ; platform_system == 'Windows'",
+    "numpy>=1.20",
+    "PyMCubes>=0.1.4",
+    "matplotlib>=3.5",
+]
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0"]
+
+[project.urls]
+Homepage = "https://cnb.cool/chem311/GXNU-MolStudio"
+Repository = "https://cnb.cool/chem311/GXNU-MolStudio"
+Mirror = "https://github.com/houcheng-gxnu/GXNU-MolStudio"
+
+[project.gui-scripts]
+molstudio = "molstudio.app:main"
+
+[tool.setuptools.packages.find]
+include = ["molstudio*"]
+
+[tool.setuptools.package-data]
+molstudio = ["assets/*"]

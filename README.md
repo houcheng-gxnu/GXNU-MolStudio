@@ -4,6 +4,8 @@
   <img src="https://img.shields.io/badge/version-1.0-blue.svg" alt="Version 1.0">
   <img src="https://img.shields.io/badge/python-3.8+-green.svg" alt="Python 3.8+">
   <img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="GPLv3 License">
+  <a href="https://doi.org/10.5281/zenodo.22821586"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.22821586.svg" alt="DOI"></a>
+  <a href="https://doi.org/10.26434/chemrxiv.15009253/v2"><img src="https://img.shields.io/badge/ChemRxiv-preprint-informational.svg" alt="ChemRxiv preprint"></a>
 </p>
 
 <p align="center">
@@ -112,10 +114,13 @@ GXNU MolStudio is a molecular visualization and quantum-chemistry analysis suite
 
 ### Installation
 
+The source code lives on CNB — **[cnb.cool/chem311/GXNU-MolStudio](https://cnb.cool/chem311/GXNU-MolStudio)**, the address given in the preprint — with a mirror at [github.com/houcheng-gxnu/GXNU-MolStudio](https://github.com/houcheng-gxnu/GXNU-MolStudio).
+
 ```bash
-git clone https://github.com/houcheng-gxnu/GXNU-MolStudio.git
+git clone https://cnb.cool/chem311/GXNU-MolStudio.git
+# mirror: git clone https://github.com/houcheng-gxnu/GXNU-MolStudio.git
 cd GXNU-MolStudio
-pip install PyQt5 PyOpenGL numpy PyMCubes matplotlib
+pip install -r requirements.txt      # 或：pip install -e . （以包方式安装）
 ```
 
 ### Configure tool paths
@@ -127,6 +132,20 @@ On first launch, browse and select the Multiwfn path (and others) in the GUI ⚙
 ```bash
 # GUI mode (English UI available; 中文内置)
 python main.py
+```
+
+The GUI ships with four interchangeable layouts — same features, different chrome:
+
+| `--ui` | Layout | Source |
+|---|---|---|
+| *(default)* / `classic` | classic three-column | `main_window.py` |
+| `clean` | Clean Light cards | `main_window_clean.py` |
+| `clean2` | Bridge cards | `main_window_clean2.py` |
+| `canvas` | **canvas-first**: 58 px icon rail, collapsible right drawer, one-click styles in a dropdown | `main_window_canvas_first.py` |
+
+```bash
+python main.py --ui canvas            # or: MOLSTUDIO_UI=canvas python main.py
+python main_window_canvas_first.py    # standalone, same result
 ```
 
 ### Command-line mode (batch)
@@ -158,38 +177,37 @@ python main.py ./folder/ --mo h --grid 3 --no-render
 
 ---
 
+### Self-check
+
+```bash
+pip install pytest
+pytest tests -q      # every submodule imports + offscreen UI smoke test
+```
+
+---
+
 ## Project Structure
 
 ```
 GXNU-MolStudio/
-├── main.py                  # Entry point (GUI launch + CLI batch)
-├── main_window.py           # Main window (UI layout, panel docking, logs)
-├── ovcanvas/                # Embedded OpenGL rendering engine
-│   ├── _glwidget.py         # GL core: depth peeling / lighting / ball-stick / isosurfaces
-│   ├── _panel.py            # Canvas controls (one-click styles / params / lights / ring)
-│   ├── _colorwheel.py       # Interactive color wheel
-│   └── _molviewer_style.py  # MolViewer preset
-├── etsnocv/                 # ETS-NOCV analysis package
-├── igmh_panel.py            # IGMH/IRI weak-interaction panel
-├── irc_panel.py             # IRC panel: Mayer bond order / charge along the path
-├── esp_panel.py             # ESP electrostatic-potential panel
-├── aim_panel.py             # AIM topology analysis (QTAIM BCPs & bond paths)
-├── charge_bond_panel.py     # Charge + Mayer bond-order combined panel
-├── charge_viewer.py         # Charge analysis viewer
-├── nbo_viewer.py            # NBO analysis viewer
-├── di_analysis_panel.py     # Distortion–Interaction energy decomposition
-├── energy_span_panel.py     # Energetic Span Model (energy span δE / TOF)
-├── fchk_orbital.py          # Backend engine (cube gen, VMD control, Tachyon render, styles)
-├── fchk_parser.py           # fchk parsing
-├── marching_cubes.py        # Isosurface extraction (PyMCubes wrapper)
-├── file_dialogs.py          # File dialogs (remember last directory)
-├── i18n.py                  # Internationalization (简体中文 / English)
-├── theme.py                 # QSS themes
-├── workers.py               # Background worker threads
+├── main.py                  # Thin entry point → molstudio.app:main
+├── molstudio/               # Application package
+│   ├── app.py               # Startup flow (splash, UI selection, CLI batch mode)
+│   ├── paths.py             # Asset / config path resolution (source & frozen)
+│   ├── core/                # Backend engine: fchk_orbital, fchk_parser, marching_cubes,
+│   │                        #   workers, i18n, crystal_lib
+│   ├── ui/                  # Windows & chrome: main_window (+ clean / clean2 /
+│   │                        #   canvas-first), dialogs, widgets, ui_icons, theme
+│   ├── panels/              # 13 analysis panels + the etsnocv sub-package
+│   ├── render/              # ovcanvas GL engine, molcanvas, vmd_embed, viewers
+│   └── assets/              # Window icon, university emblem, built-in style json
+├── tests/                   # Import self-check + offscreen UI smoke tests
+├── docs/                    # Design notes, preprint drafts, reference audits
+├── screenshots/             # Gallery images used by this README
+├── legacy/                  # Retired code kept for reference (not packaged)
 ├── OrbitalViewer.spec       # PyInstaller config (onedir)
-├── screenshots/             # Preview screenshots
-├── README.md                # English (default)
-└── README_zh.md             # 简体中文
+├── pyproject.toml           # Project metadata & dependencies
+└── requirements.txt         # Runtime dependencies
 ```
 
 ---
@@ -203,7 +221,9 @@ pip install pyinstaller
 pyinstaller OrbitalViewer.spec --clean
 ```
 
-Output: `dist/GXNU MolStudio/` (a folder; double-click `GXNU MolStudio.exe` to start).
+Output: `dist/MolStudio/` (a folder — onedir; double-click `MolStudio.exe` to start).
+Everything except the launcher lives in the bundled `_internal/` subfolder, so keep the
+folder intact when distributing.
 
 > Packaging already handles 360 Security guard's write interception on a few system DLLs (see comments in the spec).
 
@@ -214,7 +234,7 @@ Output: `dist/GXNU MolStudio/` (a folder; double-click `GXNU MolStudio.exe` to s
 GXNU MolStudio stands on the shoulders of giants:
 
 - **[Multiwfn](http://sobereva.com/multiwfn/)** — the wavefunction analysis program by Prof. Tian Lu (sobereva), cited by over 40,000 papers. Used here to generate cubes and run IGMH/IRI analyses.
-- **[vcube2.0](https://github.com/Zhong-Cheng-2020/vcube2.0)** — the collection of polished VMD orbital render configurations by Prof. Cheng Zhong.
+- **[vcube 2.0](http://bbs.keinsci.com/thread-18150-1-1.html)** — Tcl scripts for batch rendering Gaussian cube files with VMD, by Prof. Cheng Zhong (Wuhan University); posted on the Computational Chemistry Commune (计算化学公社) forum.
 - **[VMD](https://www.ks.uiuc.edu/Research/vmd/)** — Humphrey, W., Dalke, A. and Schulten, K., "VMD: Visual Molecular Dynamics", J. Molec. Graphics, 1996, 14, 33–38.
 - **[Tachyon](http://jedi.ks.uiuc.edu/~johns/raytracer/)** — Stone, J. E., "An Efficient Library for Parallel Ray Tracing and Animation", M.Sc. Thesis, 1998.
 - **[IboView](https://www.iboview.org)** — the quantum-chemistry visualization program by Gerald Knizia. Its open-source design inspired parts of our renderer; many thanks.
@@ -225,17 +245,42 @@ GXNU MolStudio stands on the shoulders of giants:
 
 If GXNU MolStudio helps your research, please cite:
 
+**Software paper (preprint):**
+
+Hou, C. GXNU MolStudio: An Integrated Open-Source Platform for Molecular Visualization and Quantum Chemical Analysis. *ChemRxiv* **2026**. DOI: [10.26434/chemrxiv.15009253/v2](https://doi.org/10.26434/chemrxiv.15009253/v2) (posted 28 September 2026, v2).
+
 ```bibtex
-@software{GXNUMolStudio2026,
-  title        = {GXNU MolStudio: Molecular Visualization and Quantum Chemical Analysis},
-  author       = {Hou Cheng},
-  year         = {2026},
-  version      = {1.0},
-  url          = {https://github.com/houcheng-gxnu/GXNU-MolStudio},
+@article{Hou2026GXNUMolStudio,
+  author  = {Hou, Cheng},
+  title   = {GXNU MolStudio: An Integrated Open-Source Platform for Molecular Visualization and Quantum Chemical Analysis},
+  journal = {ChemRxiv},
+  year    = {2026},
+  doi     = {10.26434/chemrxiv.15009253/v2},
+  url     = {https://doi.org/10.26434/chemrxiv.15009253/v2},
+  note    = {Preprint, v2}
 }
 ```
 
+**Software archive (this release):**
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22821586.svg)](https://doi.org/10.5281/zenodo.22821586)
+
+```bibtex
+@software{GXNUMolStudio2026,
+  title        = {GXNU MolStudio: Molecular Visualization and Quantum Chemical Analysis},
+  author       = {Hou, Cheng},
+  year         = {2026},
+  version      = {1.0.0},
+  doi          = {10.5281/zenodo.22821586},
+  url          = {https://cnb.cool/chem311/GXNU-MolStudio},
+}
+```
+
+`10.5281/zenodo.22821586` is the **version DOI**: it always resolves to the v1.0.0 snapshot, so use it when you need to cite exactly this release. To cite the software in general, use the **concept DOI** listed under "Cite all versions?" on the [Zenodo record](https://doi.org/10.5281/zenodo.22821586).
+
 Also cite the corresponding tools from the acknowledgments above. See also [CITATION.cff](./CITATION.cff) and [CITATION.bib](./CITATION.bib).
+
+The software helps with this: the right-hand settings area has two tabs — **Settings** and **Citations**. The *Citations* tab always shows the references required by the function currently selected in the left-hand navigator: the IGMH page, for instance, lists both Multiwfn and the IGMH / IRI papers, each with a note on where it is used. Click **Copy all** to paste the full list into your manuscript. The underlying table lives in [`tab_references.py`](./tab_references.py), with the numbered references matching `docs/chemrxiv_draft.md`.
 
 ---
 

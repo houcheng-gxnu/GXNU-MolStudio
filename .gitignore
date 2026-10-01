@@ -45,6 +45,8 @@ fchk_orbital.ini
 # Local / temp artifacts (not for the repo)
 *.png
 !/screenshots/*.png
+!/docs/paper_figures/*.png
+!/molstudio/assets/*.png
 build_log*.txt
 _repro_*.py
 _repro_out.txt
@@ -56,6 +58,10 @@ $null
 *.cub
 /_*.py
 /_*.cub
+_*.txt
+_*.tcl
+/_render_delta/
+/vmd_diag_*.tcl
 layout_sketch.html
 
 # 调试/临时构建产物（不入库）
@@ -75,6 +81,11 @@ color_wheel_demos.py
 irc_panel_settings.ini
 di_panel_settings.ini
 esm_panel_settings.ini
+*_panel_settings.ini
+
+# 由 md 导出的稿件副本（生成物，不入库）
+/docs/*.docx
+/docs/*.pdf
 
 # 缓存 / 测试数据目录
 /_irc_test/
@@ -83,5 +94,8 @@ esm_panel_settings.ini
 # 宣传 / 设计文档（本地工作，不入库）
 /公众号推文_MolStudio.md
 /公众号推文_新功能.html
+/公众号推文_引用信息.md
+/公众号推文_引用信息.html
 /界面设计方案.html
+/ui_demos/
 /视频讲解台词.md
