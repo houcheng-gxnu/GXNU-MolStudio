@@ -4,6 +4,7 @@
   <img src="https://img.shields.io/badge/version-1.0-blue.svg" alt="Version 1.0">
   <img src="https://img.shields.io/badge/python-3.8+-green.svg" alt="Python 3.8+">
   <img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="GPLv3 License">
+  <a href="https://doi.org/10.26434/chemrxiv.15009253/v2"><img src="https://img.shields.io/badge/ChemRxiv-preprint-informational.svg" alt="ChemRxiv preprint"></a>
 </p>
 
 <p align="center">
@@ -112,8 +113,10 @@ GXNU MolStudio is a molecular visualization and quantum-chemistry analysis suite
 
 ### Installation
 
+The source code is hosted on CNB — **[cnb.cool/chem311/GXNU-MolStudio](https://cnb.cool/chem311/GXNU-MolStudio)** — with a mirror at [github.com/houcheng-gxnu/GXNU-MolStudio](https://github.com/houcheng-gxnu/GXNU-MolStudio).
+
 ```bash
-git clone https://github.com/houcheng-gxnu/GXNU-MolStudio.git
+git clone https://cnb.cool/chem311/GXNU-MolStudio.git
 cd GXNU-MolStudio
 pip install PyQt5 PyOpenGL numpy PyMCubes matplotlib
 ```
@@ -225,13 +228,31 @@ GXNU MolStudio stands on the shoulders of giants:
 
 If GXNU MolStudio helps your research, please cite:
 
+**Software paper (preprint):**
+
+Hou, C. GXNU MolStudio: An Integrated Open-Source Platform for Molecular Visualization and Quantum Chemical Analysis. *ChemRxiv* **2026**. DOI: [10.26434/chemrxiv.15009253/v2](https://doi.org/10.26434/chemrxiv.15009253/v2) (posted 28 September 2026, v2).
+
+```bibtex
+@article{Hou2026GXNUMolStudio,
+  author  = {Hou, Cheng},
+  title   = {GXNU MolStudio: An Integrated Open-Source Platform for Molecular Visualization and Quantum Chemical Analysis},
+  journal = {ChemRxiv},
+  year    = {2026},
+  doi     = {10.26434/chemrxiv.15009253/v2},
+  url     = {https://doi.org/10.26434/chemrxiv.15009253/v2},
+  note    = {Preprint, v2}
+}
+```
+
+**Software (this release):**
+
 ```bibtex
 @software{GXNUMolStudio2026,
   title        = {GXNU MolStudio: Molecular Visualization and Quantum Chemical Analysis},
   author       = {Hou Cheng},
   year         = {2026},
   version      = {1.0},
-  url          = {https://github.com/houcheng-gxnu/GXNU-MolStudio},
+  url          = {https://cnb.cool/chem311/GXNU-MolStudio},
 }
 ```
 
