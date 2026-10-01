@@ -29,6 +29,71 @@ from molstudio.render.vesta_colors import VESTA_STYLE_COLORS
 MAX_ATOMS = 8000
 
 
+#: 中英文字对照（切语言时由 set_lang 整树套用，见 molstudio/ui/i18n_utils.py）
+_LANG_EXTRA = {
+    "载入 CIF / MOL2 / POSCAR…": "Load CIF / MOL2 / POSCAR…",
+    "支持 .cif、POSCAR、CONTCAR、.vasp": "Supports .cif, POSCAR, CONTCAR, .vasp",
+    "显示": "Show",
+    "晶胞框": "Cell box",
+    "边界原子补齐": "Complete boundary atoms",
+    "画原胞的 12 条棱（扩晶胞时仍只框住原始晶胞）":
+        "Draw the 12 edges of the original cell (the box still frames the original "
+        "cell when the supercell is expanded)",
+    "晶胞顶点 / 棱 / 面上的原子在所有等价位置都画出来\n"
+    "（bcc 铁 = 8 个顶点 + 体心，fcc = 8 顶点 + 6 面心）":
+        "Draw atoms on cell vertices / edges / faces at every equivalent position\n"
+        "(bcc Fe = 8 vertices + body center, fcc = 8 vertices + 6 face centers)",
+    "扩晶胞:": "Supercell:",
+    "扩晶胞回到 1×1×1": "Reset the supercell to 1×1×1",
+    "沿 a 方向重复几个晶胞（1–6）": "Number of cells along a (1–6)",
+    "沿 b 方向重复几个晶胞（1–6）": "Number of cells along b (1–6)",
+    "沿 c 方向重复几个晶胞（1–6）": "Number of cells along c (1–6)",
+    "配位多面体:": "Coordination polyhedron:",
+    "以哪种元素为中心画配位多面体（列的是当前结构里有的元素）":
+        "Element used as the center of the coordination polyhedron (only elements "
+        "present in the current structure are listed)",
+    "把中心原子的配位原子连成半透明多面体（配位判据与画布成键阈值一致：\n"
+    "1.3 × 共价半径和，Cordero 2008）。\n"
+    "提示：勾上「边界原子补齐」后晶胞边界上的多面体才是完整的。":
+        "Connect the coordinating atoms of the center into a translucent polyhedron "
+        "(same criterion as the canvas bonding threshold:\n"
+        "1.3 × sum of covalent radii, Cordero 2008).\n"
+        "Note: tick 「Complete boundary atoms」 to make polyhedra on the cell boundary complete.",
+    "不透明度:": "Opacity:",
+    "未载入结构。可载入 .cif / POSCAR / CONTCAR / .vasp":
+        "No structure loaded. You can load .cif / POSCAR / CONTCAR / .vasp",
+    "提示：画布样式仍用左侧「一键样式」；晶胞框与扩晶胞只影响当前结构。":
+        "Note: canvas styling still uses the one-click styles on the left; the cell box "
+        "and supercell only affect the current structure.",
+    # ── 画布下方信息条 ──
+    "原子表 ▾": "Atom table ▾",
+    "展开/收起原胞（已展开对称操作）的原子坐标表":
+        "Expand/collapse the atom table of the original cell (symmetry operations applied)",
+    "导出图片": "Export image",
+    "把当前画布视图导出为图片（含晶胞框）":
+        "Export the current canvas view as an image (including the cell box)",
+    "SVG 矢量": "SVG vector",
+    "复位": "Reset",
+    "重置视角": "Reset view",
+    "测量": "Measure",
+    "距离": "Distance",
+    "键角": "Angle",
+    "二面角": "Dihedral",
+    "测量类型：距离（点 2 个原子）/ 键角（点 3 个，第 2 个是顶点）/ 二面角（点 4 个）":
+        "Measurement type: distance (2 atoms) / angle (3 atoms, the 2nd is the vertex) / "
+        "dihedral (4 atoms)",
+    "开启后到左侧画布上依次点击原子；数值会标在几何量旁边":
+        "When on, click the atoms in order on the left canvas; the value is annotated "
+        "next to the geometry",
+    "清除标注": "Clear annotations",
+    "删除画布上全部测量标注": "Remove all measurement annotations from the canvas",
+    "未载入结构（右侧「晶体」页可载入 CIF / MOL2 / POSCAR）":
+        "No structure loaded (the Crystal panel on the right can load CIF / MOL2 / POSCAR)",
+    "元素": "Element",
+    "分数坐标 (a, b, c)": "Fractional coords (a, b, c)",
+}
+
+
 class CrystalPanel(QWidget):
     """载入晶体文件 → 在共享画布上显示球棍模型 + 晶胞框。"""
 
@@ -343,6 +408,12 @@ class CrystalPanel(QWidget):
             pass
         self._overlay_installed = False
 
+    # ── i18n ──
+    def set_lang(self, lang):
+        """切换界面语言（中/英）。"""
+        from molstudio.ui.i18n_utils import apply_text_map
+        apply_text_map(self, _LANG_EXTRA, "zh" if lang == "zh" else "en")
+
 
 class CrystalInfoBar(QWidget):
     """画布下方的晶体信息条：导出图片 + 晶胞参数 + 原子表（可展开）。
@@ -416,7 +487,10 @@ class CrystalInfoBar(QWidget):
             self._sync_measure_ui(*_glw.measure_state())
 
         self.table = QTableWidget(0, 3, self)
-        self.table.setHorizontalHeaderLabels(["#", "元素", "分数坐标 (a, b, c)"])
+        self.table.setHorizontalHeaderLabels(
+            ["#"] + (["Element", "Fractional coords (a, b, c)"]
+                     if getattr(self, "_lang", "zh") == "en"
+                     else ["元素", "分数坐标 (a, b, c)"]))
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -481,6 +555,17 @@ class CrystalInfoBar(QWidget):
             self.refresh()
 
     # ── 刷新 ──
+    # ── i18n ──
+    def set_lang(self, lang):
+        """切换界面语言（中/英）：先按语言重建表格，再整树替换文字。"""
+        self._lang = "zh" if lang == "zh" else "en"
+        try:
+            self.refresh()
+        except Exception:
+            pass
+        from molstudio.ui.i18n_utils import apply_text_map
+        apply_text_map(self, _LANG_EXTRA, self._lang)
+
     def refresh(self):
         cr = getattr(self.panel, "crystal", None) if self.panel is not None else None
         if cr is None:
@@ -506,7 +591,10 @@ class CrystalInfoBar(QWidget):
 
     def _fill_table(self, cr):
         if getattr(cr, "is_molecule", False):     # 分子：直接给笛卡尔坐标
-            self.table.setHorizontalHeaderLabels(["#", "元素", "笛卡尔坐标 (Å)"])
+            self.table.setHorizontalHeaderLabels(
+                ["#"] + (["Element", "Cartesian coords (Å)"]
+                         if getattr(self, "_lang", "zh") == "en"
+                         else ["元素", "笛卡尔坐标 (Å)"]))
             self.table.setRowCount(len(cr.cart))
             for r, (sym, xyz) in enumerate(cr.cart):
                 for c, txt in enumerate((str(r + 1), sym,
@@ -517,7 +605,10 @@ class CrystalInfoBar(QWidget):
                     self.table.setItem(r, c, item)
             self.table.resizeColumnsToContents()
             return
-        self.table.setHorizontalHeaderLabels(["#", "元素", "分数坐标 (a, b, c)"])
+        self.table.setHorizontalHeaderLabels(
+            ["#"] + (["Element", "Fractional coords (a, b, c)"]
+                     if getattr(self, "_lang", "zh") == "en"
+                     else ["元素", "分数坐标 (a, b, c)"]))
         sites = list(cr.sites)
         self.table.setRowCount(len(sites))
         for r, (sym, f) in enumerate(sites):

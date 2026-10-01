@@ -409,6 +409,13 @@ class MppWorker(QThread):
 
 # ── 面板 ─────────────────────────────────────────────
 
+#: 补充语言表：切语言时对整棵控件树套用（见 molstudio/ui/i18n_utils.py）
+_LANG_EXTRA = {
+    "（未生成）": "(not generated)",
+    "未生成": "not generated",
+}
+
+
 class MPPPanel(QWidget):
     """MPP 分子平面性参数分析面板（MolStudio 的一个 tab）。"""
 
@@ -458,6 +465,8 @@ class MPPPanel(QWidget):
     def set_lang(self, lang):
         self.lang = "zh" if lang == "zh" else "en"
         self._apply_lang()
+        from molstudio.ui.i18n_utils import apply_text_map
+        apply_text_map(self, _LANG_EXTRA, self.lang)
 
     def _apply_lang(self):
         self.grp_files.setTitle(self._t("grp_files"))

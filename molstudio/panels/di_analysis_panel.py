@@ -199,6 +199,42 @@ def get_bonds_from_atoms(atoms):
     return bonds
 
 
+#: 中英文字对照（切语言时由 set_lang 整树套用，见 molstudio/ui/i18n_utils.py）
+_LANG_EXTRA = {
+    ">> 计算能量分解": ">> Compute energy decomposition",
+    "Fragment 1 优化后:": "Fragment 1, optimized:",
+    "Fragment 1 在 TS 几何下:": "Fragment 1 at TS geometry:",
+    "Fragment 2 优化后:": "Fragment 2, optimized:",
+    "Fragment 2 在 TS 几何下:": "Fragment 2 at TS geometry:",
+    "过渡态复合物:": "Transition-state complex:",
+    "选择 Gaussian .log 文件": "Select a Gaussian .log file",
+    "批量选择（按顺序）": "Batch select (in order)",
+    "从文件夹自动匹配": "Auto-match from folder",
+    "命名含关键词：opt1 / opt2 / frag1_def / frag2_def / ts":
+        "File names must contain: opt1 / opt2 / frag1_def / frag2_def / ts",
+    "零点能修正 (E0 = E_elec + ZPE)": "Zero-point correction (E0 = E_elec + ZPE)",
+    "Gibbs 自由能修正（含热修正 + 熵）":
+        "Gibbs free-energy correction (thermal + entropy)",
+    "[!] 需要 Freq 计算步骤": "[!] Requires a Freq step",
+    "▾ 结果表格": "▾ Results table",
+    "清空结果": "Clear results",
+    "载入 fchk 显示到画布…": "Load fchk onto canvas…",
+    "浏览": "Browse",
+    "画布": "Canvas",
+    "导出图片": "Export image",
+    "导出 HTML 报告": "Export HTML report",
+    "把当前图表保存为 PNG 图片": "Save the current chart as a PNG image",
+    "任意 fchk 文件的结构显示到左侧画布":
+        "Show the structure of any fchk file on the left canvas",
+    "把该结构显示到左侧画布（log 取最后一个 orientation）":
+        "Show this structure on the left canvas (uses the last orientation in the log)",
+    "项目": "Item",
+    "能量 (Hartree)": "Energy (Hartree)",
+    "能量 (kcal/mol)": "Energy (kcal/mol)",
+    "说明": "Description",
+}
+
+
 class DiAnalysisPanel(QWidget):
     """DI 能量分解分析面板（右侧 tab；共享左侧 OpenGL 画布显示分子）。"""
 
@@ -1036,3 +1072,9 @@ class DiAnalysisPanel(QWidget):
     def shutdown(self):
         """关闭时清理（本面板无后台线程）。"""
         self._save_settings()
+
+    # ── i18n ──
+    def set_lang(self, lang):
+        """切换界面语言（中/英）。"""
+        from molstudio.ui.i18n_utils import apply_text_map
+        apply_text_map(self, _LANG_EXTRA, "zh" if lang == "zh" else "en")

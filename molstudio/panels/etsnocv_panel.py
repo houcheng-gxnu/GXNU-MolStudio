@@ -199,6 +199,13 @@ def _safe_ascii_tmp_dir(prefix="ets_nocv_"):
     return _mk()
 
 
+#: 补充语言表：切语言时对整棵控件树套用（见 molstudio/ui/i18n_utils.py）
+_LANG_EXTRA = {
+    "正相位": "positive phase",
+    "负相位": "negative phase",
+}
+
+
 class ETSNOCVPanel(QWidget):
     def __init__(self, glw=None, multiwfn_path="", get_fchk=None,
                  get_multiwfn=None, log_func=None, parent=None,
@@ -265,6 +272,8 @@ class ETSNOCVPanel(QWidget):
             lang = "zh"
         self.lang = lang
         self._apply_lang()
+        from molstudio.ui.i18n_utils import apply_text_map
+        apply_text_map(self, _LANG_EXTRA, lang)
 
     def _apply_lang(self):
         """刷新常驻控件文本（运行时消息每次构造时走 _t()）。"""

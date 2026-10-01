@@ -308,6 +308,42 @@ class IrcChargeWorker(QThread):
 
 # ── 面板 ─────────────────────────────────────────────────────
 
+#: 中英文字对照（切语言时由 set_lang 整树套用，见 molstudio/ui/i18n_utils.py）
+_LANG_EXTRA = {
+    "X 轴:": "X axis:",
+    "左 Y 轴:": "Left Y axis:",
+    "右 Y 轴:": "Right Y axis:",
+    "标题:": "Title:",
+    "能量单位:": "Energy unit:",
+    "能量填充": "Energy fill",
+    "显示网格": "Show grid",
+    "相对能量（减最低点）": "Relative energy (relative to the minimum)",
+    "fchk 目录:": "fchk folder:",
+    "选择含 IRC 各步 fchk 的目录":
+        "Select the folder containing the per-step fchk files",
+    "读取能量": "Read energies",
+    "键级原子对:": "Bond-order atom pair:",
+    "原子1": "Atom 1",
+    "原子2": "Atom 2",
+    "原子序号": "Atom indices",
+    "键级曲线:": "Bond-order curve:",
+    "添加键级曲线": "Add bond-order curve",
+    "添加电荷曲线": "Add charge curve",
+    "电荷分析:": "Charge analysis:",
+    "清缓存": "Clear cache",
+    "结构显示:": "Show structure:",
+    "显示到画布…": "Show on canvas…",
+    "导出 CSV": "Export CSV",
+    "保存图": "Save figure",
+    "浏览": "Browse",
+    "删除": "Delete",
+    "编辑…": "Edit…",
+    "翻转": "Flip",
+    "镜像翻转能量/键级曲线（正/反方向 IRC）":
+        "Mirror the energy / bond-order curves (forward vs reverse IRC)",
+}
+
+
 class IrcPanel(QWidget):
     """IRC 整合分析面板（右侧 tab；共享左侧 OpenGL 画布显示分子）。"""
 
@@ -1149,6 +1185,12 @@ class IrcPanel(QWidget):
             except Exception:
                 pass
         self._log("IRC: 已清除 %d 个键级缓存" % len(files))
+
+    # ── i18n ──
+    def set_lang(self, lang):
+        """切换界面语言（中/英）。"""
+        from molstudio.ui.i18n_utils import apply_text_map
+        apply_text_map(self, _LANG_EXTRA, "zh" if lang == "zh" else "en")
 
     def shutdown(self):
         """关闭时停止后台线程。"""

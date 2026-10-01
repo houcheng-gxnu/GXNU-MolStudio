@@ -494,6 +494,18 @@ _IGMH_TR = {
 }
 
 
+#: 补充语言表：切语言时对整棵控件树套用（见 molstudio/ui/i18n_utils.py）
+_LANG_EXTRA = {
+    "低 (1)": "Low (1)",
+    "中 (2)": "Medium (2)",
+    "高 (3)": "High (3)",
+    "精确输入等值面大小（a.u.，0.001–2.0），回车生效":
+        "Type an exact isovalue (a.u., 0.001–2.0), press Enter to apply",
+    "精确输入不透明度（5–100 %），回车生效":
+        "Type an exact opacity (5–100 %), press Enter to apply",
+}
+
+
 class IgmhPanel(QWidget):
     """IGMH/IRI 分析面板：分片段 + Multiwfn + BGR 等值面 + 散点图。"""
 
@@ -561,6 +573,8 @@ class IgmhPanel(QWidget):
     def set_lang(self, lang):
         self.lang = "zh" if lang == "zh" else "en"
         self._apply_lang()
+        from molstudio.ui.i18n_utils import apply_text_map
+        apply_text_map(self, _LANG_EXTRA, self.lang)
 
     # ── UI ──
     def _build_ui(self):

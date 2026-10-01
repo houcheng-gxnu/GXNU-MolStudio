@@ -205,6 +205,85 @@ class SpeciesRow(QWidget):
 # 面板
 # ═══════════════════════════════════════════════════════════
 
+#: 中英文字对照（切语言时由 set_lang 整树套用，见 molstudio/ui/i18n_utils.py）
+_LANG_EXTRA = {
+    "▶ 计算并绘图": "▶ Compute & plot",
+    "名称": "Name",
+    "循环2数据": "Cycle-2 data",
+    "📊 能量剖面图": "📊 Energy profile",
+    "催化循环 - 能量数据（Int = 中间体, TS = 过渡态）":
+        "Catalytic cycle — energy data (Int = intermediate, TS = transition state)",
+    "📋 默认示例": "📋 Default example",
+    "📋 简单反应": "📋 Simple reaction",
+    "＋ 添加物种": "＋ Add species",
+    "物种名称": "Species",
+    "类型": "Type",
+    "删除选中": "Delete selected",
+    "能量口径:": "Energy reference:",
+    "纯电子能 SCF": "Electronic energy (SCF)",
+    "ZPE 修正": "ZPE correction",
+    "Gibbs 自由能": "Gibbs free energy",
+    "温度 (K):": "Temperature (K):",
+    "数据目录:": "Data folder:",
+    "选择 Gaussian .log 文件": "Select a Gaussian .log file",
+    "浏览…": "Browse…",
+    "自动扫描": "Auto-scan",
+    "添加点": "Add point",
+    "点": "Point",
+    "片段A": "Fragment A",
+    "片段B": "Fragment B",
+    "复合物": "Complex",
+    "按 -A/-B 后缀自动配对复合物与片段，填充参考态和点列表":
+        "Auto-pair complexes with fragments by the -A/-B suffix and fill the reference "
+        "states and point list",
+    "可选：指定后点「自动扫描」批量填充右侧":
+        "Optional: pick a folder and click Auto-scan to fill the list on the right",
+    "点号与三列路径均可双击直接编辑；也可点「自动扫描」批量填充":
+        "The point number and the three columns are editable by double-clicking; "
+        "Auto-scan can fill them in bulk",
+    "能量跨度 (δE)": "Energy span (δE)",
+    "决速中间体 (TDI)": "TOF-determining intermediate (TDI)",
+    "决速过渡态 (TDTS)": "TOF-determining transition state (TDTS)",
+    "周转频率 (TOF)": "Turnover frequency (TOF)",
+    "设置参考态 A / B，再添加 IRC 点（或用「自动扫描」），然后点「计算」":
+        "Set reference states A / B, add IRC points (or use Auto-scan), then click Compute",
+    "计算": "Compute",
+    "参数与绘图设置": "Parameters & plot settings",
+    "曲线 1（红=形变能(strain)）图例文字；留空恢复默认英文，中英文均支持。":
+        "Legend text for curve 1 (red = strain energy); leave empty for the default. "
+        "Chinese and English are both supported.",
+    "曲线 2（蓝=相互作用能(int)）图例文字；留空恢复默认英文，中英文均支持。":
+        "Legend text for curve 2 (blue = interaction energy); leave empty for the default. "
+        "Chinese and English are both supported.",
+    "曲线 3（绿=总能量(strain+int)）图例文字；留空恢复默认英文，中英文均支持。":
+        "Legend text for curve 3 (green = total energy, strain+int); leave empty for the "
+        "default. Chinese and English are both supported.",
+    "能量剖面图": "Energy profile",
+    "计算结果": "Results",
+    "标题:": "Title:",
+    "轴标签字号:": "Axis label size:",
+    "标题字号:": "Title size:",
+    "刻度字号:": "Tick size:",
+    "图例字号:": "Legend size:",
+    "标签字号:": "Label size:",
+    "线条粗细:": "Line width:",
+    "网格线": "Grid lines",
+    "图例": "Legend",
+    "标签": "Labels",
+    "数值": "Values",
+    "跨度箭头": "Span arrow",
+    "网格": "Grid",
+    "导出用指定尺寸": "Use the specified size for export",
+    "图宽 (inch):": "Figure width (inch):",
+    "图高 (inch):": "Figure height (inch):",
+    "保存 DPI:": "Save DPI:",
+    "导出 PNG": "Export PNG",
+    "导出 PDF": "Export PDF",
+    "导出 SVG": "Export SVG",
+    "↺ 重置": "↺ Reset",
+}
+
+
 class EnergySpanPanel(QWidget):
     """Energetic Span Model 分析面板（右侧 tab）。"""
 
@@ -781,3 +860,9 @@ class EnergySpanPanel(QWidget):
     def shutdown(self):
         """关闭时清理（本面板无后台线程）。"""
         self._save_settings()
+
+    # ── i18n ──
+    def set_lang(self, lang):
+        """切换界面语言（中/英）。"""
+        from molstudio.ui.i18n_utils import apply_text_map
+        apply_text_map(self, _LANG_EXTRA, "zh" if lang == "zh" else "en")

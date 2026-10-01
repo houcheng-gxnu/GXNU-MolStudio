@@ -2247,6 +2247,16 @@ class OrbitalVisApp(QMainWindow):
                     self.mpp_panel.set_lang(i18n._CURRENT_LANG)
                 except Exception:
                     pass
+        # 后加入的面板（IRC / DI / ASM / ESM / IRC 拆分 / CUB 叠加 / 晶体）
+        for _name in ("irc_panel", "di_panel", "asm_irc_panel", "esm_panel",
+                      "ircsplit_panel", "cub_stack_panel", "crystal_panel",
+                      "crystal_bar"):
+            _panel = getattr(self, _name, None)
+            if _panel is not None and hasattr(_panel, "set_lang"):
+                try:
+                    _panel.set_lang(i18n._CURRENT_LANG)
+                except Exception:
+                    pass
         # 画布参数区（一键样式/参数/测键长）随语言刷新
         canvas_panel = getattr(self, "cub_canvas", None)
         if canvas_panel is not None and hasattr(canvas_panel, "set_lang"):
@@ -2259,6 +2269,14 @@ class OrbitalVisApp(QMainWindow):
         # 右侧「设置 / 引文」页签的标题与引文正文随语言刷新
         self._refresh_right_tab_texts()
         self._refresh_citation_panel()
+        # 兜底（放在最后）：把各面板的补充对照表套用到整个窗口，覆盖不属于任何
+        # 面板、或在上面那些 set_lang 里被重设为中文的控件（画布参数区的下拉/标签/
+        # tooltip 就属于后者）。
+        try:
+            from molstudio.ui.i18n_utils import apply_text_map, combined_map
+            apply_text_map(self, combined_map(), i18n._CURRENT_LANG)
+        except Exception:
+            pass
 
     def _add_tab(self, widget, key):
         """往右侧页面栈加一页，并登记该页的导航条 i18n key（两者严格同序）。
@@ -2313,6 +2331,21 @@ class OrbitalVisApp(QMainWindow):
                 left.hide()
             else:
                 left.show()
+        # 部分页面的控件在首次显示时才建立，语言切换发生在它们建立之前时
+        # 会停在中文 —— 每次切页把补充对照表再套一遍兜底。
+        self._retranslate_page(index)
+
+    def _retranslate_page(self, index):
+        """把当前语言套用到该页（及左侧画布）的控件文字上。"""
+        try:
+            from molstudio.ui.i18n_utils import apply_text_map, combined_map
+            mapping = combined_map()
+            targets = [self.tabs.widget(index), getattr(self, "_left_widget", None)]
+            for target in targets:
+                if target is not None:
+                    apply_text_map(target, mapping, i18n._CURRENT_LANG)
+        except Exception:
+            pass
 
     def _on_nav_row_changed(self, row):
         """导航条点击 → 切换右侧页面。"""

@@ -83,6 +83,50 @@ def _fmt_ranges(nums):
     return ",".join(parts)
 
 
+#: 中英文字对照（切语言时由 set_lang 整树套用，见 molstudio/ui/i18n_utils.py）
+_LANG_EXTRA = {
+    "IRC 输出 (.out/.log):": "IRC output (.out/.log):",
+    "选择 Gaussian IRC 输出文件": "Select a Gaussian IRC output file",
+    "解析 IRC 文件": "Parse IRC file",
+    "未解析": "Not parsed",
+    "上一结构": "Previous structure",
+    "下一结构": "Next structure",
+    "跳转 TS": "Go to TS",
+    "翻转路径顺序": "Reverse path order",
+    "正向点数:": "Forward points:",
+    "反向点数:": "Reverse points:",
+    "提示：正向/反向点数在解析后自动设为全部；「电荷/多重度」取自 IRC 文件头。":
+        "Note: forward/reverse point counts default to all points after parsing; "
+        "charge/multiplicity are taken from the IRC file header.",
+    "片段 A 原子:": "Fragment A atoms:",
+    "如 1,3,5-8；与画布 Shift+框选结果同步":
+        "e.g. 1,3,5-8; kept in sync with Shift-drag selection on the canvas",
+    "应用编号": "Apply indices",
+    "框选→片段 A": "Box-select → fragment A",
+    "开启后：在左侧画布按住 Shift 拖框，框中的原子并入片段 A；再点一次退出（退出后恢复画布原有框选用途，如 IGMH 分片段）":
+        "When on: hold Shift and drag a box on the left canvas to add those atoms to "
+        "fragment A; click again to exit (box selection then returns to its normal use, "
+        "e.g. IGMH fragments)",
+    "片段 A 电荷/多重度:": "Fragment A charge/multiplicity:",
+    "片段 B 电荷/多重度:": "Fragment B charge/multiplicity:",
+    "片段 A：0 个原子": "Fragment A: 0 atoms",
+    "泛函:": "Functional:",
+    "基组:": "Basis set:",
+    "CPU 核:": "CPU cores:",
+    "内存:": "Memory:",
+    "其它关键词:": "Extra keywords:",
+    "如 empiricaldispersion=gd3bj  scrf=(smd,solvent=water)":
+        "e.g. empiricaldispersion=gd3bj  scrf=(smd,solvent=water)",
+    "gjf 输出目录:": "gjf output folder:",
+    "拆分出的 gjf 文件保存位置": "Folder where the generated gjf files are saved",
+    "拆分全部结构 → 生成逐点 gjf": "Split all structures → per-point gjf",
+    "批量生成片段 A/B gjf（全部结构点）":
+        "Batch-generate fragment A/B gjf files (all points)",
+    "浏览": "Browse",
+    "清空": "Clear",
+}
+
+
 class IRCSplitPanel(QWidget):
     """IRC 拆分面板：解析 IRC 输出 → 画布浏览结构 → 拆分为逐点 gjf。"""
 
@@ -763,3 +807,9 @@ class IRCSplitPanel(QWidget):
             self._save_settings()
         except Exception:
             pass
+
+    # ── i18n ──
+    def set_lang(self, lang):
+        """切换界面语言（中/英）。"""
+        from molstudio.ui.i18n_utils import apply_text_map
+        apply_text_map(self, _LANG_EXTRA, "zh" if lang == "zh" else "en")

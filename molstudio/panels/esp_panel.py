@@ -734,6 +734,50 @@ class ColorScaleFontDialog(QDialog):
         super().reject()
 
 
+#: 补充语言表：切语言时对整棵控件树套用（见 molstudio/ui/i18n_utils.py）
+_LANG_EXTRA = {
+    # 色标配色下拉
+    "CPK (按元素)": "CPK (by element)",
+    "BWR (蓝-白-红)": "BWR (blue-white-red)",
+    "RWB (红-白-蓝)": "RWB (red-white-blue)",
+    "BWG (蓝-白-绿)": "BWG (blue-white-green)",
+    "RWG (红-白-绿)": "RWG (red-white-green)",
+    "VESTA (VESTA 配色)": "VESTA (VESTA palette)",
+    "Vcube (VMD 风格)": "Vcube (VMD style)",
+    "VMD (碳金色)": "VMD (carbon-gold)",
+    "彩虹 HSV": "Rainbow HSV",
+    "彩虹 Jet": "Rainbow Jet",
+    "彩虹 Turbo": "Rainbow Turbo",
+    "彩虹 NCAR": "Rainbow NCAR",
+    "彩虹 NipySpectral": "Rainbow NipySpectral",
+    "冰火 IceFire": "IceFire",
+    "灰度出版": "Grayscale (print)",
+    "霓虹": "Neon",
+    "单色白": "Monochrome white",
+    # 按钮 tooltip
+    "从已生成的 density/ESP cube 重新提取表面（不重跑 Multiwfn）":
+        "Re-extract the surface from existing density/ESP cubes (without re-running Multiwfn)",
+    "统计分子等值面上的 ESP 极值并填入色标上下限":
+        "Compute ESP extrema on the molecular isosurface and use them as the color-scale limits",
+    "色彩刻度轴的字体设置（字体族 / 字号，带实时预览）。\n原来只能右键点画布上的色标条，这里给出入口。":
+        "Font settings for the color-scale axis (family / size, live preview).\n"
+        "Previously this was only reachable by right-clicking the color bar on the canvas.",
+    "导出时背景设为透明（alpha=0）。对 PNG / TIFF / SVG 有效；JPG 无 alpha 通道，会合成到画布底色。":
+        "Export with a transparent background (alpha = 0). Applies to PNG / TIFF / SVG; "
+        "JPG has no alpha channel and is composited onto the canvas background.",
+    "导出 ESP 表面图片 —— 点开选择格式：\n"
+    "  PNG  无损，支持透明背景\n"
+    "  JPG  有损压缩，体积小（不支持透明）\n"
+    "  TIFF 无损，支持透明背景\n"
+    "  SVG  矢量容器（内嵌满分辨率位图）":
+        "Export an ESP surface image — click to choose a format:\n"
+        "  PNG  lossless, transparent background supported\n"
+        "  JPG  lossy, small files (no transparency)\n"
+        "  TIFF lossless, transparent background supported\n"
+        "  SVG  vector container (embeds a full-resolution bitmap)",
+}
+
+
 class EspPanel(QWidget):
     """ESP 表面面板：fchk → Multiwfn cube/极值点 → 左画布渲染（ISO/PT/EXT/ALL）。"""
 
@@ -850,6 +894,8 @@ class EspPanel(QWidget):
     def set_lang(self, lang):
         self.lang = "zh" if lang == "zh" else "en"
         self._apply_lang()
+        from molstudio.ui.i18n_utils import apply_text_map
+        apply_text_map(self, _LANG_EXTRA, self.lang)
 
     # ── UI ──
     # ════════════════════════════════════════════════════════════════════

@@ -331,6 +331,112 @@ def compute_asm_scan(ref_a, ref_b, items, mode):
             "e_opt_a": e_opt_a, "e_opt_b": e_opt_b, "rows": rows}
 
 
+#: 中英文字对照（切语言时由 set_lang 整树套用，见 molstudio/ui/i18n_utils.py）
+_LANG_EXTRA = {
+    "数据目录:": "Data folder:",
+    "选择 Gaussian .log 文件": "Select a Gaussian .log file",
+    "底物 A:": "Substrate A:",
+    "催化剂 B:": "Catalyst B:",
+    "片段A": "Fragment A",
+    "片段B": "Fragment B",
+    "复合物": "Complex",
+    "按 -A/-B 后缀自动配对复合物与片段，填充参考态和点列表":
+        "Auto-pair complexes with fragments by the -A/-B suffix and fill the "
+        "reference states and point list",
+    "可选：指定后点「自动扫描」批量填充右侧":
+        "Optional: pick a folder, then click Auto-scan to fill the list on the right",
+    "自动扫描": "Auto-scan",
+    "点号与三列路径均可双击直接编辑；也可点「自动扫描」批量填充":
+        "The point number and the three paths are editable by double-clicking; "
+        "Auto-scan can fill them in bulk",
+    "列宽不足时可横向滚动查看": "Scroll horizontally when the columns are too narrow",
+    "添加点": "Add point",
+    "删除选中": "Delete selected",
+    "设置参考态 A / B，再添加 IRC 点（或用「自动扫描」），然后点「计算」":
+        "Set reference states A / B, add IRC points (or use Auto-scan), then click Compute",
+    "能量口径:": "Energy reference:",
+    "纯电子能 SCF": "Electronic energy (SCF)",
+    "ZPE 修正": "ZPE correction",
+    "Gibbs 自由能": "Gibbs free energy",
+    "计算": "Compute",
+    "ΔE 总": "ΔE total",
+    "导出 CSV": "Export CSV",
+    "导出用指定尺寸": "Use the specified size for export",
+    "图宽 (inch):": "Figure width (inch):",
+    "图高 (inch):": "Figure height (inch):",
+    "保存 DPI:": "Save DPI:",
+    "保存图片": "Save image",
+    "勾选后「保存图片」按下方图宽/图高另渲染（否则按当前画面大小导出）":
+        "When ticked, Save image re-renders at the width/height below "
+        "(otherwise it exports the current view size)",
+    "标题:": "Title:",
+    "如：ASM 沿 IRC 扫描能量变化（留空不显示标题）":
+        "e.g. ASM energy scan along the IRC (leave empty for no title)",
+    "标题字号:": "Title size:",
+    "X 轴:": "X axis:",
+    "Y 轴:": "Y axis:",
+    "轴标签字号:": "Axis label size:",
+    "刻度字号:": "Tick size:",
+    "图例": "Legend",
+    "图例字号:": "Legend size:",
+    "网格线": "Grid lines",
+    "标注峰值": "Annotate peaks",
+    "峰值文字:": "Peak text:",
+    "峰值标注字号:": "Peak label size:",
+    "峰值上方标注文字：可随意填写（支持中文）；\n"
+    "留空则按默认自动生成「峰值 #序号 / 能量数值」":
+        "Text annotated above the peaks: free-form (Chinese supported);\n"
+        "leave empty to auto-generate “peak #n / energy”",
+    "自定义峰值标注文字（可留空 = 自动写「峰值 #n / 数值」）":
+        "Custom peak annotation text (empty = “peak #n / value”)",
+    "英文或中文": "English or Chinese",
+    "曲线 1（红=形变能(strain)）图例文字；留空恢复默认英文，中英文均支持。":
+        "Legend text for curve 1 (red = strain energy); leave empty for the default. "
+        "Chinese and English are both supported.",
+    "曲线 2（蓝=相互作用能(int)）图例文字；留空恢复默认英文，中英文均支持。":
+        "Legend text for curve 2 (blue = interaction energy); leave empty for the "
+        "default. Chinese and English are both supported.",
+    "曲线 3（绿=总能量(strain+int)）图例文字；留空恢复默认英文，中英文均支持。":
+        "Legend text for curve 3 (green = total energy, strain+int); leave empty for "
+        "the default. Chinese and English are both supported.",
+    "曲线 1 线型（实线/虚线/点划线/点线）":
+        "Curve 1 line style (solid / dashed / dash-dot / dotted)",
+    "曲线 2 线型（实线/虚线/点划线/点线）":
+        "Curve 2 line style (solid / dashed / dash-dot / dotted)",
+    "曲线 3 线型（实线/虚线/点划线/点线）":
+        "Curve 3 line style (solid / dashed / dash-dot / dotted)",
+    "曲线 1 散点形状；选「无点(仅连线)」则只画连线":
+        "Curve 1 marker shape; choose “No markers (line only)” to draw just the line",
+    "曲线 2 散点形状；选「无点(仅连线)」则只画连线":
+        "Curve 2 marker shape; choose “No markers (line only)” to draw just the line",
+    "曲线 3 散点形状；选「无点(仅连线)」则只画连线":
+        "Curve 3 marker shape; choose “No markers (line only)” to draw just the line",
+    "实线": "Solid",
+    "虚线": "Dashed",
+    "点划线": "Dash-dot",
+    "点线": "Dotted",
+    "圆点": "Circle",
+    "方块": "Square",
+    "菱形": "Diamond",
+    "上三角": "Upper triangle",
+    "下三角": "Lower triangle",
+    "叉形": "Cross",
+    "星形": "Star",
+    "无点(仅连线)": "No markers (line only)",
+    "点": "Point",
+    "点击选择曲线 1 颜色": "Click to pick curve 1 color",
+    "点击选择曲线 2 颜色": "Click to pick curve 2 color",
+    "点击选择曲线 3 颜色": "Click to pick curve 3 color",
+    "拖动调整宽度，双击复位": "Drag to resize; double-click to reset",
+    "勾选展开图表外观设置（图题/坐标轴文字/图例文字、字号、显示开关、导出参数）；\n"
+    "取消勾选收起，避免挤占绘图高度":
+        "Tick to expand the chart appearance settings (title / axis labels / legend "
+        "text, font sizes, toggles, export options);\n"
+        "untick to collapse them so the plot keeps its height",
+    "浏览…": "Browse…",
+}
+
+
 class AsmIrcPanel(QWidget):
     """ASM 沿 IRC 扫描面板：左图，右侧设置（宽度可调）+ 结果表。"""
 
@@ -1239,3 +1345,9 @@ class AsmIrcPanel(QWidget):
     def shutdown(self):
         """关闭时清理（本面板无后台线程）。"""
         self._save_settings()
+
+    # ── i18n ──
+    def set_lang(self, lang):
+        """切换界面语言（中/英）。"""
+        from molstudio.ui.i18n_utils import apply_text_map
+        apply_text_map(self, _LANG_EXTRA, "zh" if lang == "zh" else "en")

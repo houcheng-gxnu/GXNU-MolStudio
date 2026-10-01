@@ -45,6 +45,36 @@ DEFAULT_ISO = 0.05
 DEFAULT_OPACITY = 0.78
 
 
+#: 中英文字对照（切语言时由 set_lang 整树套用，见 molstudio/ui/i18n_utils.py）
+_LANG_EXTRA = {
+    "载入 CUB…": "Load CUB…",
+    "移除选中": "Remove selected",
+    "清空": "Clear",
+    "等值:": "Isovalue:",
+    "不透明度:": "Opacity:",
+    "结构: （未载入）": "Structure: (not loaded)",
+    "点「载入 CUB…」选择一个或多个 .cub 文件":
+        "Click 「Load CUB…」 to choose one or more .cub files",
+    "文件": "File",
+    "显示": "Show",
+    "翻转": "Flip",
+    "正相位色": "Positive color",
+    "负相位色": "Negative color",
+    "每行一个 cub：勾选控制是否显示，点色块改颜色，\n"
+    "「翻转」交换该 cub 的正负相位色":
+        "One cub per row: tick it to show, click a swatch to change its color,\n"
+        "「Flip」 swaps the positive/negative phase colors of that cub",
+    "等值面阈值（a.u.），所有 cub 共用":
+        "Isosurface threshold (a.u.), shared by all cubs",
+    "等值面不透明度，所有 cub 共用":
+        "Isosurface opacity, shared by all cubs",
+    "拖动实时调节等值面大小": "Drag to adjust the isosurface level live",
+    "点击修改该 cub 的正相位色": "Click to change this cub's positive-phase color",
+    "点击修改该 cub 的负相位色": "Click to change this cub's negative-phase color",
+    "交换该 cub 的正负相位色": "Swap this cub's positive/negative phase colors",
+}
+
+
 class CubStackPanel(QWidget):
     """多 CUB 叠加面板（右侧 tab；共享左侧 OpenGL 画布）。"""
 
@@ -444,3 +474,9 @@ class CubStackPanel(QWidget):
     def shutdown(self):
         """关闭时清理（本面板无后台线程）。"""
         self._save_settings()
+
+    # ── i18n ──
+    def set_lang(self, lang):
+        """切换界面语言（中/英）。"""
+        from molstudio.ui.i18n_utils import apply_text_map
+        apply_text_map(self, _LANG_EXTRA, "zh" if lang == "zh" else "en")

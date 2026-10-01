@@ -2478,6 +2478,10 @@ class CubCanvasPanel(QWidget):
         if getattr(self, "_param_all_btn", None) is not None:
             self._param_all_btn.setText(
                 _cv("全部折叠" if self._param_all_btn.isChecked() else "全部展开"))
+        # 增量对照表：把 _CV_EN 未覆盖的文字（材质/光照/预设名、长提示等）整树替换
+        from molstudio.render.ovcanvas._cv_en_extra import CV_EN_EXTRA
+        from molstudio.ui.i18n_utils import apply_text_map
+        apply_text_map(self, CV_EN_EXTRA, i18n._CURRENT_LANG)
 
     def _build_toolbar(self):
         bar = QWidget()
