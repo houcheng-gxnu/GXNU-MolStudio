@@ -378,8 +378,9 @@ class CubStackPanel(QWidget):
 
     # ── 配置持久化 ──
     def _settings_path(self):
-        return os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "cub_stack_panel_settings.ini")
+        # 与 fchk_orbital.ini 同级：源码运行放仓库根目录，打包后放 exe 同目录
+        from molstudio.paths import config_file
+        return config_file("cub_stack_panel_settings.ini")
 
     def _load_settings(self):
         cfg = configparser.ConfigParser()
