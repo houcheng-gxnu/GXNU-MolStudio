@@ -4,6 +4,7 @@
   <img src="https://img.shields.io/badge/version-1.0-blue.svg" alt="Version 1.0">
   <img src="https://img.shields.io/badge/python-3.8+-green.svg" alt="Python 3.8+">
   <img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="GPLv3 License">
+  <a href="https://doi.org/10.26434/chemrxiv.15009253/v2"><img src="https://img.shields.io/badge/ChemRxiv-预印本-informational.svg" alt="ChemRxiv 预印本"></a>
 </p>
 
 <p align="center">
@@ -113,8 +114,10 @@ GXNU MolStudio 是一款面向计算化学研究的分子可视化与量子化�
 
 ### 安装
 
+源代码托管在 CNB —— **[cnb.cool/chem311/GXNU-MolStudio](https://cnb.cool/chem311/GXNU-MolStudio)**，GitHub 为镜像：[github.com/houcheng-gxnu/GXNU-MolStudio](https://github.com/houcheng-gxnu/GXNU-MolStudio)。
+
 ```bash
-git clone https://github.com/houcheng-gxnu/GXNU-MolStudio.git
+git clone https://cnb.cool/chem311/GXNU-MolStudio.git
 cd GXNU-MolStudio
 pip install PyQt5 PyOpenGL numpy PyMCubes matplotlib
 ```
@@ -226,13 +229,31 @@ GXNU MolStudio 站在巨人的肩膀上：
 
 如果 GXNU MolStudio 对你的研究有帮助，请在论文中引用：
 
+**软件文章（预印本）：**
+
+Hou, C. GXNU MolStudio: An Integrated Open-Source Platform for Molecular Visualization and Quantum Chemical Analysis. *ChemRxiv* **2026**. DOI: [10.26434/chemrxiv.15009253/v2](https://doi.org/10.26434/chemrxiv.15009253/v2)（2026-09-28 发布，v2）。
+
+```bibtex
+@article{Hou2026GXNUMolStudio,
+  author  = {Hou, Cheng},
+  title   = {GXNU MolStudio: An Integrated Open-Source Platform for Molecular Visualization and Quantum Chemical Analysis},
+  journal = {ChemRxiv},
+  year    = {2026},
+  doi     = {10.26434/chemrxiv.15009253/v2},
+  url     = {https://doi.org/10.26434/chemrxiv.15009253/v2},
+  note    = {Preprint, v2}
+}
+```
+
+**软件（本次发布）：**
+
 ```bibtex
 @software{GXNUMolStudio2026,
   title        = {GXNU MolStudio: Molecular Visualization and Quantum Chemical Analysis},
   author       = {Hou Cheng},
   year         = {2026},
   version      = {1.0},
-  url          = {https://github.com/houcheng-gxnu/GXNU-MolStudio},
+  url          = {https://cnb.cool/chem311/GXNU-MolStudio},
 }
 ```
 
