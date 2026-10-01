@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/version-1.0-blue.svg" alt="Version 1.0">
   <img src="https://img.shields.io/badge/python-3.8+-green.svg" alt="Python 3.8+">
   <img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="GPLv3 License">
-  <a href="https://doi.org/10.5281/zenodo.22821586"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.22821586.svg" alt="DOI"></a>
+  <a href="https://doi.org/10.5281/zenodo.22821586"><img src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22821586-blue.svg" alt="DOI"></a>
   <a href="https://doi.org/10.26434/chemrxiv.15009253/v2"><img src="https://img.shields.io/badge/ChemRxiv-preprint-informational.svg" alt="ChemRxiv preprint"></a>
 </p>
 
@@ -279,7 +279,7 @@ Hou, C. GXNU MolStudio: An Integrated Open-Source Platform for Molecular Visuali
 
 **Software archive (this release):**
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22821586.svg)](https://doi.org/10.5281/zenodo.22821586)
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22821586-blue.svg)](https://doi.org/10.5281/zenodo.22821586)
 
 ```bibtex
 @software{GXNUMolStudio2026,
