@@ -95,9 +95,15 @@ def test_every_tab_speaks_english_after_switch():
     baseline = _chinese_per_tab(window)
     assert sum(baseline.values()) > 0, "中文界面本应含中文"
 
+    # 回归：切语言不能改动画布状态。ESP 的色标条曾经会在第一次切英文时自己冒出来
+    # （改下拉条目触发 currentTextChanged → 槽函数顺手打开了色标条）。
+    glw = getattr(getattr(window, "esp_panel", None), "glw", None)
+    cs_before = getattr(glw, "_cs_show", None)
+
     window._switch_lang()
     _pump(900)
     assert i18n._CURRENT_LANG == "en"
+    assert getattr(glw, "_cs_show", None) == cs_before, "切语言不应改变画布色标条状态"
     remaining = _chinese_per_tab(window)
     offenders = {k: v for k, v in remaining.items() if v}
     assert not offenders, f"切到英文后仍有中文的页签：{offenders}"

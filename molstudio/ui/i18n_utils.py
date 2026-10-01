@@ -85,6 +85,26 @@ def _slots(widget):
                        (lambda v, c=c: widget.horizontalHeaderItem(c).setText(v)))
 
 
+def _write_quietly(obj, setter, value):
+    """改文字期间屏蔽信号。
+
+    否则 ``QComboBox.setItemText()`` 会发出 ``currentTextChanged``，触发业务槽函数
+    —— 例如 ESP 面板的配色/单位下拉会顺手调用 ``_sync_color_scale()``，把画布上的
+    色标条打开（2026-10-01 用户报的「第一次点 EN 色标条冒出来」就是这个）。
+    """
+    try:
+        was_blocked = obj.blockSignals(True)
+    except Exception:
+        was_blocked = False
+    try:
+        setter(value)
+    finally:
+        try:
+            obj.blockSignals(was_blocked)
+        except Exception:
+            pass
+
+
 def _actions(root):
     items = []
     try:
@@ -122,13 +142,13 @@ def apply_text_map(root, mapping, lang):
             if lang == "zh":
                 # 只有「我们确实翻译过」的控件才需要还原（属性里存着原中文）
                 if isinstance(saved, str) and saved and current != saved:
-                    setter(saved)
+                    _write_quietly(widget, setter, saved)
                 continue
             text = mapping.get(current)
             if text and text != current:
                 if not isinstance(saved, str) or not saved:
                     widget.setProperty(prop, current)   # 记住中文原文
-                setter(text)
+                _write_quietly(widget, setter, text)
 
     for action in _actions(root):
         for key, getter, setter in (("text", action.text, action.setText),
@@ -140,10 +160,10 @@ def apply_text_map(root, mapping, lang):
             saved = action.property(prop)
             if lang == "zh":
                 if isinstance(saved, str) and saved and current != saved:
-                    setter(saved)
+                    _write_quietly(action, setter, saved)
                 continue
             text = mapping.get(current)
             if text and text != current:
                 if not isinstance(saved, str) or not saved:
                     action.setProperty(prop, current)
-                setter(text)
+                _write_quietly(action, setter, text)
