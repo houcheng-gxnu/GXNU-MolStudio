@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <b>Molecular visualization and quantum-chemical analysis — from fchk to publication-ready orbital images in one go.</b>
+  <b>Molecular visualization and a wavefunction-analysis workflow — from fchk to publication-ready orbital images in one go.</b>
   <br>
   <sub>Hou Cheng Research Group · Guangxi Normal University</sub>
 </p>
@@ -22,7 +22,7 @@
 
 ## Gallery
 
-Publication-style renders — molecular views and quantum-chemistry analysis figures.
+Publication-style renders — molecular views and wavefunction-analysis figures.
 
 <p align="center">
   <img src="screenshots/mol_view1.png" width="32%" alt="View 1">
@@ -48,19 +48,33 @@ Publication-style renders — molecular views and quantum-chemistry analysis fig
 
 ## About
 
-GXNU MolStudio is a molecular visualization and quantum-chemistry analysis suite built for computational chemistry research. It integrates an **embedded OpenGL real-time rendering engine**, **Multiwfn wavefunction analysis**, **IGMH/IRI weak-interaction analysis**, **ESP electrostatic potential**, **NBO and charge analysis**, and more — wrapping workflows that used to require manual switching between several programs into a single intuitive GUI.
+GXNU MolStudio is a **visualization and workflow-integration** tool for computational chemistry. It ships an embedded OpenGL 3.3 real-time rendering engine and folds the whole chain — generate a cube, preview it live, export a figure, process a folder in batch — into one GUI.
+
+One point about its scope: **the program itself does not perform wavefunction analysis.** Orbital surfaces, charge populations, Mayer bond orders, ESP, IGMH/IRI weak interactions, AIM topology, molecular planarity (MPP) and ETS-NOCV are all computed by [Multiwfn](http://sobereva.com/multiwfn/) (by Prof. Tian Lu). MolStudio drives it, parses its output, and turns the numbers into interactive isosurfaces, curves and charts. Modules such as the DI energy decomposition, the Energetic Span Model and IRC splitting work the same way: the program reads Gaussian / Multiwfn output and does the post-processing and plotting itself.
+
+| Step | Computed by | MolStudio's role |
+|---|---|---|
+| Wavefunction analysis: charges / Mayer bond orders / ESP / IGMH·IRI / AIM / MPP / ETS-NOCV | Multiwfn | invoke, parse, visualize |
+| Orbital cube generation | Multiwfn | trigger, progress & log, batch mode |
+| Live 3D preview and one-click rendering | this program (embedded OpenGL engine) | everything |
+| Offline high-resolution rendering (compatibility channel) | VMD + Tachyon | style setup and invocation |
+| Post-processing & plots (DI / ESM / IRC …) | this program | everything |
+
+> So whenever you export a figure or obtain quantitative results with MolStudio, please also cite Multiwfn. The **Citations** tab on the right of the GUI lists the references required by whichever function you have open.
 
 | Task | Traditional workflow | GXNU MolStudio |
 |---|---|---|
 | cube generation | type commands by hand | double-click an orbital, auto-generated |
 | 3D preview | manually load & tweak isovalues | embedded OpenGL canvas with live sliders |
 | rendering | tune lights & materials by hand | one-click styles, instant images |
-| weak interactions | run IGMH/IRI separately, then compose | one-click analysis and visualization in-panel |
+| weak interactions | run IGMH/IRI separately, then compose | one-click run (Multiwfn) and visualization in-panel |
 | batch processing | repeat file-by-file | drag in a folder, fully automated |
 
 ---
 
 ## Features
+
+> Quantitative results in the modules below are computed by **Multiwfn** (or read from Gaussian output); MolStudio invokes them, parses the results and visualizes them.
 
 ### 🧬 Embedded OpenGL rendering engine (ovcanvas)
 - **Order-independent transparency compositing (depth peeling)** — correct in-plane transparency sorting across layers; automatic fallback to sorted blending when unavailable
