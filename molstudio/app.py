@@ -13,6 +13,11 @@ import re
 import sys
 import glob
 
+# 直接 `python molstudio/app.py` 运行时兜底：把仓库根目录补进 sys.path
+# （正常入口是仓库根目录的 main.py 或 `python -m molstudio`）
+if __package__ in (None, ""):
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 # 注意：批处理分支里另有 `paths = backend.load_config()`，这里用别名避免同名遮蔽
 from molstudio import paths as _paths
 from molstudio.ui.main_window import OrbitalVisApp
