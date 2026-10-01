@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <b>Molecular visualization and a wavefunction-analysis workflow — from fchk to publication-ready orbital images in one go.</b>
+  <b>An integrated visualization and workflow platform for computational chemistry — from fchk to publication-ready orbital images in one go.</b>
   <br>
   <sub>Hou Cheng Research Group · Guangxi Normal University</sub>
 </p>
@@ -48,9 +48,11 @@ Publication-style renders — molecular views and wavefunction-analysis figures.
 
 ## About
 
-GXNU MolStudio is a **visualization and workflow-integration** tool for computational chemistry. It ships an embedded OpenGL 3.3 real-time rendering engine and folds the whole chain — generate a cube, preview it live, export a figure, process a folder in batch — into one GUI.
+GXNU MolStudio is an **integrated visualization and workflow platform** for computational chemistry. It ships an embedded OpenGL 3.3 real-time rendering engine and pulls a workflow that used to be scattered across several programs — generate a cube, preview it live, export a figure, process a folder in batch — into a single GUI.
 
 One point about its scope: **the program itself does not perform wavefunction analysis.** Orbital surfaces, charge populations, Mayer bond orders, ESP, IGMH/IRI weak interactions, AIM topology, molecular planarity (MPP) and ETS-NOCV are all computed by [Multiwfn](http://sobereva.com/multiwfn/) (by Prof. Tian Lu). MolStudio drives it, parses its output, and turns the numbers into interactive isosurfaces, curves and charts. Modules such as the DI energy decomposition, the Energetic Span Model and IRC splitting work the same way: the program reads Gaussian / Multiwfn output and does the post-processing and plotting itself.
+
+What is integrated today: **reading** Gaussian / Multiwfn inputs and outputs (fchk, cube, wfn/wfx, log/out, chg, cif, xyz …), **driving** Multiwfn for cube generation and wavefunction analyses, and **doing** the real-time visualization, figure export and batch processing. Structure building/editing and calculation job submission, queuing or monitoring are outside the current release.
 
 | Step | Computed by | MolStudio's role |
 |---|---|---|
