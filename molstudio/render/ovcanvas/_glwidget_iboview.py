@@ -56,7 +56,7 @@ STYLE_DISPLAY = [f"{k}  — {STYLES[k]['desc']}" for k in STYLES.keys()]
 
 # ═══════════════════════════════════════════════════════════════
 # IboView shader registers — transplanted verbatim from
-#   D:\iboview-test\ibo-view.20211019-RevA\resources\preset_*.js
+#   IboView 源码树中的 resources/preset_*.js
 # and the IboView default (prop_FView3d.cpp.inl):
 #   a* = atoms   (m_FShaderReg 0..3 for opaque objects)
 #   o* = orbitals(m_FShaderReg 0..3 for orbital meshes)
@@ -327,7 +327,7 @@ BOND_THINNING_DEFAULT = 0.72   # IboView default m_BondThinning (IvDataOptions.c
                                # narrows to 72% of its radius at the midpoint (runtime-adjustable)
 
 # IboView default view properties, from
-#   D:\iboview-test\ibo-view.20211019-RevA\src\IboView\prop_FView3d.cpp.inl
+#   IboView 源码树中的 src/IboView/prop_FView3d.cpp.inl
 IBOVIEW_DEFAULTS = {
     'IsoResolution': 12.0,
     'IsoThreshold': 80.0,       # *relative* threshold, in percent (see below)
@@ -472,7 +472,7 @@ void main() {
 # ── IboView pixel_common.glsl, transplanted verbatim ────────────
 # The three light directions, the diffuse/specular register semantics and
 # the `color[3] /= clamp(abs(vNorm.z), .1, 1.)` edge-opacity boost are taken
-# 1:1 from D:\iboview-test\ibo-view.20211019-RevA\shader\pixel_common.glsl.
+# 1:1 from IboView 源码树中的 shader/pixel_common.glsl.
 # NOTE: IboView divides only the *alpha* channel by abs(N.z) (making
 # silhouettes more opaque); it never divides RGB.
 _GLSL_COMMON = """

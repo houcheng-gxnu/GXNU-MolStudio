@@ -618,8 +618,8 @@ _VESTA_STYLE.update({
     #    画布是 VESTA 配色、VMD 里还是 GaussView 配色，两边对不上。
     "element_colors": {str(int(z)): [float(c) for c in rgb]
                        for z, rgb in _VESTA_ELEM_COLORS.items()},
-    # ③ 光照/材质：用户在成品里调出来的一版，导出的样式状态见
-    #    C:\Users\Administrator\Desktop\xtb-test\VESTA.json（2026-09-25）。
+    # ③ 光照/材质：作者在成品里调出来的一版，来自导出的 VESTA 样式状态
+    #    （2026-09-25）。
     #    相对 MolStudio 基底只动了下面 6 处 —— 其余键他没改，
     #    导出里那些多的键是"完整状态"自带的默认值，不并进来（保持与其它
     #    一键样式同一套写法，也免得把用户的 vdW / 元素半径设置一并清掉）。
@@ -655,8 +655,8 @@ _VESTA_STYLE.update({
     "shader_regs": {"atom": [0.85, 0.7, 0.13, -0.5],
                     "orb": [0.85, 0.70, 0.065, 0.82]},
     "style_regs": None,
-    # ④ 等值面配色 / 光照 / 透明合成：**整组取自用户导出的 VESTA.json**
-    #    （C:\Users\Administrator\Desktop\DEMO\VESTA.json，2026-09-27），
+    # ④ 等值面配色 / 光照 / 透明合成：**整组取自导出的 VESTA 样式状态**
+    #    （2026-09-27），
     #    不再用本项目先前那套"照手册推"的值。逐项对应：
     #      · style_name    "ultra-glass"（等值面材质风格，也是面板默认）
     #      · phase_pos     [0,1,1] 青  = 正相位
@@ -706,8 +706,8 @@ _CYLVVIEW_STYLE = {**_STYLE_NEUTRAL,
     "atom_outline": [False, [0.0, 0.0, 0.0], 0.35],
     "orb_outline": [False, [0.0, 0.0, 0.0], 0.2],
     "orb_opacity": 1,
-    # ── 等值面配色 / 材质 / 透明合成：取自用户导出的 CYLVIEW.json ──
-    #    （C:\Users\Administrator\Desktop\NBO\CYLVIEW.json，2026-09-27）
+    # ── 等值面配色 / 材质 / 透明合成：取自导出的 CYLview 样式状态 ──
+    #    （2026-09-27）
     #    · phase_pos [0,0,1] 纯蓝 = 正相位；phase_neg [1,1,0] 纯黄 = 负相位
     #      （此前用 MolStudio 的"近白 / 绿"，现按用户为 CYLview 定的配色；
     #       与 VESTA 样式是同一套"纯蓝 + 纯黄"观感，但 VESTA 那边正相位用青）

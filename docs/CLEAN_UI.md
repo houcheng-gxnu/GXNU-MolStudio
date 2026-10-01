@@ -13,19 +13,22 @@
 ## 一、怎么用
 
 ```powershell
-cd "D:\OrbitalViewer 5.3"
+cd <项目目录>          # 仓库根目录（含 main.py 的那一层）
 
 # 新界面（Clean Light 皮肤）
 python main.py --ui clean
-python main_window_clean.py          # 等价的独立入口
+python -m molstudio.ui.main_window_clean     # 等价的独立入口
 
 # 新界面（Bridge 皮肤，xTBridge Lite 风）
 python main.py --ui clean2
-python main_window_clean2.py         # 等价的独立入口
+python -m molstudio.ui.main_window_clean2    # 等价的独立入口
 
 # 旧界面（默认，行为与以前完全一致）
 python main.py
 python main.py --ui classic
+
+# 画布优先界面
+python main.py --ui canvas
 
 # 也可以用环境变量指定默认值（--ui 优先级更高）
 $env:MOLSTUDIO_UI = "clean"; python main.py

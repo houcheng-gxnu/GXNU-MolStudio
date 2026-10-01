@@ -6,7 +6,7 @@ main_window_clean2.py — MolStudio「Bridge」新界面窗口
 与 `main_window_clean.py`（Clean Light 皮肤）的关系
 --------------------------------------------------
 本文件是在 **Clean Light 的基础上**、参照另一个项目 xTBridge Lite 的界面语言
-（`D:\\xbt-windows\\xtbridge\\src\\xtbridge\\lite.py` 的 LITE_QSS_EXTRA）再改的一版：
+（其 `xtbridge/lite.py` 里的 ``LITE_QSS_EXTRA``）再改的一版：
 
   * 色调更柔：强调色换 `#2F6FED`，窗口底 `#F4F6FA`，描边 `#E4E9F2`；
     圆角收紧一档（卡片 12 / 控件 8），控件底色统一成 `#FBFCFE` 那种"冷白"。

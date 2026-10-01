@@ -101,14 +101,14 @@ try:
 except Exception:
     _HAS_MPP_PANEL = False
 
-# ── IRC 整合分析（整合自 D:\IRC\IRC_Integrated_Qt.py） ──
+# ── IRC 整合分析（整合自早期的 IRC_Integrated_Qt.py） ──
 try:
     from molstudio.panels.irc_panel import IrcPanel
     _HAS_IRC_PANEL = True
 except Exception:
     _HAS_IRC_PANEL = False
 
-# ── DI 能量分解分析（整合自 D:\traetest\DI分析\di_analysis_gui.py） ──
+# ── DI 能量分解分析（整合自早期的 di_analysis_gui.py） ──
 try:
     from molstudio.panels.di_analysis_panel import DiAnalysisPanel
     _HAS_DI_PANEL = True
@@ -143,7 +143,7 @@ try:
 except Exception:
     _HAS_ESM_PANEL = False
 
-# ── IRC 拆分（整合自 D:\IRC\IRCsplit_GUI.py，基于卢天 IRCsplit） ──
+# ── IRC 拆分（整合自早期的 IRCsplit_GUI.py，基于卢天 IRCsplit） ──
 try:
     from molstudio.panels.ircsplit_panel import IRCSplitPanel
     _HAS_IRCS_PANEL = True

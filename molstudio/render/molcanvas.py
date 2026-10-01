@@ -4,8 +4,8 @@ MolCanvas — Pure PyQt5 QWidget 3D molecule renderer using QPainter.
 Features: sphere gradient, dark rim, Houk crosshair, depth-sorted bonds,
 background gradient, click-to-select, rotation, panning, and zoom.
 
-Retrieved from D:/charge/charge/molcanvas.py (Hou Cheng Research Group).
-fchk parser from D:/charge/charge/fchk_parser.py.
+Adapted from the research group's internal ``charge`` toolkit (Hou Cheng Research
+Group); the fchk parser comes from the same toolkit.
 """
 
 import re

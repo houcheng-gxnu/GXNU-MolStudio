@@ -2,7 +2,7 @@
 """
 energy_span_panel.py — Energetic Span Model 跨循环催化能量分析面板（MolStudio 的一个 tab）
 
-功能（整合自 D:\\traetest\\energy_span_model.py，适配 MolStudio 架构）：
+功能（整合自早期的 energy_span_model.py，适配 MolStudio 架构）：
   1. 输入催化循环各物种能量（Int / TS + ΔG kcal/mol）
   2. 自动识别 TDI（决速中间体）/ TDTS（决速过渡态）
   3. 计算能量跨度 δE 与周转频率 TOF

@@ -2,7 +2,7 @@
 """
 di_analysis_panel.py — Distortion-Interaction 能量分解分析面板（GXNU MolStudio 的一个 tab）
 
-功能（整合自 D:\\traetest\\DI分析\\di_analysis_gui.py，适配 MolStudio 架构）：
+功能（整合自早期的 di_analysis_gui.py，适配 MolStudio 架构）：
   1. 5 个 Gaussian .log（frag1_opt / frag2_opt / frag1_def / frag2_def / ts）
      自动提取 SCF 能量，支持 ZPE / Gibbs 修正
   2. 计算 ΔE_strain、ΔE_int、ΔE#，表格红绿着色显示（Hartree + kcal/mol）

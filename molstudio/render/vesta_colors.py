@@ -4,9 +4,9 @@
 
 数据来源（一个数都没改）
 ------------------------
-本机安装的 VESTA 自带资源文件::
+数据取自 VESTA 安装目录下的资源文件::
 
-    D:\\BaiduNetdiskDownload\\催化课前软件安装\\VESTA\\VESTA\\elements.ini
+    <VESTA 安装目录>\\VESTA\\elements.ini
 
 VESTA = *Visualization for Electronic and STructural Analysis*
 （Koichi Momma / 日本国立研究开发法人 物质·材料研究机构 NIMS）。
@@ -16,8 +16,9 @@ VESTA = *Visualization for Electronic and STructural Analysis*
 
 前三列是共价半径 / 范德华半径 / 常用离子半径（Å），后三列是 VESTA 画原子球
 用的颜色分量（0–1）。下面是原样搬过来的常量，**没有做任何取舍或美化**。
-想核对就跑 ``python -c "import vesta_colors as v; print(v.self_check())"``，
+想核对就跑 ``python -c "import molstudio.render.vesta_colors as v; print(v.self_check())"``，
 它会拿本文件的值和 elements.ini 逐行比一遍（不一致直接抛 AssertionError）。
+本机路径通过 ``VESTA_ELEMENTS_INI`` 环境变量或 ``self_check(path)`` 参数传入。
 
 原表里两处特殊情况见 ``_gen_vesta_table.py`` 的说明：氘（D）与 H 共用原子
 序数 1（这里 1 号取 H，氘单列），最后一行 ``96 XX`` 是 VESTA 的占位不是元素。
@@ -145,17 +146,12 @@ VESTA_ISOTOPE_COLORS = {
 # 不是锔（Cm）—— 所以不进元素表，单独放。
 VESTA_DUMMY_COLOR = (0.30000, 0.30000, 0.30000)
 
-#: 本机 VESTA 的 elements.ini 候选路径（两份安装内容一致，取先找到的）
-DEFAULT_INI_CANDIDATES = (
-    'D:\\BaiduSyncdisk\\trash\\体系\\软件\\VESTA\\VESTA\\elements.ini',
-    'D:\\BaiduNetdiskDownload\\催化课前软件安装\\VESTA\\VESTA\\elements.ini',
-)
-
-DEFAULT_INI = DEFAULT_INI_CANDIDATES[0]
+#: elements.ini 的候选路径。默认留空：自检时用 VESTA_ELEMENTS_INI 环境变量
+#: 或 self_check("<...>/elements.ini") 显式指定，避免把开发机的路径写进仓库。
+DEFAULT_INI_CANDIDATES = ()
 
 # VESTA 样式文件里那几处**场景**配色（和元素色配套的一套）
-# 来源: D:\BaiduSyncdisk\trash\体系\软件\VESTA\VESTA\style\default.ini
-# 说明: 本机这份与 VESTA 出厂模板 style.ini 逐值相同
+# 来源: VESTA 自带的 style/default.ini（与出厂模板 style.ini 逐值相同）
 #       （只有 ISURF 节是运行中自动补的，颜色一个没改）。
 VESTA_STYLE_COLORS = {
     'background'    : (255, 255, 255),   # BKGRC 背景

@@ -2,7 +2,7 @@
 """
 irc_panel.py — IRC 整合分析面板（GXNU MolStudio 的一个 tab）
 
-功能（整合自 D:\\IRC\\IRC_Integrated_Qt.py，适配 MolStudio 架构）：
+功能（整合自早期的 IRC_Integrated_Qt.py，适配 MolStudio 架构）：
   1. 批量读取 IRC 的 fchk 文件 → 提取 Total Energy（hartree）
   2. 调用 Multiwfn 逐点计算 Mayer 键级（带缓存，按 fchk 路径 MD5）
   3. matplotlib 双轴绘图：左轴=键级曲线，右轴=能量曲线

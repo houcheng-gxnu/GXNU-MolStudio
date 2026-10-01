@@ -149,7 +149,7 @@ def save_config(multiwfn, vmd, tachyon):
 
 # ── vcube2.0 Style Definitions ──────────────────────────
 # Each style contains: tachyon_options, lighting, shadows/AO, material, color, atom coloring
-# All styles from E:\vcube2.0\styles\ (vcube 2.0, Zhong Cheng)
+# All styles ported from the vcube 2.0 style set (Zhong Cheng)
 
 # VMD 的 `color scale method` 是**固定枚举**，实测 VMD 1.9.3 只认这 6 个
 # （RG / GB / Gray / WG / RGW / jet / coolwarm / viridis / RdBu … 一律

@@ -8,7 +8,7 @@ ircsplit_panel.py — IRC 拆分面板（GXNU MolStudio 的一个 tab）
   * 右侧设置：正向/反向取点数、翻转顺序、泛函/基组等计算参数；
   * 一键把整条 IRC 拆成逐点单点能计算的 .gjf（含 %chk/%mem/%nproc）。
 
-解析与编号逻辑移植自 D:\\IRC\\IRCsplit_GUI.py（基于卢天 IRCsplit 思路）：
+解析与编号逻辑移植自早期的 IRCsplit_GUI.py（基于卢天 IRCsplit 思路）：
   * 坐标段：Input orientation:（缺省回退 Z-Matrix orientation:）
   * Gaussian IRC 输出中每点坐标出现在其 "Path Number:" 之前，故向后回溯
   * 第一个 "Path Number: 1" 是过渡态 TS，正向点数 = Path1 数 - 1

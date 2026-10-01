@@ -3,7 +3,7 @@
 _molviewer_style.py — MolViewer「MolCanvas」样式预设 → ovcanvas OpenGL 参数映射
 ===============================================================================
 
-把 D:\\MolViewer\\molcanvas.py 的 STYLE_PRESETS（纯 QPainter 伪 3D 渲染风格）
+把 MolViewer 项目 molcanvas.py 的 STYLE_PRESETS（纯 QPainter 伪 3D 渲染风格）
 翻译成 ovcanvas.CubGLWidget 的 OpenGL 渲染参数。核心是 :func:`apply_molviewer_preset`，
 一键把某预设的全部观感（背景渐变、球体质感/光泽、描边、键色/键宽、原子缩放、
 阴影、十字、原子标签、景深雾化）应用到画布。

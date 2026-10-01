@@ -1,7 +1,7 @@
 # VMD 样式控制：Tcl 脚本怎么写、vcube 怎么组织、和本程序怎么对应
 
-> 研究对象：`E:\tst\vcube2.0\vcube.tcl`（武汉大学钟诚，vcube 2.0，2021-01）
-> + `E:\tst\vcube2.0\styles\` 下 13 个样式文件；对照本程序 `fchk_orbital.py`
+> 研究对象：vcube 2.0 的 `vcube.tcl`（武汉大学钟诚，2021-01）
+> + 同一套件 `styles\` 目录下 13 个样式文件；对照本程序 `fchk_orbital.py`
 > 的 `STYLES` / `_scene_tcl` / `_socket_server_tcl` 与 `vmd_embed.py`。
 >
 > 文中标 **[实测]** 的是在 VMD 1.9.3（本机安装版）上跑脚本验证过的结论，
@@ -596,5 +596,5 @@ proc _vmd_handle {chan} {
 ```powershell
 & "C:\Program Files (x86)\University of Illinois\VMD\vmd.exe" `
   -dispdev text -e _vmd_rep_probe.tcl
-python _vcube_style_audit.py E:\tst\vcube2.0\styles
+python _vcube_style_audit.py <vcube2.0 目录>\styles
 ```

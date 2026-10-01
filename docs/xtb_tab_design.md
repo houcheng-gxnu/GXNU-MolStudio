@@ -1,7 +1,7 @@
 # 新增「xTB 计算」tab —— 评估与界面设计
 
 > 需求：在 MolStudio（OrbitalViewer 5.3）里加一个新 tab，把
-> `D:\xbt-windows\xtbridge\src\xtbridge\lite.py`（xTBridge Lite）的 xTB 计算功能整合进来。
+> xTBridge Lite（`xtbridge/lite.py`）的 xTB 计算功能整合进来。
 >
 > 本文只做**评估 + 设计**，不含实现。设计稿出图脚本：`_xtb_tab_mock.py`
 > （`_xtb_tab_mock.png` 就绪态 / `_xtb_tab_mock_done.png` 算完态）。
@@ -14,9 +14,9 @@
 |---|---|
 | 能不能做 | **能**，而且比预想便宜：Lite 里 90% 是**不依赖 PyQt5 的纯逻辑**，可以整段搬过来 |
 | 界面能不能照搬 | **不能**。LiteWindow 是 1180×880 的独立窗口，MolStudio 的 tab 是**实测 665 px 宽的右栏一页**，控件排布与文案必须重画（设计见 §3） |
-| 新增外部依赖 | 只有 **xtb.exe** 一个（不打包、走路径设置）。本机已实测存在多份可用副本：`E:\teach\xtb-6.7.1-gxtb-210426-windows-x86_64\bin\xtb.exe`、`D:\xtb-6.7.1-gxtb-210426-windows-x86_64\bin\xtb.exe` 等 |
-| 联用模式（高斯×xTB） | 需要 g16.exe（本机 `E:\g16w\g16.exe` 存在）+ gview.exe（可选）。建议做成**默认收起**的进阶区块 |
-| 授权 | xtbridge 是 **MIT**（`D:\xbt-windows\xtbridge\LICENSE`，Copyright (c) 2026 houcheng-gxnu），并入本 GPLv3 项目只需在 `THIRD-PARTY-NOTICES.md` 加一段署名，无兼容问题 |
+| 新增外部依赖 | 只有 **xtb.exe** 一个（不打包、走路径设置）。本机已实测存在多份可用副本，路径各异，统一由设置项配置 |
+| 联用模式（高斯×xTB） | 需要 g16.exe（本机已装）+ gview.exe（可选）。建议做成**默认收起**的进阶区块 |
+| 授权 | xtbridge 是 **MIT**（见其仓库 LICENSE，Copyright (c) 2026 houcheng-gxnu），并入本 GPLv3 项目只需在 `THIRD-PARTY-NOTICES.md` 加一段署名，无兼容问题 |
 | 工作量 | 一期（单点/优化/频率 + 日志 + 结果回画布）≈ 一个 `xtb_panel.py` + 一个 worker；二期接电荷/键级/曲线；三期联用 |
 
 ---

@@ -36,7 +36,7 @@ All notable changes to OrbitalViewer will be documented in this file.
      差异区域始终是主窗口自身在填充（1672×731），**没有独立的第三方窗口** ——
      说明那个小窗口在程序化的画面差分里不成立，更像是系统级覆盖层。
   3. 查环境：本机装了**搜狗输入法**
-     （`C:\Program Files (x86)\SogouInput\16.6.0.4952`，`SGTool`/`SogouCloud`/
+     （`SogouInput` 16.6.0.4952，`SGTool`/`SogouCloud`/
      `SogouImeBroker` 均在运行）。`SoPY` = **Sogou PinYin**，状态条窗口由输入法
      通过 IME 注入在**宿主进程内**创建，所以它属于本进程、标题为空。
   4. 触发条件确认：启动时 `app.focusWidget()` 是一个 **`QLineEdit`** ——
@@ -554,8 +554,8 @@ All notable changes to OrbitalViewer will be documented in this file.
   - 顺带把「统一键色 / 键光泽 / 键亮度」补进样式状态
     （原先漏存：设过统一键色后，保存样式再载入会丢；现在 `get_style_state()`
     会带上，实测设 `(0.2,0.3,0.4)` 能原样存取）。
-  - **光照/材质**：采用用户在成品里调好、导出的那份状态
-    （`Desktop\xtb-test\VESTA.json`）。相对 MolStudio 基底实际只动了 7 处：
+  - **光照/材质**：采用作者在成品里调好、导出的那份 VESTA 样式状态。
+    相对 MolStudio 基底实际只动了 7 处：
     灯 0 光晕 `0.79 → 3.0`、镜面模型 `1 → 2`（Clear-coat 清漆）、
     粗糙度 `0.45 → 0.55`、清漆 `0.10/0.80 → 0.15/1.78`、
     键收腰 `0.70 → 1.00`（直圆柱不收腰，与 VESTA 的 stick 一致），
@@ -1193,8 +1193,8 @@ All notable changes to OrbitalViewer will be documented in this file.
     - 随样式文件保存/载入（`bond_mode` 字段）
 
 ### Changed
-- **CYLview 一键样式的等值面配色 / 材质 / 透明合成按用户导出的
-  `Desktop\NBO\CYLVIEW.json` 更新**（2026-09-27）。逐项：
+- **CYLview 一键样式的等值面配色 / 材质 / 透明合成按导出的
+  CYLview 样式状态更新**（2026-09-27）。逐项：
 
   | 键 | 旧值 | 新值（= 导出值） |
   |---|---|---|
@@ -1222,8 +1222,8 @@ All notable changes to OrbitalViewer will be documented in this file.
     `_vesta_iso_color_probe.py`、`_phase_flip_probe.py`、`_nbo_style_probe.py`
     一起全部通过。
 
-- **VESTA 一键样式的等值面配色 / 光照 / 透明合成整组对齐用户导出的
-  `Desktop\DEMO\VESTA.json`**（2026-09-27）。该文件里与本样式相关的差异，
+- **VESTA 一键样式的等值面配色 / 光照 / 透明合成整组对齐导出的
+  VESTA 样式状态**（2026-09-27）。该文件里与本样式相关的差异，
   逐项落到 `_VESTA_STYLE`：
 
   | 键 | 旧值 | 新值（= 导出值） |
