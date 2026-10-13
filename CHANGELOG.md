@@ -6,6 +6,18 @@ All notable changes to OrbitalViewer will be documented in this file.
 
 ## [Unreleased]
 
+### IRC 键级曲线修复（2026-10-13）
+- **修复 Multiwfn 反复弹出文件选择窗口或计算卡住**：fchk 文件改为启动参数传入，
+  不再在文件路径输入阶段先发送空行；复用已有 Windows 后台调用封装及 Mayer 菜单序列。
+- **失败时记录原因并停止本轮批处理**：超时、非零退出或无有效 Mayer 键级表时，
+  不再静默失败后继续调用后续文件；未完成的点以空值与能量序列对齐。
+- **修复曲线和按钮状态**：新增键级曲线保留已有曲线，完全失败时保留原图；
+  修正错误处理将按钮 `setEnabled` 方法覆盖为布尔值的问题。
+- **校验缓存内容并补充回归测试**：有效的全部键级表可供不同原子对复用，
+  仅包含菜单文字的缓存不再被当作计算结果。新增 8 项测试全部通过；
+  Multiwfn 2026.4.10 与 25 个真实 IRC fchk 的源码及打包面板流程验证通过。
+- 定位过程、验证范围及已有全套测试失败见 [`docs/irc_multiwfn_fix.md`](docs/irc_multiwfn_fix.md)。
+
 ### 仓库结构规范化（2026-10-01）
 - **源码全部收进 `molstudio/` 包**：根目录 31 个模块按职责迁入
   `molstudio/{core,ui,panels,render}` + `assets/`；`main.py` 变成薄入口，
