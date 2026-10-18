@@ -40,7 +40,9 @@ Based on IboView (Copyright (c) 2015 Gerald Knizia), GPLv3 — modified.
 
 The pre-rewrite snapshot is preserved verbatim in `ovcanvas/_glwidget_iboview.py`
 (with its original copyright header intact).
-A per-item audit is in [`docs/iboview_transplant_audit.md`](./docs/iboview_transplant_audit.md).
+Per-item provenance notes — the origin of every derived table, shader and
+parameter set — are given inline: in the file headers listed above, and directly
+above each data table in `ovcanvas/_glwidget.py` and `ovcanvas/_panel.py`.
 
 ### How the GPLv3 obligations are met
 

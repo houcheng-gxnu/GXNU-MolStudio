@@ -90,6 +90,7 @@ TR = {
     "lbl_multiwfn": {"zh": "Multiwfn:", "en": "Multiwfn:"},
     "lbl_vmd": {"zh": "VMD:", "en": "VMD:"},
     "lbl_tachyon": {"zh": "Tachyon:", "en": "Tachyon:"},
+    "lbl_gaussian": {"zh": "Gaussian (g16):", "en": "Gaussian (g16):"},
     "placeholder_mw": {"zh": "Multiwfn.exe 路径", "en": "Path to Multiwfn.exe"},
     "placeholder_vmd": {"zh": "vmd.exe 路径", "en": "Path to vmd.exe"},
     "btn_browse": {"zh": "浏览", "en": "Browse"},
@@ -202,6 +203,8 @@ TR = {
     "tab_aim": {"zh": "AIM", "en": "AIM"},
     "tab_etsnocv": {"zh": "ETS-NOCV", "en": "ETS-NOCV"},
     "tab_mpp": {"zh": "MPP", "en": "MPP"},
+    "tab_surfproj": {"zh": "表面投影", "en": "Surf. Proj."},
+    "tab_aicd": {"zh": "感应电流", "en": "AICD"},
     "tab_irc": {"zh": "IRC 分析", "en": "IRC"},
     "tab_di": {"zh": "DI 分析", "en": "DI"},
     "tab_asm_irc": {"zh": "ASM 扫描", "en": "ASM"},
@@ -330,9 +333,9 @@ TR = {
     "cite_copy_head": {"zh": "【{module}】本页功能应引用的文献：",
                        "en": "[{module}] References to cite for this tab:"},
     "cite_number_note": {
-        "zh": "编号 1–24 与预印本长稿 docs/chemrxiv_draft.md 的参考文献表一致；"
+        "zh": "编号 1–24 与本课题组预印本长稿的参考文献表一致；"
               "25 及以后为本软件后补条目。",
-        "en": "Numbers 1–24 follow the reference list of docs/chemrxiv_draft.md; "
+        "en": "Numbers 1–24 follow the reference list of our preprint; "
               "25 onward are additions made for this software."},
     "log_paths_saved": {"zh": "路径已保存 — Multiwfn: {mw}  VMD: {vmd}", "en": "Paths saved — Multiwfn: {mw}  VMD: {vmd}"},
     "msg_paths_save_fail": {

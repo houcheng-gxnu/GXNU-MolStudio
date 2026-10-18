@@ -25,6 +25,7 @@ from PyQt5.QtCore import (Qt, QTimer, QPropertyAnimation, QEasingCurve,
                           QEvent)
 from PyQt5.QtGui import (
     QFont, QColor, QPalette, QFontDatabase, QTextCursor, QTextCharFormat,
+    QTextBlockFormat,
     QKeySequence, QLinearGradient, QRadialGradient, QBrush, QPainter, QPen,
     QPainterPath, QPixmap, QIcon, QDoubleValidator,
 )
@@ -100,6 +101,21 @@ try:
     _HAS_MPP_PANEL = True
 except Exception:
     _HAS_MPP_PANEL = False
+
+# ── 表面距离投影图（Multiwfn 主功能 300 → 子功能 8，sobereva.com/589） ──
+try:
+    from molstudio.panels.surface_projection_panel import SurfaceProjectionPanel
+    _HAS_SURFPROJ_PANEL = True
+except Exception:
+    _HAS_SURFPROJ_PANEL = False
+
+# ── AICD 感应电流密度各向异性（Gaussian nmr=csgt iop(10/93)，Herges 组方法） ──
+try:
+    from molstudio.panels.aicd_panel import AicdPanel
+    _HAS_AICD_PANEL = True
+except Exception:
+    _HAS_AICD_PANEL = False
+
 
 # ── IRC 整合分析（整合自早期的 IRC_Integrated_Qt.py） ──
 try:
@@ -188,6 +204,8 @@ _NAV_EMOJI = {
     "tab_aim":         "🎯",   # AIM 临界点
     "tab_etsnocv":     "🔄",   # ETS-NOCV 轨道相互作用/电荷转移
     "tab_mpp":         "📐",   # MPP 分子平面性
+    "tab_surfproj":    "🗺️",   # 表面距离投影图
+    "tab_aicd":        "🧲",   # AICD 感应电流密度
     "tab_irc":         "🧭",   # IRC 反应路径
     "tab_di":          "🧩",   # DI 能量分解
     "tab_asm_irc":     "📈",   # ASM 沿 IRC 扫描
@@ -370,6 +388,17 @@ class PathsDialog(QDialog):
         ty_row.addWidget(self.btn_ty)
         form.addRow(tr("lbl_tachyon"), ty_row)
 
+        # Gaussian（本机跑 AICD 那种任务用；留空则相关按钮会提示去配）
+        self.edit_g16 = QLineEdit(paths.get("gaussian", ""))
+        self.edit_g16.setMinimumWidth(320)
+        self.edit_g16.setPlaceholderText("g16.exe")
+        g16_row = QHBoxLayout()
+        g16_row.addWidget(self.edit_g16)
+        self.btn_g16 = QPushButton(tr("btn_browse"))
+        self.btn_g16.clicked.connect(lambda: self._browse(self.edit_g16, "g16"))
+        g16_row.addWidget(self.btn_g16)
+        form.addRow(tr("lbl_gaussian"), g16_row)
+
         g.addLayout(form)
 
         btn_save = QPushButton(tr("btn_save"))
@@ -405,7 +434,8 @@ class PathsDialog(QDialog):
                 self,
                 self.edit_mw.text().strip(),
                 self.edit_vmd.text().strip(),
-                self.edit_tachyon.text().strip())
+                self.edit_tachyon.text().strip(),
+                self.edit_g16.text().strip())
 
 
 class AboutDialog(QDialog):
@@ -1062,6 +1092,40 @@ class OrbitalVisApp(QMainWindow):
                 self._add_tab(self.mpp_panel, "tab_mpp")
             except Exception:
                 self.mpp_panel = None
+
+        # ── 表面距离投影图 tab（朝向取自左侧画布） ──
+        self.surfproj_panel = None
+        if _HAS_SURFPROJ_PANEL:
+            glw = self.cub_canvas.glw if self.cub_canvas is not None else None
+            try:
+                self.surfproj_panel = SurfaceProjectionPanel(
+                    glw=glw,
+                    multiwfn_path=self.paths.get("multiwfn", ""),
+                    get_multiwfn=_get_mw,
+                    get_input_path=lambda: getattr(self, "_current_fchk", "") or "",
+                    log_func=self._append_log,
+                    parent=self,
+                )
+                self._add_tab(self.surfproj_panel, "tab_surfproj")
+            except Exception:
+                self.surfproj_panel = None
+
+        # ── AICD 感应电流密度各向异性 tab（Gaussian 张量转储 → 效果图） ──
+        self.aicd_panel = None
+        if _HAS_AICD_PANEL:
+            glw = self.cub_canvas.glw if self.cub_canvas is not None else None
+            try:
+                self.aicd_panel = AicdPanel(
+                    glw=glw,
+                    log_func=self._append_log,
+                    get_fchk=lambda: getattr(self, "_current_fchk", "") or "",
+                    get_multiwfn=_get_mw,
+                    get_g16=lambda: self.paths.get("gaussian", "") or "",
+                    parent=self,
+                )
+                self._add_tab(self.aicd_panel, "tab_aicd")
+            except Exception:
+                self.aicd_panel = None
 
         # ── IRC 整合分析 tab ──
         self.irc_panel = None
@@ -2141,6 +2205,11 @@ class OrbitalVisApp(QMainWindow):
                 self.mpp_panel.shutdown()
             except Exception:
                 pass
+        if getattr(self, "surfproj_panel", None) is not None:
+            try:
+                self.surfproj_panel.shutdown()
+            except Exception:
+                pass
         if getattr(self, "aim_panel", None) is not None:
             try:
                 self.aim_panel.shutdown()
@@ -2250,7 +2319,7 @@ class OrbitalVisApp(QMainWindow):
         # 后加入的面板（IRC / DI / ASM / ESM / IRC 拆分 / CUB 叠加 / 晶体）
         for _name in ("irc_panel", "di_panel", "asm_irc_panel", "esm_panel",
                       "ircsplit_panel", "cub_stack_panel", "crystal_panel",
-                      "crystal_bar"):
+                      "crystal_bar", "surfproj_panel", "aicd_panel"):
             _panel = getattr(self, _name, None)
             if _panel is not None and hasattr(_panel, "set_lang"):
                 try:
@@ -2567,6 +2636,8 @@ class OrbitalVisApp(QMainWindow):
         self._append_log("GXNU MolStudio 1.0 已启动 — 分子可视化与量子化学分析")
         self._append_log("请拖放 .fchk / .log 文件到界面，或使用「浏览轨道」载入轨道数据")
         self._append_log("═" * 50)
+        # 启动诗词（装饰性内容；MOLSTUDIO_POEM=0 可关闭，见 core/poems.py）
+        self._append_startup_poem()
         # 启动预热：splash 盖着窗口时编译全部着色器，消除首操作卡顿
         if self.cub_canvas is not None:
             try:
@@ -2703,6 +2774,66 @@ class OrbitalVisApp(QMainWindow):
         # ── 自动滚动到底部 ──
         self.log_text.setTextCursor(cursor)
         self.log_text.ensureCursorVisible()
+
+    def _append_log_plain(self, msg, color="#2C3E50", bold=False, align=None,
+                          family=None):
+        """追加一行不带时间戳、不带 [TAG] 的日志。
+
+        给装饰性内容（启动诗词的字符框）用：``_append_log`` 会给每一行都加上
+        时间戳和 [INF] 标签，字符框那样会很吵。
+
+        ``align`` 是段落对齐（如 ``Qt.AlignHCenter``）。注意**每一行都显式写入
+        对齐**：``QTextCursor.insertBlock()`` 会继承上一段的块格式，居中之后如果
+        不复位，后面的日志会跟着一起居中。
+
+        ``family`` 强制字体族。字符框必须传 ``poems.BOX_FONT``：日志默认字体栈
+        以 Consolas 打头，它会把框线字符与数字排成半宽，框就歪了。
+        """
+        if not getattr(self, "log_text", None):
+            return
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(color))
+        if bold:
+            fmt.setFontWeight(QFont.Bold)
+        if family:
+            fmt.setFontFamily(family)
+        block_fmt = QTextBlockFormat()
+        block_fmt.setAlignment(Qt.AlignLeft if align is None else align)
+        cursor = self.log_text.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        cursor.insertBlock(block_fmt)
+        cursor.insertText(msg, fmt)
+        self.log_text.setTextCursor(cursor)
+        self.log_text.ensureCursorVisible()
+
+    def _append_startup_poem(self):
+        """欢迎横幅下方显示一首毛泽东诗词，带字符边框（``MOLSTUDIO_POEM=0`` 关闭）。
+
+        版式（框线宽度、居中留白、全角约束）在 ``core/poems.frame_poem()`` 里算好，
+        这里只管上色与居中；纯装饰，整段 try/except，任何异常都不影响启动。
+        """
+        try:
+            from molstudio.core import poems
+
+            if not poems.enabled():
+                return
+            rows = poems.frame_poem(poems.pick_poem())
+        except Exception:
+            return
+        styles = {
+            "border": {"color": "#BDC3C7"},
+            "title": {"color": "#8E44AD", "bold": True},
+            "meta": {"color": "#95A5A6"},
+            "blank": {},
+            "body": {},
+        }
+        try:
+            for kind, text in rows:
+                self._append_log_plain(text, align=Qt.AlignHCenter,
+                                       family=poems.BOX_FONT,
+                                       **styles.get(kind, {}))
+        except Exception:
+            pass
 
     def _set_progress(self, msg):
         self.progress_label.setText(f"◆  {msg}")
@@ -3913,7 +4044,7 @@ class OrbitalVisApp(QMainWindow):
                 "M.Sc. Thesis, University of Missouri-Rolla, 1998.</p>"
             )
 
-    def _do_save_paths(self, dlg, mw, vmd, tachyon=""):
+    def _do_save_paths(self, dlg, mw, vmd, tachyon="", gaussian=None):
         if mw:
             self.paths["multiwfn"] = mw
         if vmd:
@@ -3921,9 +4052,12 @@ class OrbitalVisApp(QMainWindow):
         # 若用户未指定 tachyon，则自动检测 VMD 目录下的版本
         tachyon = tachyon or find_tachyon(os.path.dirname(vmd or self.paths["vmd"]))
         self.paths["tachyon"] = tachyon
+        if gaussian is not None:
+            self.paths["gaussian"] = gaussian
         try:
             backend.save_config(
-                self.paths["multiwfn"], self.paths["vmd"], tachyon)
+                self.paths["multiwfn"], self.paths["vmd"], tachyon,
+                gaussian=self.paths.get("gaussian", ""))
         except Exception as e:
             # 打包版配置文件写在 exe 同目录；目录只读或被杀软拦截时
             # 写入会失败。弹窗提示而不是放任异常静默闪退。

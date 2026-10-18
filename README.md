@@ -105,6 +105,23 @@ What is integrated today: **reading** Gaussian / Multiwfn inputs and outputs (fc
 - **Energetic Span Model (ESM)** — catalytic-cycle analysis: identify TDI/TDTS, compute the energy span δE and TOF, step-shaped energy profiles
 - **AIM topology** — QTAIM bond critical points and bond paths from `.wfn` / `.wfx` / fchk input
 - **Charge & Mayer bond order** — combined charge-population and bond-order analysis
+- **AICD induced current** — reads the tensor dump written by Gaussian
+  `nmr=csgt iop(10/93=1|2)` and renders the classic AICD figure (yellow
+  anisotropy isosurface + green-shaft/red-head current-density arrows + field
+  indicator). The **Scope** drop-down switches to **π only / σ only** in one
+  step: Multiwfn detects the occupied π orbitals (plane method for planar
+  systems, localised-orbital projection for distorted ones), the input is
+  rewritten to `iop(10/93=2)` plus the orbital list (with a blank line after
+  the list: without it Gaussian's AICD patch drops the last orbital), and the
+  run then plots that scope. An all-electron AICD run is **not** a
+  prerequisite: automatic detection only needs an fchk/chk of the same system
+  (one from an opt/freq job is fine), or you can enter the indices directly
+  under "Generate input… → Selected orbitals". The workflow is five buttons:
+  load GJF → generate input → run locally / run on server → load results & plot. A local run renders the figure
+  automatically; for a server run the panel writes the input, shows a copyable
+  `g16 < job.gjf > job.log` command, and later loads the returned `.log` plus
+  its tensor `.txt`. A live 3D canvas view of the isosurface plus arrows is
+  included.
 
 ### 🎬 Legacy VMD / Tachyon rendering (compatibility mode)
 - 30+ curated render styles (vcube2.0, in-house and custom)
@@ -218,7 +235,6 @@ GXNU-MolStudio/
 │   ├── render/              # ovcanvas GL engine, molcanvas, vmd_embed, viewers
 │   └── assets/              # Window icon, university emblem, built-in style json
 ├── tests/                   # Import self-check + offscreen UI smoke tests
-├── docs/                    # Design notes, preprint drafts, reference audits
 ├── screenshots/             # Gallery images used by this README
 ├── legacy/                  # Retired code kept for reference (not packaged)
 ├── OrbitalViewer.spec       # PyInstaller config (onedir)
@@ -296,7 +312,7 @@ Hou, C. GXNU MolStudio: An Integrated Open-Source Platform for Molecular Visuali
 
 Also cite the corresponding tools from the acknowledgments above. See also [CITATION.cff](./CITATION.cff) and [CITATION.bib](./CITATION.bib).
 
-The software helps with this: the right-hand settings area has two tabs — **Settings** and **Citations**. The *Citations* tab always shows the references required by the function currently selected in the left-hand navigator: the IGMH page, for instance, lists both Multiwfn and the IGMH / IRI papers, each with a note on where it is used. Click **Copy all** to paste the full list into your manuscript. The underlying table lives in [`tab_references.py`](./tab_references.py), with the numbered references matching `docs/chemrxiv_draft.md`.
+The software helps with this: the right-hand settings area has two tabs — **Settings** and **Citations**. The *Citations* tab always shows the references required by the function currently selected in the left-hand navigator: the IGMH page, for instance, lists both Multiwfn and the IGMH / IRI papers, each with a note on where it is used. Click **Copy all** to paste the full list into your manuscript. The underlying table lives in [`tab_references.py`](./tab_references.py), with the numbered references matching the preprint's reference list.
 
 ---
 

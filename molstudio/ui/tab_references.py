@@ -10,8 +10,8 @@ IRI）方法学原文。这里把「功能 → 应引用文献」的对照关系
 主窗口在右侧设置区做成「设置 / 引文」两个页签：第一个页签是功能本身的面板，
 第二个页签（CitationPanel）显示当前功能的完整引用清单，可一键复制。
 
-文献编号与预印本长稿 `docs/chemrxiv_draft.md` 的参考文献表一致（1–24），
-逐模块的条目与用法说明见 `docs/tabs_references.html`。
+文献编号与本课题组预印本长稿的参考文献表一致（1–24）；
+逐模块的条目与用法说明在本文件的 REFS / TABS 两处数据表中。
 
 数据更新方式
 ============
@@ -219,6 +219,29 @@ REFS = {
                 "(Analyzing and plotting the molecular surface electrostatic "
                 "potential distribution with Multiwfn and VMD); "
                 "http://sobereva.com/196 (accessed 2026).",
+    },
+    # ── 28 起：AICD 感应电流密度各向异性（28–29 为后补条目） ──
+    28: {
+        "tag": "ACID/AICD 方法",
+        "tag_en": "ACID/AICD method",
+        "text": "Geuenich, D.; Hess, K.; Köhler, F.; Herges, R. Anisotropy of "
+                "the Induced Current Density (ACID), a General Method To "
+                "Quantify and Visualize Electronic Delocalization. "
+                "Chem. Rev. 2005, 105, 3758–3772. doi:10.1021/cr0300901",
+    },
+    29: {
+        "tag": "AICD 原始文献",
+        "tag_en": "AICD original paper",
+        "text": "Herges, R.; Geuenich, D. Delocalization of Electrons in "
+                "Molecules. J. Phys. Chem. A 2001, 105, 3214–3220. "
+                "doi:10.1021/jp0034426",
+    },
+    30: {
+        "tag": "AICD 用法（中文）",
+        "tag_en": "AICD usage (Chinese)",
+        "text": "Lu, T. 使用AICD程序研究电子离域性和磁感应电流密度 / 使用 AICD "
+                "2.0 绘制磁感应电流图; http://sobereva.com/147, "
+                "http://sobereva.com/294 (accessed 2026).",
     },
 }
 
@@ -430,6 +453,33 @@ TABS = {
         "note_en": "Purely a visualisation feature with no independent methodology "
                    "paper; isosurface extraction uses the third-party PyMCubes "
                    "(see THIRD-PARTY-NOTICES.md).",
+    },
+    "tab_aicd": {
+        "zh": "感应电流", "en": "AICD",
+        "refs": [
+            _r(28, "method", "ACID/AICD 方法本身：感应电流密度张量的各向异性"
+                             "（等值面画的就是这个量）与矢量场定义",
+               "The ACID/AICD method itself: the anisotropy of the induced "
+               "current-density tensor (the isosurface plots exactly this quantity) "
+               "and the corresponding vector field."),
+            _r(29, "method", "方法原始文献（ACID 的提出）",
+               "Original paper introducing the ACID method."),
+            _r(30, "method", "程序用法与各项参数的来历（等值面数值、-b/-p/-s/-maxarrow 等）",
+               "Program usage and the origin of each parameter (isovalue, "
+               "-b / -p / -s / -maxarrow)."),
+        ],
+        "note_zh": "本页不调用 Multiwfn：数据源是 Gaussian 自带的 "
+                   "nmr=csgt iop(10/93=1|2) 张量转储，等值面提取用第三方库 "
+                   "PyMCubes（版本与许可见 THIRD-PARTY-NOTICES.md）。"
+                   "AICD 程序本身（Herges 组，需向作者索取）本软件并未调用，"
+                   "只是按它发表的方法与配色惯例重新实现了同一套计算与出图。",
+        "note_en": "This page does not call Multiwfn: the data come from "
+                   "Gaussian's own nmr=csgt iop(10/93=1|2) tensor dump, and the "
+                   "isosurface is extracted with the third-party PyMCubes (see "
+                   "THIRD-PARTY-NOTICES.md). The AICD program itself (Herges "
+                   "group, distributed on request) is not called here — the same "
+                   "computation and figure style were reimplemented from the "
+                   "published method and colour convention.",
     },
     "tab_crystal": {
         "zh": "晶体", "en": "Crystal",

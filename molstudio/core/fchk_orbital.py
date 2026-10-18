@@ -66,6 +66,30 @@ def find_tachyon(vmd_dir):
 
 DEFAULT_TACHYON = find_tachyon(os.path.dirname(DEFAULT_VMD))
 
+
+def find_gaussian():
+    """在常见位置找本机的 Gaussian 16（``g16.exe``）；找不到返回空串。
+
+    顺序：环境变量 ``g16root``／``GAUSS_EXEDIR`` → 常见安装目录。返回空串
+    表示"没配"，界面里那一栏留空、运行按钮相应禁用（而不是写一个假路径）。
+    """
+    candidates = []
+    for env in ("g16root", "GAUSS_EXEDIR", "G16ROOT"):
+        root = os.environ.get(env, "")
+        if root:
+            candidates.append(os.path.join(root, "g16.exe"))
+            candidates.append(os.path.join(root, "g16w", "g16.exe"))
+    candidates += [r"E:\g16w\g16.exe", r"D:\g16w\g16.exe", r"C:\G16W\g16.exe",
+                   r"C:\g16w\g16.exe", r"E:\G09W\g09.exe"]
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+    return ""
+
+
+#: 本机 Gaussian 16 可执行文件（找不到就是空串，界面会提示去配）
+DEFAULT_GAUSSIAN = find_gaussian()
+
 # ── Atomic Data ──────────────────────────────────────────
 ELEMENT_SYMBOLS = {
     1: 'H', 2: 'He', 3: 'Li', 4: 'Be', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 10: 'Ne',
@@ -115,6 +139,7 @@ def load_config():
         "multiwfn": DEFAULT_MULTIWFN,
         "vmd": DEFAULT_VMD,
         "tachyon": DEFAULT_TACHYON,
+        "gaussian": DEFAULT_GAUSSIAN,
     }
     if os.path.exists(CONFIG_FILE):
         cfg.read(CONFIG_FILE, encoding="utf-8")
@@ -125,7 +150,7 @@ def load_config():
     return paths
 
 
-def save_config(multiwfn, vmd, tachyon):
+def save_config(multiwfn, vmd, tachyon, gaussian=None):
     """Save path configuration to ini file.
 
     先读旧文件再更新 [paths]，保留其它 section（如 [dialogs] last_dir），
@@ -143,6 +168,13 @@ def save_config(multiwfn, vmd, tachyon):
         "vmd": vmd,
         "tachyon": tachyon,
     }
+    # gaussian 是后加的键：None 表示"调用方不管它"，此时沿用原有值，
+    # 免得旧调用点（如 orbital_viewer_v53 的路径对话框）把用户配好的路径抹掉。
+    previous = cfg.get("paths", "gaussian", fallback=None)
+    resolved = gaussian if gaussian is not None else previous
+    if resolved is None:
+        resolved = DEFAULT_GAUSSIAN
+    cfg["paths"]["gaussian"] = resolved
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         cfg.write(f)
 

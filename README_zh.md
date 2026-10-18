@@ -106,6 +106,19 @@ GXNU MolStudio 是一个面向计算化学的**可视化与工作流整合平台
 - **Energetic Span Model（ESM）** — 催化循环分析：识别 TDI/TDTS，计算能量跨度 δE 与 TOF，绘制台阶式能量剖面
 - **AIM 拓扑** — 基于 `.wfn` / `.wfx` / fchk 输入的 QTAIM 键临界点（BCP）与键径分析
 - **电荷与 Mayer 键级** — 电荷布居与 Mayer 键级组合面板
+- **AICD 感应电流** — 读 Gaussian `nmr=csgt iop(10/93=1|2)` 的张量转储，
+  直接出经典 AICD 效果图（黄色各向异性等值面 + 绿杆红尖头电流箭头 + 外磁场
+  示意），支持轨道分解；「计算范围」下拉可一键切到**只看 π / 只看 σ**：
+  自动用 Multiwfn 检测占据 π 轨道（共平面用平面法，配合物/扭曲体系用定域化 +
+  π 型 LMO 投影 + 阈值），把输入改写成 `iop(10/93=2)` + 轨道号（轨道列表后
+  留一个空行，否则 Gaussian 会漏读最后一个轨道），再本地/服务器计算并按范围
+  出图。这一步**不要求先跑 AICD 全电子**：有同体系的 fchk/chk（opt/freq 等
+  任何 SCF 留下的都行）就能自动检测；已知轨道号也可在「生成输入… → 指定轨道」
+  里直接填。工作流简化为 5 个按钮：
+  载入 GJF → 生成输入 → 本地运行 / 服务器运行 → 载入结果并出图。
+  本地运行算完自动出图；服务器运行给出可复制的 `g16 < job.gjf > job.log`
+  命令，算完把 `.log` 与同目录的张量 `.txt` 载入即可。结果可直接送进 OpenGL
+  画布看三维等值面 + 箭头
 
 ### 🎬 传统 VMD / Tachyon 渲染（兼容模式）
 - 30+ 精选渲染风格（vcube2.0、原创与自定义）
@@ -219,7 +232,6 @@ GXNU-MolStudio/
 │   ├── render/              # ovcanvas 渲染引擎、molcanvas、vmd_embed、传统查看器
 │   └── assets/              # 窗口图标、校徽、内置样式 json
 ├── tests/                   # 导入自检 + 界面离屏冒烟测试
-├── docs/                    # 设计说明、预印本稿件、参考文献审计
 ├── screenshots/             # README 展示截图
 ├── legacy/                  # 已退役代码（保留参考，不参与打包）
 ├── OrbitalViewer.spec       # PyInstaller 打包配置（onedir）
@@ -296,7 +308,7 @@ Hou, C. GXNU MolStudio: An Integrated Open-Source Platform for Molecular Visuali
 
 同时请引用上述致谢中的对应工具文献。另见 [CITATION.cff](./CITATION.cff) 和 [CITATION.bib](./CITATION.bib)。
 
-软件里也做了对应整理：右侧设置区分成**「设置 / 引文」两个页签**，「引文」页签只列出左侧当前所选功能需要引用的文献——例如切到 IGMH 时会同时列出 Multiwfn 与 IGMH / IRI 原文，并逐条注明用在哪一步。点「复制全部引用」直接粘进稿件。对照表在 [`tab_references.py`](./tab_references.py)，文献编号与 `docs/chemrxiv_draft.md` 一致。
+软件里也做了对应整理：右侧设置区分成**「设置 / 引文」两个页签**，「引文」页签只列出左侧当前所选功能需要引用的文献——例如切到 IGMH 时会同时列出 Multiwfn 与 IGMH / IRI 原文，并逐条注明用在哪一步。点「复制全部引用」直接粘进稿件。对照表在 [`tab_references.py`](./tab_references.py)，文献编号与预印本长稿一致。
 
 ---
 

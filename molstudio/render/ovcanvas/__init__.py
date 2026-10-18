@@ -32,7 +32,7 @@ ovcanvas — OrbitalViewer 画布可视化库
 与本包独立、非 IboView 来源的内容：范德华半径（Bondi 1964）、
 CPK/GaussView/Jmol/MolCanvas 配色、MolViewer 球体渐变。
 
-重写进度与逐项判定见 ../../docs/iboview_transplant_audit.md。
+各移植项的逐项来源标注见 _glwidget.py 文件头与各数据表上方的注释。
 注：IboView 为 GPLv3-only，本作品在仍含其代码时不得改称 "GPLv3 or later"。
 ────────────────────────────────────────────────────────────
 """

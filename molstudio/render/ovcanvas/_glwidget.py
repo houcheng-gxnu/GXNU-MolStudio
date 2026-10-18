@@ -32,7 +32,7 @@ depth-peeling 顺序无关透明 + 多灯 Phong 光照 + 景深雾化。
   * 几何生成、渲染主循环、分块高分导出、MolViewer 球体渐变等
 
 移植前原版完整保留在 ovcanvas/_glwidget_iboview.py（含原始版权头）。
-各来源的逐项判定与重写进度见 docs/iboview_transplant_audit.md。
+各来源的逐项判定见上方清单，以及各数据表、着色器上方的逐项注释。
 
 This file is part of MolStudio and is distributed under the terms of the
 GNU General Public License version 3 (GPLv3). Note: IboView is GPLv3-only
@@ -189,10 +189,10 @@ _LEGACY_SHININESS_TO_GLOSS = {
 #
 # SOURCE: IboView — src/IboView/IvDataOptions.cpp :: AtomicRadii[104]
 #         (Copyright (c) 2015 Gerald Knizia, GPLv3).
-#         All 104 values are identical to the IboView table. This table is
-#         NOT the Bondi 1964 / Alvarez / Batsanov / Cordero compilation —
-#         replacing it with an independent source is tracked as item 1.3 in
-#         docs/iboview_transplant_audit.md and is NOT yet done.
+#         This table used to be a verbatim copy of the IboView values; it is
+#         NOT the Bondi 1964 / Alvarez / Batsanov / Cordero compilation — it
+#         has since been replaced by an independent derivation from the
+#         Cordero 2008 covalent radii (see the note after _COV_RADII_BOHR).
 #
 # These are vdW-type empirical radii; the metal-specific shrink applied on
 # top of them is this project's own (see _atom_base_radius()).
@@ -2006,6 +2006,16 @@ def unit_sphere(sub):
 # 高亮色（琥珀）。琥珀对 CPK/GaussView 常见配色（灰碳、红氧、蓝氮、白氢）
 # 都有足够区分度，又不会像纯红那样与氧混淆、像纯蓝那样与氮混淆。
 SEL_TINT_DEFAULT = (1.0, 0.72, 0.18)
+
+#: AICD 分析期间等值面的固定配色（0-255）。
+#: AICD 官方程序的等值面是 ``pigment { color Yellow }`` 且不透明；本项目在
+#: AICD 叠加层在场时用 ``set_aicd_iso_lock`` 把等值面钉成这个黄 + 不透明，
+#: 免得用户点「一键样式」时等值面跟着换色（见 aicd_panel）。
+_AICD_ISO_RGB255 = (245, 224, 74)
+#: AICD 表面/箭头用的环境光。全局 `_user_ambient` 默认是 0（只靠方向光），
+#: 黄色等值面在背光侧会变成橄榄色、绿箭头也会发黑；AICD 的 POV-Ray 模板是
+#: ambient 0.2 + diffuse 0.7 + 四个点光源，这里给一个接近的环境项。
+_AICD_AMBIENT = 0.32
 # 原子本体向高亮色混合的比例：0 = 保持元素色，1 = 完全变高亮色。
 # 取 0.5 左右——既能一眼看出选中，又保留元素身份。
 SEL_TINT_MIX = 0.5
@@ -3803,6 +3813,19 @@ class CubGLWidget(QOpenGLWidget):
         self._molecule = None
         self._pos_surf = None
         self._neg_surf = None
+        # AICD 感应电流箭头叠加层（本项目自定，见 aicd_figure.build_arrow_surface）：
+        # 一份带顶点色的三角网格（杆绿、锥头红），用等值面着色器按不透明几何画。
+        # 与 cube 等值面相互独立：等值面走透明通道，箭头走不透明通道。
+        self._aicd_surf = None
+        self._aicd_mesh = GlMesh()
+        self._aicd_show = True
+        self._aicd_pending = False    # 已设置新数据、等 paintGL 上传
+        # 锁定黄等值面时改为"不透明先画"：否则等值面在透明通道里画在箭头之后，
+        # 不透明表面会把前面画好的切向箭头整片盖掉（画布上只剩轮廓几根长刺）。
+        self._aicd_opaque_surface = False
+        # AICD 分析期间是否把等值面钉成 AICD 黄 + 不透明（见 set_aicd_iso_lock）
+        self._aicd_lock = False
+        self._aicd_locking = False    # 重入保护：锁定内部改配色/不透明度时置位
         # 按轨道独立数据（NBO 多轨道叠加用）：[(cube, pos, neg, pc, nc)]，
         # pc/nc 为 0..1 元组；_orbital_flipped 记录各轨道是否已翻转相位。
         # _orbital_pair_mode 记录该轨道的配色"来源"，决定换配色后怎么跟：
@@ -4835,6 +4858,7 @@ class CubGLWidget(QOpenGLWidget):
             if n:
                 self.set_light_count(int(n))
         self._apply_gloss()
+        self._apply_aicd_iso_lock()   # AICD 锁定期间：一键样式不改等值面配色/不透明度
         self._needs_upload = True
         self.update()
 
@@ -4850,7 +4874,16 @@ class CubGLWidget(QOpenGLWidget):
         这样换配色后各轨道仍然彼此可区分，而且后续「翻转相位」翻的是
         **当前**这套颜色（此前记录色停留在载入那一刻，翻转会把配色拽回旧值，
         表现为"一翻转就变色"，2026-09-27 修）。
+
+        实现拆成"本体 + 外层"两层：本体里有多条提前 return（单轨道快路径、
+        多轨道重建），AICD 的等值面锁定必须在这**所有**出口之后兜住，
+        所以在公开接口这一层统一后处理（2026-10-12）。
         """
+        self._set_phase_colors_impl(pos_rgb, neg_rgb)
+        self._apply_aicd_iso_lock()
+        self.update()
+
+    def _set_phase_colors_impl(self, pos_rgb=None, neg_rgb=None):
         if pos_rgb is not None:
             self._pc = tuple(float(c) / 255.0 for c in pos_rgb)
         if neg_rgb is not None:
@@ -4893,7 +4926,6 @@ class CubGLWidget(QOpenGLWidget):
             c = np.array([*self._nc, 1.0], dtype=np.float32)
             self._neg_surf.colors = np.tile(c, (self._neg_surf.vertex_count, 1))
         self._needs_upload = True
-        self.update()
 
     def _sync_rec_colors(self):
         """把各轨道记录里的相位色对齐到**当前**基准色。
@@ -5168,6 +5200,7 @@ class CubGLWidget(QOpenGLWidget):
 
     def set_opacity(self, v):
         self._sp['opacity'] = max(0, min(1, v))
+        self._apply_aicd_iso_lock()      # AICD 锁定期间保持不透明
         self.update()
 
     @property
@@ -8186,6 +8219,158 @@ class CubGLWidget(QOpenGLWidget):
         self._vdw_mesh.upload(self._vdw_surf)
         self._fill_mesh.upload(getattr(self, "_fill_surf", None))
         self._bond_mesh.upload(getattr(self, "_bond_surf", None))
+        if getattr(self, "_aicd_pending", False) or self._aicd_surf is not None:
+            self._aicd_mesh.upload(self._aicd_surf)
+            self._aicd_pending = False
+
+    # ── AICD 感应电流箭头叠加层 ──────────────────────────────────────────
+    #
+    # AICD 图里有三样东西：等值面（走 cube 通道，透明）、贴在面上的感应电流
+    # 箭头（这里）、以及分子骨架（球棍）。箭头是本项目自加的几何层：杆是圆柱、
+    # 头是收成一点的圆锥，逐顶点上色（杆绿 / 头红），用等值面那套着色器按
+    # **不透明**几何绘制，几何与配色由 molstudio.render.aicd_figure 生成。
+    # 单位与画布一致（Bohr）——调用方负责换算。
+
+    def set_aicd_arrows(self, surf):
+        """设置 AICD 箭头叠加层（``surf`` 只需具备 vertices/normals/colors/
+        indices/vertex_count，见 ``aicd_figure.build_arrow_surface``）；传 None
+        清除。上传在 paintGL 的有效 GL 上下文里做（延迟上传）。"""
+        self._aicd_surf = surf
+        self._aicd_pending = True
+        self._aicd_show = surf is not None
+        if surf is None:
+            self._aicd_lock = False     # 撤掉叠加层就解除等值面锁定
+            self._aicd_opaque_surface = False
+        self._needs_upload = True
+        self.update()
+
+    def clear_aicd_arrows(self):
+        self.set_aicd_arrows(None)
+
+    def has_aicd_arrows(self):
+        """是否已设置箭头叠加层（真正上传到 GPU 要等下一帧 paintGL）。"""
+        return self._aicd_surf is not None
+
+    def set_aicd_arrows_visible(self, on):
+        """只切换显示，不丢弃几何（等值面/箭头随时可再打开）。"""
+        self._aicd_show = bool(on) and self._aicd_surf is not None
+        self.update()
+
+    def set_aicd_iso_lock(self, on):
+        """AICD 分析期间把等值面钉成 AICD 黄 + 不透明。
+
+        AICD 官方程序的等值面就是这种观感（``pigment { color Yellow }``，
+        不透明），所以面板在送等值面进画布时会打开这个锁：之后用户点任何
+        「一键样式」、调色轮或拖不透明度滑块，等值面都会重新被拉回黄 + 不透明，
+        只影响等值面配色/不透明度，其余样式（原子配色、光照等）照常生效。
+        """
+        self._aicd_lock = bool(on) and self._aicd_surf is not None
+        self._aicd_opaque_surface = self._aicd_lock
+        self._apply_aicd_iso_lock()
+        self.update()
+
+    def _apply_aicd_iso_lock(self):
+        """把锁定状态的等值面配色/不透明度拉回 AICD 黄 + 不透明（重入安全）。
+
+        这里**直接平铺顶点色**，不走 ``set_phase_colors`` 的多轨道记录逻辑：
+        cube 载入出来的等值面记录是 "fixed" 配色（自带一轨道一套色），
+        ``set_phase_colors`` 对它们只改基准色、不重铺顶点色，锁不住。
+        """
+        if getattr(self, "_aicd_locking", False):
+            return
+        if not getattr(self, "_aicd_lock", False) or self._aicd_surf is None:
+            return
+        self._aicd_locking = True
+        try:
+            rgb = tuple(c / 255.0 for c in _AICD_ISO_RGB255)
+            self._pc, self._nc = rgb, rgb
+            color = np.array([*rgb, 1.0], dtype=np.float32)
+            if self._pos_surf is not None and not self._surf_vcolor:
+                self._pos_surf.colors = np.tile(
+                    color, (self._pos_surf.vertex_count, 1))
+            if self._neg_surf is not None and not self._surf_vcolor:
+                self._neg_surf.colors = np.tile(
+                    color, (self._neg_surf.vertex_count, 1))
+            self._sp['opacity'] = 1.0          # AICD 的等值面是不透明的
+            self._needs_upload = True
+        finally:
+            self._aicd_locking = False
+
+    def _draw_aicd_iso_opaque(self, view, nm, proj):
+        """AICD 锁定的黄等值面：按**不透明**几何先画（写深度，供箭头遮挡）。
+
+        正常等值面走透明通道、画在原子/箭头之后；AICD 的等值面被锁成不透明黄，
+        若仍按那个顺序，它会把前面画好的切向箭头整片盖住。这里把它提到
+        ``render_opaque`` 的最前面：等值面 → 原子/键 → 箭头，箭头只被真正
+        位于它前面的表面遮挡，和 AICD 的 POV-Ray 渲染一致。
+        """
+        if self._pos_surf is None and self._neg_surf is None:
+            return
+        prog = getattr(self, "_prog_orb", 0)
+        if not prog:
+            return
+        glDisable(GL_BLEND)
+        glEnable(GL_DEPTH_TEST)
+        glDepthFunc(GL_LESS)
+        glDepthMask(GL_TRUE)
+        glUseProgram(prog)
+        self._set_xforms(prog, view, nm, proj)
+        self.set_shader_uniforms(prog, self._sp['o_reg'],
+                                 diffuse=(1.0, 1.0, 1.0, 1.0),
+                                 ambient=_AICD_AMBIENT,
+                                 spec_color=self._sp.get('spec_color',
+                                                         (1.0, 1.0, 1.0)),
+                                 spec_mul=self._user_spec_mul)
+        self._set_orbital_uniforms(prog)
+        # _set_orbital_uniforms 会用样式里的 ambient 覆盖上面传的值；AICD 表面
+        # 这里再压一次，保证背光侧也是亮的（与 POV-Ray 的四光源观感接近）。
+        glUniform1f(glGetUniformLocation(prog, 'u_Ambient'),
+                    float(_AICD_AMBIENT))
+        for i in (0, 1):
+            if self._meshes[i].count:
+                self._meshes[i].draw()
+
+    def _draw_aicd_arrows(self, view, nm, proj, depth_func=GL_LESS,
+                          ignore_depth=False):
+        """把箭头层当不透明几何画一遍（顶点色决定杆绿/头红）。
+
+        ``ignore_depth=True`` 用于**上色趟**：箭头和 matplotlib 效果图一样
+        始终画在等值面之上（AICD 的箭头本来就贴在面外侧；不透明表面若参与
+        深度测试，切向箭头会被曲面挡掉，画布看起来比效果图稀疏）。
+        深度种子趟仍用 depth_func 写深度，保持透明合成时的遮挡关系。
+        """
+        if not getattr(self, "_aicd_show", False):
+            return
+        mesh = getattr(self, "_aicd_mesh", None)
+        prog = getattr(self, "_prog_orb", 0)
+        if mesh is None or mesh.count == 0 or not prog:
+            return
+        glDisable(GL_BLEND)
+        if ignore_depth:
+            glDisable(GL_DEPTH_TEST)
+            glDepthMask(GL_FALSE)      # 覆盖层：不写深度，免得挡住后面的键/标记
+        else:
+            glEnable(GL_DEPTH_TEST)
+            glDepthFunc(depth_func)
+            glDepthMask(GL_TRUE)
+        glUseProgram(prog)
+        self._set_xforms(prog, view, nm, proj)
+        # DiffuseColor 保持白色 + alpha 1：颜色完全由顶点色（绿杆/红头）决定，
+        # 且不受"等值面不透明度"影响（箭头在参考图里是不透明的）。
+        self.set_shader_uniforms(prog, self._sp['o_reg'],
+                                 diffuse=(1.0, 1.0, 1.0, 1.0),
+                                 ambient=_AICD_AMBIENT,
+                                 spec_color=self._sp.get('spec_color',
+                                                         (1.0, 1.0, 1.0)),
+                                 spec_mul=self._user_spec_mul)
+        # 箭头固定用顶点色：即使当前样式开着 MolViewer 渐变也不要套色带
+        glUniform1i(glGetUniformLocation(prog, 'u_MvGrad'), 0)
+        glUniform1f(glGetUniformLocation(prog, 'u_AlphaMod'), 0.0)
+        mesh.draw()
+        if ignore_depth:
+            glDepthMask(GL_TRUE)
+            glEnable(GL_DEPTH_TEST)
+            glDepthFunc(GL_LESS)
 
     # ── Ball-and-stick scale controls ──
 
@@ -9508,6 +9693,10 @@ class CubGLWidget(QOpenGLWidget):
         # 选中原子标记（半透明二十面体）最后叠加，确保始终可见
         self.render_selection_markers(view, nm, proj)
 
+        # AICD 箭头层最后叠加：和 matplotlib 效果图一致，整层画在最前
+        # （不写深度）。无论等值面走不透明还是透明通道，都不会把箭头盖掉。
+        self._draw_aicd_arrows(view, nm, proj, GL_LESS, ignore_depth=True)
+
         glDisable(GL_BLEND)
         glDepthMask(GL_TRUE)
 
@@ -9701,6 +9890,10 @@ class CubGLWidget(QOpenGLWidget):
         """
         glEnable(GL_DEPTH_TEST); glDepthFunc(depth_func); glDepthMask(GL_TRUE)
         glDisable(GL_BLEND)
+        # AICD 锁定的不透明等值面：先画它（写深度），再画原子和箭头。
+        # 这样箭头不会被后画的表面盖掉，又会被真正在它前面的表面遮挡。
+        if getattr(self, "_aicd_opaque_surface", False) and depth_func == GL_LESS:
+            self._draw_aicd_iso_opaque(view, nm, proj)
         glUseProgram(self._prog_atom)
         self._set_xforms(self._prog_atom, view, nm, proj)
         self.set_shader_uniforms(self._prog_atom, self._sp['a_reg'],
@@ -9713,6 +9906,9 @@ class CubGLWidget(QOpenGLWidget):
         self._set_atom_mv_uniforms(True)
         self._set_atom_ring_uniforms(True)
         self._meshes[2].draw()
+
+        # AICD 箭头不在这里画：它在 _render 的最后统一叠加（见下方），
+        # 这样无论等值面走不透明还是透明通道，箭头都不会被表面盖掉。
 
         # PT (点云) 模式：把 ESP 等值面顶点渲染成彩色点（不透明），
         # 下方透明通道会跳过三角面。
@@ -9851,6 +10047,10 @@ class CubGLWidget(QOpenGLWidget):
 
         返回 True 表示已绘制（调用方就不必再走排序混合兜底）。
         """
+        # AICD 锁定黄等值面已经在 render_opaque 里按不透明画过（写深度），
+        # 这里不能再画一遍，否则不透明表面会重新盖住箭头。
+        if getattr(self, "_aicd_opaque_surface", False):
+            return True
         main_fbo = glGetIntegerv(GL_FRAMEBUFFER_BINDING)
         mode = self._transparency_mode
 
@@ -9941,6 +10141,8 @@ class CubGLWidget(QOpenGLWidget):
             self.render_bonds(view, nm, proj, depth_func=GL_LESS)
         except Exception:
             pass
+        # AICD 箭头也是不透明几何，一并种子化深度（只写深度、不写颜色）
+        self._draw_aicd_arrows(view, nm, proj, GL_LESS)
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)
 
         # ── 2. 单趟累积透明片元 ──
@@ -10066,6 +10268,8 @@ class CubGLWidget(QOpenGLWidget):
             self.render_bonds(view, nm, proj, depth_func=GL_LESS)
         except Exception:
             pass
+        # AICD 箭头同样参与不透明深度种子（只写深度）
+        self._draw_aicd_arrows(view, nm, proj, GL_LESS)
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)
 
         # 累积纹理清零
