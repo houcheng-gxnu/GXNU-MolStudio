@@ -21,12 +21,12 @@ HTML = ROOT / "公众号_感应电流与表面投影更新.html"
 
 TITLE = "AICD 与表面距离投影：这次更新了两个实用功能"
 SUBTITLE = "把 Gaussian + Multiwfn 的常用分析，收进一个看图工作流"
-META = "文 / OrbitalViewer　2026-10"
+META = "文 / GXNU MolStudio　2026-10"
 
 BLOCKS = [
     ("p", "做芳香性或位阻分析时，有两类图很常用：AICD 感应电流图，用黄色等值面 + 箭头看外磁场下电子怎么走；表面距离投影图，用颜色看分子表面离参考平面有多深。"),
     ("p", "这两类图背后的计算都不复杂，麻烦的是流程：改 Gaussian 输入、等 NMR、装 AICD、跑 POV-Ray、调视角；或者打开 Multiwfn 300 → 8，设范围、等扫描、导数据、再画图。"),
-    ("p", "这次 OrbitalViewer 更新了两个功能：**AICD 的五个按钮流程 + 一键 π/σ**，以及**更好画、更好调的表面距离投影**。原理和参数细节不在这里展开，文末直接放卢天老师（Sobereva）的三篇原文，建议对照阅读。"),
+    ("p", "这次 GXNU MolStudio 更新了两个功能：**AICD 的五个按钮流程 + 一键 π/σ**，以及**更好画、更好调的表面距离投影**。原理和参数细节不在这里展开，文末直接放卢天老师（Sobereva）的三篇原文，建议对照阅读。"),
 
     ("h2", "一、AICD：五个按钮，一键切换 π / σ"),
     ("p", "AICD 分析被收成五步：**载入 GJF → 生成输入 → 本地运行 / 服务器运行 → 载入结果并出图**。本地算完自动出图；服务器模式会导出输入和一条可复制的 `g16 < job.gjf > job.log`，算完把 `.log` 和同目录的张量 `.txt` 拿回来即可。"),
@@ -46,7 +46,7 @@ BLOCKS = [
     ("p", "**表面投影：** 画布转到合适朝向 → 打开「表面投影」页 → 设表面/等值面/网格 → 绘制 → 调配色/结构/留白 → 保存 300 dpi 图片。"),
 
     ("h2", "四、也可以让智能体帮你更新"),
-    ("p", "项目代码托管在 CNB：https://cnb.cool/chem311/GXNU-MolStudio（OrbitalViewer 仓库）。如果你在用豆包等支持在本机执行命令/调用工具的智能体，可以把仓库地址直接给它，让它 clone、按 `requirements.txt` 装依赖、`python main.py` 启动；以后每次说「把 OrbitalViewer 更新到最新」，它执行 `git pull`、补装新增依赖、重启程序。"),
+    ("p", "项目代码托管在 CNB：https://cnb.cool/chem311/GXNU-MolStudio（仓库名 GXNU-MolStudio）。如果你在用豆包等支持在本机执行命令/调用工具的智能体，可以把仓库地址直接给它，让它 clone、按 `requirements.txt` 装依赖、`python main.py` 启动；以后每次说「把 GXNU MolStudio 更新到最新」，它执行 `git pull`、补装新增依赖、重启程序。"),
     ("p", "手动更新也很简单：在仓库目录执行 `git pull`。注意 Git 是拉取式更新，push 到 CNB 后，别人/智能体要 pull 才生效，不是自动推送到每台机器；前提是智能体能在这台机器上执行命令并联网。Gaussian、Multiwfn、VMD 等本地程序仍需自己装好，并在程序的路径设置里配好——智能体负责代码同步和启动，不替代这些计算软件。"),
 
     ("h2", "五、原理与细节请看卢天老师原文"),
@@ -54,7 +54,7 @@ BLOCKS = [
     ("ref", "[1] Sobereva（卢天）. 使用AICD程序研究电子离域性和磁感应电流密度. http://sobereva.com/147"),
     ("ref", "[2] Sobereva（卢天）. 使用AICD 2.0绘制磁感应电流图. http://sobereva.com/294"),
     ("ref", "[3] Sobereva（卢天）. 使用Multiwfn绘制分子和固体表面的距离投影图. http://sobereva.com/589"),
-    ("p", "文中截图由 OrbitalViewer 生成；二茂铁为 Multiwfn 自带示例结构，仅作演示。"),
+    ("p", "文中截图由 GXNU MolStudio 生成；二茂铁为 Multiwfn 自带示例结构，仅作演示。"),
 ]
 
 
