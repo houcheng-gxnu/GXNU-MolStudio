@@ -9,8 +9,8 @@ irc_panel.py — IRC 整合分析面板（GXNU MolStudio 的一个 tab）
   4. 共享左侧 OpenGL 画布：任意 fchk 的结构可一键显示到画布
   5. 导出 CSV / 保存 PNG / 清除缓存 / 配置持久化
 
-Multiwfn 键级调用（实测 2026.4.10）：
-  ENTER → fchk → 9(键级) → 1(Mayer) → n(不输出 bndmat) → 0(返回) → q
+Multiwfn 键级调用：
+  命令行传入 fchk；stdin: ENTER → 9(键级) → 1(Mayer) → n → 0 → q
 输出表格式：  #    1:         1(C )    2(O )    2.24690074
 """
 
@@ -41,8 +41,10 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 from molstudio.ui.file_dialogs import existing_directory, save_file, open_file
-from molstudio.core.fchk_orbital import ELEMENT_SYMBOLS
-from molstudio.panels.charge_viewer import CHARGE_TYPES, parse_multiwfn_charges
+from molstudio.core.fchk_orbital import ELEMENT_SYMBOLS, _run_multiwfn_subprocess
+from molstudio.panels.charge_viewer import (
+    BO_INPUT_SEQ, CHARGE_TYPES, parse_multiwfn_charges,
+)
 
 HARTREE_TO_EV = 27.2114
 HARTREE_TO_KCAL = 627.509
@@ -144,35 +146,43 @@ def extract_bond_from_output(output, atom1, atom2):
 
 
 def calculate_mayer_bond_order(fchk_path, multiwfn_path, cache_dir):
-    """调用 Multiwfn 计算全部 Mayer 键级（带缓存），返回输出文本或 None。"""
+    """计算全部 Mayer 键级并缓存；调用失败时抛错，避免继续批量弹窗。"""
+    def valid_output(output):
+        return ("Bond orders" in output
+                and re.search(r"#\s+\d+:\s+\d+\([^)]*\)\s+"
+                              r"\d+\([^)]*\)\s+[-+]?\d", output))
+
     fchk_hash = hashlib.md5(fchk_path.encode()).hexdigest()[:8]
     cache_file = os.path.join(cache_dir, "mayer_%s.txt" % fchk_hash)
     if os.path.exists(cache_file):
         with open(cache_file, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
-        if len(content) >= 100:
+        if valid_output(content):
             return content
     if not multiwfn_path or not os.path.isfile(multiwfn_path):
-        return None
+        raise FileNotFoundError("Multiwfn 可执行文件不存在: %s" % multiwfn_path)
+    fchk_path = os.path.abspath(fchk_path)
+    if not os.path.isfile(fchk_path):
+        raise FileNotFoundError("fchk 文件不存在: %s" % fchk_path)
+    # 文件作为启动参数，避免把文件选择提示与菜单输入混在同一条 stdin 中。
+    # 复用主程序的 Windows 无控制台启动方式，兼容 windowed EXE。
+    result = _run_multiwfn_subprocess(
+        [os.path.abspath(multiwfn_path), os.path.basename(fchk_path)],
+        BO_INPUT_SEQ, cwd=os.path.dirname(fchk_path), timeout=300)
+    output = result.stdout or ""
+    if result.returncode != 0 or not valid_output(output):
+        detail = (result.stderr or output).strip()[-1500:]
+        raise RuntimeError(
+            "Multiwfn 未生成有效 Mayer 键级表（退出码 %s）。"
+            "请检查输入文件及 Multiwfn 菜单版本。\n%s"
+            % (result.returncode, detail))
     try:
-        fchk_dir = os.path.dirname(os.path.abspath(fchk_path))
-        fchk_name = os.path.basename(fchk_path)
-        inputs = "\n" + fchk_name + "\n9\n1\nn\n0\nq\n"
-        result = subprocess.run(
-            [multiwfn_path], input=inputs, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", cwd=fchk_dir, timeout=300)
-        output = result.stdout or ""
-        if len(output) >= 100 and "Bond orders" in output:
-            try:
-                os.makedirs(cache_dir, exist_ok=True)
-                with open(cache_file, "w", encoding="utf-8") as f:
-                    f.write(output)
-            except Exception:
-                pass
-            return output
-    except Exception:
+        os.makedirs(cache_dir, exist_ok=True)
+        with open(cache_file, "w", encoding="utf-8") as f:
+            f.write(output)
+    except OSError:
         pass
-    return None
+    return output
 
 
 def calculate_atomic_charge(fchk_path, multiwfn_path, cache_dir, charge_type,
@@ -251,8 +261,16 @@ class IrcBondWorker(QThread):
             self.progress_signal.emit(i, total)
             self.log_signal.emit(
                 "  [%d/%d] %s" % (i, total, os.path.basename(fp)))
-            out = calculate_mayer_bond_order(
-                fp, self.multiwfn_path, self.cache_dir)
+            try:
+                out = calculate_mayer_bond_order(
+                    fp, self.multiwfn_path, self.cache_dir)
+            except Exception as exc:
+                self.error_signal.emit(
+                    "%s 计算失败，已停止后续文件：%s"
+                    % (os.path.basename(fp), exc))
+                # 保持曲线与能量点一一对应，未完成的点留空。
+                values.extend([None] * (total - len(values)))
+                break
             if out:
                 bo = extract_bond_from_output(out, self.atom1, self.atom2)
                 if bo is not None:
@@ -263,6 +281,7 @@ class IrcBondWorker(QThread):
             else:
                 self.log_signal.emit("    计算失败")
             values.append(None)
+        values.extend([None] * (total - len(values)))
         self.finished_signal.emit(values)
 
 
@@ -722,8 +741,7 @@ class IrcPanel(QWidget):
         self._bond_worker.finished_signal.connect(
             lambda vals, a1=a1, a2=a2: self._on_bond_done(vals, a1, a2))
         self._bond_worker.error_signal.connect(
-            lambda m: (self._log("IRC: " + str(m)),
-                       setattr(self.btn_add_bond, "setEnabled", True)))
+            lambda m: self._log("IRC: " + str(m)))
         self._bond_worker.start()
 
     def _on_bond_done(self, values, a1, a2):
@@ -731,13 +749,14 @@ class IrcPanel(QWidget):
         ok = sum(1 for v in values if v is not None)
         self._log("IRC: 键级 %s-%s 完成：%d/%d 成功"
                   % (a1, a2, ok, len(values)))
+        if not ok:
+            return
         # 互斥：添加键级时清空电荷曲线
         self.all_charge_data = []
-        self.all_bond_data = []
         self.all_bond_data.append({
             "name": "%s-%s" % (a1, a2),
             "values": values,
-            "color": BOND_COLORS[0],
+            "color": BOND_COLORS[len(self.all_bond_data) % len(BOND_COLORS)],
             "linestyle": "-",
             "marker": "o",
         })
