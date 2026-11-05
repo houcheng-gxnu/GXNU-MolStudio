@@ -243,6 +243,117 @@ REFS = {
                 "2.0 绘制磁感应电流图; http://sobereva.com/147, "
                 "http://sobereva.com/294 (accessed 2026).",
     },
+    31: {
+        "tag": "光谱计算与绘图教程",
+        "tag_en": "Spectrum calculation and plotting tutorials",
+        "text": "Lu, T. 使用Multiwfn绘制红外、拉曼、UV-Vis、ECD、VCD和ROA"
+                "光谱图; http://sobereva.com/224. See also: Lu, T. "
+                "Gaussian中用TDDFT计算激发态和吸收、荧光、磷光光谱的方法; "
+                "http://sobereva.com/314 (accessed 2026).",
+    },
+    # ── 32 起：位阻地图 / 包埋体积（SambVca）──
+    32: {
+        "tag": "SambVca 2.0",
+        "text": "Falivene, L.; Cao, Z.; Petta, A.; Serra, L.; Poater, A.; "
+                "Oliva, R.; Scarano, V.; Cavallo, L. Towards the Online "
+                "Computer-Aided Design of Catalytic Pockets with Topographic "
+                "Steric Maps. Nat. Chem. 2019, 11, 872–879. "
+                "doi:10.1038/s41557-019-0319-5",
+    },
+    33: {
+        "tag": "SambVca 2",
+        "text": "Falivene, L.; Credendino, R.; Poater, A.; Petta, A.; "
+                "Serra, L.; Oliva, R.; Scarano, V.; Cavallo, L. SambVca 2. "
+                "A Web Tool for Analyzing Catalytic Pockets with Topographic "
+                "Steric Maps. Organometallics 2016, 35, 2286–2293. "
+                "doi:10.1021/acs.organomet.6b00371",
+    },
+    34: {
+        "tag": "SambVca 1.0",
+        "text": "Poater, A.; Cosenza, B.; Correa, A.; Giudice, S.; Ragone, F.; "
+                "Scarano, V.; Cavallo, L. SambVca: A Web Application for the "
+                "Multidimensional Analysis of the Steric Properties of Ligands "
+                "in Transition Metal Complexes. Eur. J. Inorg. Chem. 2010, "
+                "1759–1766. doi:10.1002/ejic.200900955",
+    },
+    35: {
+        "tag": "StericMapAnalyzer",
+        "text": "Hou, C. et al. StericMapAnalyzer — desktop implementation of "
+                "the SambVca 2.1 algorithm (GPLv3). The %VBur and steric-map "
+                "engine in this tab is a pure Python/numpy port of the official "
+                "SambVca 2.1 Fortran routines (sambvca21.f) from that project; "
+                "https://github.com/houcheng-gxnu/StericMapAnalyzer (accessed 2026).",
+    },
+    # ── 36 起：xTB 半经验计算 ──
+    36: {
+        "tag": "xTB 程序",
+        "tag_en": "xTB program",
+        "text": "Bannwarth, C.; Caldeweyher, E.; Ehlert, S.; Hansen, A.; "
+                "Pracht, P.; Seibert, J.; Spicher, S.; Grimme, S. Extended "
+                "Tight-Binding Quantum Chemistry Methods. WIREs Comput. Mol. "
+                "Sci. 2021, 11, e01493. doi:10.1002/wcms.1493",
+    },
+    37: {
+        "tag": "GFN2-xTB",
+        "text": "Bannwarth, C.; Ehlert, S.; Grimme, S. GFN2-xTB — An Accurate "
+                "and Broadly Parametrized Self-Consistent Tight-Binding Quantum "
+                "Chemical Method with Multipole Electrostatics and "
+                "Density-Dependent Dispersion Contributions. J. Chem. Theory "
+                "Comput. 2019, 15, 1652–1671. doi:10.1021/acs.jctc.8b01176",
+    },
+    38: {
+        "tag": "GFN1-xTB",
+        "text": "Grimme, S.; Bannwarth, C.; Shushkov, P. A Robust and Accurate "
+                "Tight-Binding Quantum Chemical Method for Structures, "
+                "Vibrational Frequencies, and Noncovalent Interactions "
+                "Parametrized for All spd-Block Elements. J. Chem. Theory "
+                "Comput. 2017, 13, 1989–2009. doi:10.1021/acs.jctc.7b00118",
+    },
+    39: {
+        "tag": "GFN-FF",
+        "text": "Spicher, S.; Grimme, S. Robust Atomistic Modeling of "
+                "Materials, Organometallics, and Transition States with a "
+                "Single Geometry-Based Model. Angew. Chem. Int. Ed. 2020, 59, "
+                "15665–15673. doi:10.1002/anie.202004239",
+    },
+    40: {
+        "tag": "g-xTB",
+        "text": "Froitzheim, T.; Müller, M.; Hansen, A.; Grimme, S. g-xTB: "
+                "A General-Purpose Extended Tight-Binding Electronic Structure "
+                "Method For the Elements H to Lr (Z = 1–103). ChemRxiv 2025, "
+                "preprint. doi:10.26434/chemrxiv-2025-bjxvt",
+    },
+    41: {
+        "tag": "ALPB/GBSA 溶剂化",
+        "tag_en": "ALPB/GBSA solvation",
+        "text": "Ehlert, S.; Stahn, M.; Spicher, S.; Grimme, S. Robust and "
+                "Efficient Implicit Solvation Model for Quantum Chemistry: "
+                "Generalized Born Models Combined with the Analytical "
+                "Linearized Poisson–Boltzmann Equation. J. Chem. Theory "
+                "Comput. 2021, 17, 4250–4261. doi:10.1021/acs.jctc.1c00471",
+    },
+    42: {
+        "tag": "DOS 绘制教程",
+        "tag_en": "DOS plotting tutorial",
+        "text": "Lu, T. 使用Multiwfn绘制态密度(DOS)图考察电子结构 "
+                "(Plotting density-of-states maps by Multiwfn to study "
+                "electronic structure); http://sobereva.com/482 "
+                "(accessed 2026).",
+    },
+    43: {
+        "tag": "d-band center 教程",
+        "tag_en": "d-band center tutorial",
+        "text": "Lu, T. 使用Multiwfn计算过渡金属的d-band center（d带中心） "
+                "(Calculating transition-metal d-band centers with Multiwfn); "
+                "http://sobereva.com/582 (accessed 2026).",
+    },
+    44: {
+        "tag": "电子密度差教程",
+        "tag_en": "Electron density difference tutorial",
+        "text": "Lu, T. 使用Multiwfn作电子密度差图 "
+                "(Using Multiwfn to plot electron density difference maps); "
+                "http://sobereva.com/113 (accessed 2026).",
+    },
 }
 
 
@@ -298,6 +409,43 @@ TABS = {
                "The build tested in this cycle; state the version for "
                "reproducibility."),
         ],
+    },
+    "tab_spectrum": {
+        "zh": "分子光谱", "en": "Spectra",
+        "refs": [
+            _r(5, "engine", "光谱展宽、FWHM、频率校正与曲线数据导出",
+               "Broadening, FWHM, frequency scaling and curve export."),
+            _r(6, "engine", "本开发周期实测所用 Multiwfn 版本",
+               "The Multiwfn build tested in this development cycle."),
+            _r(31, "method", "本工作流采用的 Gaussian 激发态/振动任务与"
+                              "Multiwfn 光谱绘制规范",
+               "Recommended Gaussian excited-state/vibrational routes and "
+               "Multiwfn spectrum plotting conventions."),
+        ],
+        "note_zh": "Gaussian 为商业量子化学程序；发表工作还应按所用版本引用 Gaussian。",
+        "note_en": "Gaussian is a commercial quantum-chemistry program and should "
+                   "also be cited according to the installed version.",
+    },
+    "tab_dos": {
+        "zh": "态密度", "en": "DOS",
+        "refs": [
+            _r(5, "engine", "轨道能级、片段轨道成分、展宽曲线与 DOS 数据导出",
+               "Orbital levels, fragment orbital compositions, broadening and "
+               "DOS data export."),
+            _r(6, "engine", "本模块实际调用的 Multiwfn 版本",
+               "The Multiwfn build used by this module."),
+            _r(42, "method", "TDOS/PDOS/OPDOS 的作图参数、片段定义与离子/自旋约定",
+               "TDOS/PDOS/OPDOS plotting settings, fragment definitions and "
+               "spin conventions."),
+            _r(43, "method", "PDOS 中心与 d-band center：使用当前能量窗计算中心，"
+                              "以 HOMO 作为孤立体系的费米能级参考",
+               "PDOS and d-band centers: use the current energy window and HOMO "
+               "as the Fermi-level reference for isolated systems."),
+        ],
+        "note_zh": "使用弥散函数时不要用 Mulliken/SCPA 的 OPDOS；"
+                   "PDOS 片段建议优先使用 Hirshfeld 或 Becke。",
+        "note_en": "Avoid Mulliken/SCPA OPDOS with diffuse functions; prefer "
+                   "Hirshfeld or Becke for PDOS fragments.",
     },
     "tab_charge_bond": {
         "zh": "电荷键级", "en": "Charge / Bond order",
@@ -391,6 +539,24 @@ TABS = {
                "persistent Multiwfn session."),
             _r(6, "engine", "本开发周期实测所用版本", "The build tested in this cycle."),
         ],
+    },
+    "tab_edd": {
+        "zh": "电子密度差", "en": "Density Difference",
+        "refs": [
+            _r(5, "engine", "波函数密度格点计算与自定义加减运算",
+               "Wavefunction density grids and custom arithmetic operations."),
+            _r(6, "engine", "本模块实际调用的 Multiwfn 版本",
+               "The Multiwfn build used by this module."),
+            _r(44, "method", "电子密度差的定义、等值面符号、片段坐标一致性与"
+                             "nosymm 要求",
+               "EDD definitions, isosurface sign conventions, fragment "
+               "coordinate consistency and nosymm requirements."),
+        ],
+        "note_zh": "片段必须从母体结构直接截取并在同一笛卡尔坐标下计算；"
+                   "不要单独优化片段。",
+        "note_en": "Extract fragments directly from the parent geometry and "
+                   "calculate them in the same Cartesian frame; do not "
+                   "optimise fragments independently.",
     },
     "tab_mpp": {
         "zh": "MPP", "en": "MPP",
@@ -511,6 +677,73 @@ TABS = {
                "Parsing and numbering follow the IRCsplit idea of Multiwfn's author "
                "(idea only; no code used)."),
         ],
+    },
+    "tab_steric": {
+        "zh": "位阻地图", "en": "Steric Map",
+        "refs": [
+            _r(32, "method", "SambVca 2.0 在线版本：topographic steric map 与 "
+                             "%VBur 的现行定义、象限/八分区分解及推荐用法"
+                             "（发表时首选引用）",
+               "SambVca 2.0 web service: current definition of the topographic "
+               "steric map and %VBur, the quadrant/octant decomposition, and "
+               "recommended usage (preferred citation)."),
+            _r(33, "method", "SambVca 2 方法学原文：球体体积数值积分、"
+                             "四象限/八分区分解与地形位阻地图的定义",
+               "SambVca 2 methodology paper: numerical integration of the sphere "
+               "volume, quadrant/octant decomposition, and definition of the "
+               "topographic steric map."),
+            _r(34, "method", "SambVca 1.0 原始文献：配体埋藏体积（%VBur）概念的"
+                             "最早提出",
+               "SambVca 1.0 original paper: first proposal of the buried-volume "
+               "(%VBur) concept for ligands."),
+            _r(35, "own", "本页计算引擎的来源：SambVca 2.1 官方 Fortran 算法"
+                          "（sambvca21.f）的纯 Python/numpy 复刻，GPLv3，"
+                          "取自已发布项目 StericMapAnalyzer",
+               "Source of the engine used here: a pure Python/numpy port of the "
+               "official SambVca 2.1 Fortran code (sambvca21.f), GPLv3, taken "
+               "from the released StericMapAnalyzer project."),
+        ],
+        "note_zh": "本页不调用 Multiwfn，也不调用外部 SambVca 程序：方向、"
+                   "包埋体积与位阻地图全部由内置的纯 numpy 引擎算出，数值与官方 "
+                   "SambVca 2.1 一致（官方 nhc 算例 %VBur 39.6）。发表时请同时"
+                   "引用 SambVca 原文（[32]–[34]）与所用 MolStudio 版本。",
+        "note_en": "This tab does not call Multiwfn or an external SambVca "
+                   "executable: orientation, buried volume and the steric map are "
+                   "computed by the built-in pure-numpy engine, numerically "
+                   "matching official SambVca 2.1 (%VBur 39.6 for the official "
+                   "nhc example). Cite the SambVca papers ([32]–[34]) together "
+                   "with the MolStudio version used.",
+    },
+    "tab_xtb": {
+        "zh": "xTB 计算", "en": "xTB",
+        "refs": [
+            _r(36, "engine", "xTB 程序本身（本页调用外部 xTB 可执行文件；"
+                             "发表时请按所用版本引用）",
+               "The xTB program itself (this tab calls an external xTB "
+               "executable; cite the installed version)."),
+            _r(37, "method", "默认方法 GFN2-xTB 的参数化与适用面",
+               "Parameterisation and scope of the default GFN2-xTB method."),
+            _r(38, "method", "GFN1-xTB 方法（可选方法）",
+               "The GFN1-xTB method (optional method)."),
+            _r(39, "method", "GFN-FF 力场（可选方法，适合快速预优化）",
+               "The GFN-FF force field (optional method for quick "
+               "pre-optimisation)."),
+            _r(40, "method", "g-xTB 方法（几何一致紧束缚，可选方法）",
+               "The g-xTB method (geometry-consistent tight binding, optional "
+               "method)."),
+            _r(41, "method", "ALPB / GBSA 隐式溶剂化模型",
+               "ALPB / GBSA implicit solvation models."),
+        ],
+        "note_zh": "本页**不包含** xTB 本体：xTB 是独立程序（LGPL-3.0），"
+                   "需用户自行安装并在页面里指定 xtb 可执行文件；MolStudio "
+                   "只负责拼命令、跑任务、解析结果与出图。命令构造与输出解析"
+                   "的思路参考了同作者的 xTBridge（MIT）。",
+        "note_en": "This tab does **not** bundle xTB: xTB is a separate "
+                   "LGPL-3.0 program; install it yourself and point the panel "
+                   "to the xtb executable. MolStudio only builds the command "
+                   "line, runs the job, and parses/plots the results. Command "
+                   "construction and output parsing are informed by the "
+                   "author's xTBridge project (MIT).",
     },
     "tab_log": {
         "zh": "日志", "en": "Log",

@@ -7,7 +7,7 @@ ETS-NOCV 分析面板（GXNU MolStudio 的一个 tab）。
   - NOCV 对表（ΔE_pair / 轨道 / 本征值 / 能量）
   - 选中一对 → 按需生成 NOCV 对密度 cube → 左侧 OpenGL 画布显示正负形变密度
   - 注册 glw.set_vmd_scene，复用主窗口「同步到 VMD」
-  - Gaussian .gjf 输入生成器（复用 GjfGeneratorWidget，弹出子窗口）
+  - Gaussian .gjf 输入生成器 + 本机三任务运行链（g16 → formchk → 自动分析）
 
 依赖：Multiwfn / VMD / Tachyon 路径全部走主窗口 ⚙️ 路径设置。
 """
@@ -45,11 +45,11 @@ _ETS_TR = {
         "grp_files": "文件设置（复合物 + 两个碎片）",
         "complex": "复合物",
         "frag1": "碎片 1", "frag2": "碎片 2",
-        "ph_complex": "*.fchk（可留空，用主窗口已载入文件）",
-        "ph_fchk": "*.fchk",
+        "ph_complex": "*.fchk / *.fch（可留空，用主窗口已载入文件）",
+        "ph_fchk": "*.fchk / *.fch",
         "browse": "浏览",
         "flip1": "碎片 1 翻转自旋", "flip2": "碎片 2 翻转自旋",
-        "gen_gjf": "生成 Gaussian 输入 (.gjf)",
+        "gen_gjf": "分片段生成 / 本机计算 ETS-NOCV",
         "no_complex": "尚未加载复合物",
         "atoms_n": "{n} 原子 | {name}",
         "loaded_complex": "已载入复合物: {name} ({n} 原子)\n",
@@ -68,8 +68,8 @@ _ETS_TR = {
         "col_orb_m": "轨道(-)", "col_eig_m": "本征值(-)", "col_e_m": "能量(-)",
         "error": "错误", "hint": "提示", "export_fail": "导出失败",
         "need_mw": "请先在主窗口 ⚙️ 路径设置中配置 Multiwfn！",
-        "need_complex": "请先选择复合物 fchk！",
-        "need_frags": "请先选择碎片 1 和碎片 2 的 fchk！",
+        "need_complex": "请先选择复合物 .fchk / .fch！",
+        "need_frags": "请先选择碎片 1 和碎片 2 的 .fchk / .fch！",
         "sel_row": "请先在表格中选中要可视化的行。",
         "no_session": "无活动的 Multiwfn 会话，请重新运行 ETS-NOCV 分析。",
         "run_start": "开始 ETS-NOCV 分析...\n",
@@ -87,8 +87,8 @@ _ETS_TR = {
         "csv_name": "NOCV_table.csv", "dlg_csv": "导出 NOCV 表",
         "exported": "NOCV 表已导出: {p}\n",
         "refresh_canvas": "已刷新左侧画布（可用主窗口『同步到 VMD』导出）。\n",
-        "dlg_complex": "选择复合物 fchk", "dlg_frag1": "选择碎片 1 fchk",
-        "dlg_frag2": "选择碎片 2 fchk",
+        "dlg_complex": "选择复合物 fchk/fch", "dlg_frag1": "选择碎片 1 fchk/fch",
+        "dlg_frag2": "选择碎片 2 fchk/fch",
         "gjf_title": "生成 Gaussian 输入 (.gjf)",
     },
     "en": {
@@ -98,11 +98,11 @@ _ETS_TR = {
         "grp_files": "Files (Complex + Two Fragments)",
         "complex": "Complex",
         "frag1": "Frag 1", "frag2": "Frag 2",
-        "ph_complex": "*.fchk (leave empty to reuse main-window file)",
-        "ph_fchk": "*.fchk",
+        "ph_complex": "*.fchk / *.fch (leave empty to reuse main-window file)",
+        "ph_fchk": "*.fchk / *.fch",
         "browse": "Browse",
         "flip1": "Flip spin of Frag 1", "flip2": "Flip spin of Frag 2",
-        "gen_gjf": "Generate Gaussian Input (.gjf)",
+        "gen_gjf": "Split / Run ETS-NOCV Locally",
         "no_complex": "No complex loaded",
         "atoms_n": "{n} atoms | {name}",
         "loaded_complex": "Complex loaded: {name} ({n} atoms)\n",
@@ -121,8 +121,8 @@ _ETS_TR = {
         "col_orb_m": "Orb(-)", "col_eig_m": "Eigen(-)", "col_e_m": "E(-)",
         "error": "Error", "hint": "Notice", "export_fail": "Export Failed",
         "need_mw": "Configure Multiwfn in ⚙️ Path Settings (main window) first!",
-        "need_complex": "Select the complex .fchk first!",
-        "need_frags": "Select .fchk files for both fragments first!",
+        "need_complex": "Select the complex .fchk / .fch first!",
+        "need_frags": "Select .fchk / .fch files for both fragments first!",
         "sel_row": "Select rows in the table to visualize first.",
         "no_session": "No active Multiwfn session — run the ETS-NOCV analysis again.",
         "run_start": "Starting ETS-NOCV analysis...\n",
@@ -140,8 +140,8 @@ _ETS_TR = {
         "csv_name": "NOCV_table.csv", "dlg_csv": "Export NOCV Table",
         "exported": "NOCV table exported: {p}\n",
         "refresh_canvas": "Canvas refreshed (use main-window 'Sync to VMD' to export).\n",
-        "dlg_complex": "Select complex .fchk", "dlg_frag1": "Select fragment 1 .fchk",
-        "dlg_frag2": "Select fragment 2 .fchk",
+        "dlg_complex": "Select complex .fchk/.fch", "dlg_frag1": "Select fragment 1 .fchk/.fch",
+        "dlg_frag2": "Select fragment 2 .fchk/.fch",
         "gjf_title": "Generate Gaussian Input (.gjf)",
     },
 }
@@ -209,7 +209,7 @@ _LANG_EXTRA = {
 class ETSNOCVPanel(QWidget):
     def __init__(self, glw=None, multiwfn_path="", get_fchk=None,
                  get_multiwfn=None, log_func=None, parent=None,
-                 get_vmd=None, get_tachyon=None):
+                 get_vmd=None, get_tachyon=None, get_g16=None):
         super().__init__(parent)
         self.lang = "zh"
         self.glw = glw
@@ -218,6 +218,7 @@ class ETSNOCVPanel(QWidget):
         self.get_multiwfn = get_multiwfn or (lambda: "")
         self.get_vmd = get_vmd or (lambda: "")
         self.get_tachyon = get_tachyon or (lambda: "")
+        self.get_g16 = get_g16 or (lambda: "")
         self._log_func = log_func
 
         self.fchk_complex = ""
@@ -531,14 +532,15 @@ class ETSNOCVPanel(QWidget):
     def _browse_complex(self):
         path, _ = QFileDialog.getOpenFileName(
             self, self._t("dlg_complex"), "",
-            "格式化 Checkpoint (*.fchk);;所有文件 (*.*)")
+            "格式化 Checkpoint (*.fchk *.fch);;所有文件 (*.*)")
         if path:
             self.txt_complex.setText(path)
             self._load_molecule(path)
 
     def _browse_frag1(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, self._t("dlg_frag1"), "", "格式化 Checkpoint (*.fchk);;所有文件 (*.*)")
+            self, self._t("dlg_frag1"), "",
+            "格式化 Checkpoint (*.fchk *.fch);;所有文件 (*.*)")
         if path:
             self.txt_frag1.setText(path)
             self.fchk_frag1 = path
@@ -548,7 +550,8 @@ class ETSNOCVPanel(QWidget):
 
     def _browse_frag2(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, self._t("dlg_frag2"), "", "格式化 Checkpoint (*.fchk);;所有文件 (*.*)")
+            self, self._t("dlg_frag2"), "",
+            "格式化 Checkpoint (*.fchk *.fch);;所有文件 (*.*)")
         if path:
             self.txt_frag2.setText(path)
             self.fchk_frag2 = path
@@ -604,9 +607,48 @@ class ETSNOCVPanel(QWidget):
         lay = QVBoxLayout(dlg)
         lay.setContentsMargins(0, 0, 0, 0)
         w = GjfGeneratorWidget(L=get_locale(self.lang),
-                               last_dir=self._work_dir or os.path.expanduser("~"))
+                               last_dir=self._work_dir or os.path.expanduser("~"),
+                               get_g16=self.get_g16,
+                               log_func=self._append_log)
         lay.addWidget(w)
-        dlg.exec_()
+
+        def use_results(result):
+            dlg.accept()
+            QTimer.singleShot(0, lambda: self._on_local_results_ready(result))
+
+        w.local_analysis_ready.connect(use_results)
+        try:
+            dlg.exec_()
+        finally:
+            w.shutdown()
+
+    def _on_local_results_ready(self, result):
+        """Populate all three fch files and launch the existing analysis."""
+        comp = result.get("complex", "") if isinstance(result, dict) else ""
+        frag1 = result.get("frag1", "") if isinstance(result, dict) else ""
+        frag2 = result.get("frag2", "") if isinstance(result, dict) else ""
+        if not all(p and os.path.isfile(p) for p in (comp, frag1, frag2)):
+            QMessageBox.warning(
+                self, self._t("error"),
+                "本机结果文件不完整，无法载入 ETS-NOCV。")
+            return
+
+        self.txt_complex.setText(comp)
+        self.txt_frag1.setText(frag1)
+        self.txt_frag2.setText(frag2)
+        self.fchk_complex = comp
+        self.fchk_frag1 = frag1
+        self.fchk_frag2 = frag2
+        self._load_molecule(comp)
+
+        ab1 = read_fch_alpha_beta(frag1)
+        ab2 = read_fch_alpha_beta(frag2)
+        self.frag1_open_shell = ab1 is not None and ab1[0] != ab1[1]
+        self.frag2_open_shell = ab2 is not None and ab2[0] != ab2[1]
+        self._update_spin_flip_ui()
+        self._append_log(
+            "本机三任务完成，已自动载入复合物与两个片段，开始 ETS-NOCV。\n")
+        QTimer.singleShot(0, self._run_analysis)
 
     # ── 运行 ──
     def _resolve_complex(self):

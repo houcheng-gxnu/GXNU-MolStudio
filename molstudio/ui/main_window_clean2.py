@@ -106,7 +106,7 @@ HEADER_TEXT = {
 ICON_MUTED = "#7A869A"      # 常态图标色
 ICON_ACCENT = "#2F6FED"     # 选中态图标色
 
-# 左侧导航：tab key → 图标名（16 项各不同，全部是 ui_icons 现画的矢量图）
+# 左侧导航：tab key → 图标名（新增面板记得登记，全部是 ui_icons 现画的矢量图）
 NAV_ICONS = {
     "tab_viz": "orbital",
     "tab_setup": "chart",
@@ -117,12 +117,18 @@ NAV_ICONS = {
     "tab_aim": "axes",
     "tab_etsnocv": "thermal",
     "tab_mpp": "grid",
+    "tab_surfproj": "chart",
+    "tab_steric": "target",
+    "tab_aicd": "wave",
     "tab_irc": "arrow",
     "tab_di": "cube",
     "tab_asm_irc": "molecule",
     "tab_cub_stack": "eye",
     "tab_esm": "play",
     "tab_ircsplit": "folder",
+    "tab_spectrum": "wave",
+    "tab_xtb": "bolt",
+    "tab_crystal": "cube",
     "tab_log": "list",
 }
 

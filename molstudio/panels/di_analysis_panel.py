@@ -6,9 +6,8 @@ di_analysis_panel.py — Distortion-Interaction 能量分解分析面板（GXNU 
   1. 5 个 Gaussian .log（frag1_opt / frag2_opt / frag1_def / frag2_def / ts）
      自动提取 SCF 能量，支持 ZPE / Gibbs 修正
   2. 计算 ΔE_strain、ΔE_int、ΔE#，表格红绿着色显示（Hartree + kcal/mol）
-  3. matplotlib 双图嵌入：左侧 DI 能量阶梯箭头图 + 右侧分解柱状图
-  4. 共享左侧 OpenGL 画布：任意结构的 log / fchk 可一键显示到画布
-  5. 导出 HTML 报告 / 配置持久化
+  3. 自适应工作区：左上双图、左下 log 输入，右侧计算/结果/导出
+  4. 导出 PNG / HTML 报告 / 配置持久化
 
 能量公式：
   ΔE_strain = (E_def1 − E_opt1) + (E_def2 − E_opt2)
@@ -27,8 +26,9 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QCheckBox, QMessageBox, QGroupBox, QFileDialog, QGridLayout,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QSplitter, QScrollArea, QFrame, QSizePolicy,
 )
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import QSize, Qt, QTimer
 from PyQt5.QtGui import QColor, QFont
 
 import matplotlib
@@ -201,6 +201,15 @@ def get_bonds_from_atoms(atoms):
 
 #: 中英文字对照（切语言时由 set_lang 整树套用，见 molstudio/ui/i18n_utils.py）
 _LANG_EXTRA = {
+    "Distortion–Interaction 能量分解":
+        "Distortion–Interaction energy decomposition",
+    "1  载入 Gaussian log": "1  Load Gaussian logs",
+    "2  计算": "2  Calculate",
+    "3  结果表格": "3  Results table",
+    "4  导出": "4  Export",
+    "导出柱状图 PNG": "Export bar chart PNG",
+    "[!] ZPE / Gibbs 需要 Freq 计算步骤":
+        "[!] ZPE / Gibbs corrections require a Freq step",
     ">> 计算能量分解": ">> Compute energy decomposition",
     "Fragment 1 优化后:": "Fragment 1, optimized:",
     "Fragment 1 在 TS 几何下:": "Fragment 1 at TS geometry:",
@@ -236,10 +245,19 @@ _LANG_EXTRA = {
 
 
 class DiAnalysisPanel(QWidget):
-    """DI 能量分解分析面板（右侧 tab；共享左侧 OpenGL 画布显示分子）。"""
+    """DI panel: plots and log inputs left, actions/results right."""
+
+    def sizeHint(self):
+        """Let the parent give DI the available height instead of a fixed px value."""
+        width = max(740, super().sizeHint().width())
+        return QSize(width, 1)
+
+    def minimumSizeHint(self):
+        return QSize(700, 1)
 
     def __init__(self, glw=None, log_func=None, parent=None):
         super().__init__(parent)
+        self.lang = "zh"
         self.glw = glw
         self._log = log_func or (lambda m: None)
         self._last_results = None
@@ -253,10 +271,30 @@ class DiAnalysisPanel(QWidget):
     # ── UI ──
     def showEvent(self, event):
         super().showEvent(event)
+        if not getattr(self, "_sizes_initialized", True):
+            self._sizes_initialized = True
+            QTimer.singleShot(0, self._init_splitter_sizes)
+            parent = self.parent()
+            while parent is not None:
+                if hasattr(parent, "_sync_stack_height"):
+                    QTimer.singleShot(0, parent._sync_stack_height)
+                    break
+                parent = parent.parent()
         if self._last_results is not None:
             QTimer.singleShot(0, self._draw_plot)
 
-    def _build_ui(self):
+    def _init_splitter_sizes(self):
+        """Set useful proportions once, then let users drag both splitters."""
+        total_w = self._splitter.width()
+        if total_w > 0:
+            left_w = int(total_w * 0.70)
+            self._splitter.setSizes([left_w, total_w - left_w])
+        total_h = self._left_splitter.height()
+        if total_h > 0:
+            top_h = int(total_h * 0.62)
+            self._left_splitter.setSizes([top_h, total_h - top_h])
+
+    def _build_ui_legacy(self):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(8, 8, 8, 8)
         outer.setSpacing(8)
@@ -427,6 +465,345 @@ class DiAnalysisPanel(QWidget):
 
         outer.addWidget(grp)
         self._init_table_rows()
+
+    def _build_ui_legacy2(self):
+        """Two-column workspace: decomposition chart left, inputs/results right."""
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 8, 8, 8)
+        outer.setSpacing(0)
+        self._splitter = QSplitter(Qt.Horizontal)
+        self._splitter.setChildrenCollapsible(False)
+        self._splitter.setHandleWidth(8)
+
+        chart_card = QFrame()
+        chart_card.setObjectName("DiChartCard")
+        chart_card.setStyleSheet(
+            "QFrame#DiChartCard{background:#FFFFFF;border:1px solid #D5DEE9;"
+            "border-radius:10px;}")
+        chart_l = QVBoxLayout(chart_card)
+        chart_l.setContentsMargins(10, 10, 10, 10)
+        chart_l.setSpacing(6)
+        chart_title = QLabel("Distortion–Interaction 能量分解")
+        chart_title.setStyleSheet(
+            "font-size:15px;font-weight:700;color:#0D47A1;padding:2px;")
+        self.lbl_chart_title = chart_title
+        chart_l.addWidget(chart_title)
+        self.fig_holder = QWidget()
+        self.fig_holder.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._canvas_layout = QVBoxLayout(self.fig_holder)
+        self._canvas_layout.setContentsMargins(0, 0, 0, 0)
+        chart_l.addWidget(self.fig_holder, 1)
+        self._splitter.addWidget(chart_card)
+
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setFrameShape(QFrame.NoFrame)
+        right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        right_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        right_scroll.setMinimumWidth(380)
+        self.right_scroll = right_scroll
+        right_content = QWidget()
+        right_l = QVBoxLayout(right_content)
+        right_l.setContentsMargins(2, 0, 2, 4)
+        right_l.setSpacing(8)
+
+        grp_inputs = QGroupBox("1  载入 Gaussian log")
+        inputs_l = QGridLayout(grp_inputs)
+        inputs_l.setContentsMargins(10, 12, 10, 10)
+        inputs_l.setHorizontalSpacing(6)
+        inputs_l.setVerticalSpacing(5)
+        for i, (key, label) in enumerate(FILE_ROWS):
+            inputs_l.addWidget(QLabel(label + ":"), i, 0)
+            edit = QLineEdit()
+            edit.setPlaceholderText("选择 Gaussian .log 文件")
+            edit.setMinimumWidth(0)
+            edit.textChanged.connect(
+                lambda _text, k=key: self._on_path_changed(k))
+            self._file_edits[key] = edit
+            inputs_l.addWidget(edit, i, 1, 1, 2)
+            btn_browse = QPushButton("浏览")
+            btn_browse.clicked.connect(
+                lambda _checked, k=key: self._browse_file(k))
+            inputs_l.addWidget(btn_browse, i, 3)
+
+        row_btn = QHBoxLayout()
+        btn_batch = QPushButton("批量选择（按顺序）")
+        btn_batch.clicked.connect(self._batch_select)
+        row_btn.addWidget(btn_batch)
+        btn_match = QPushButton("从文件夹自动匹配")
+        btn_match.clicked.connect(self._auto_match)
+        row_btn.addWidget(btn_match)
+        row_btn.addStretch(1)
+        inputs_l.addLayout(row_btn, len(FILE_ROWS), 0, 1, 4)
+        hint = QLabel("命名含关键词：opt1 / opt2 / frag1_def / frag2_def / ts")
+        hint.setStyleSheet("color:#64748B;font-size:9pt;")
+        inputs_l.addWidget(hint, len(FILE_ROWS) + 1, 0, 1, 4)
+
+        row_corr = QHBoxLayout()
+        self.chk_zpe = QCheckBox("零点能修正 (E0 = E_elec + ZPE)")
+        self.chk_zpe.toggled.connect(self._on_corr_changed)
+        row_corr.addWidget(self.chk_zpe)
+        self.chk_gibbs = QCheckBox("Gibbs 自由能修正（含热修正 + 熵）")
+        self.chk_gibbs.toggled.connect(self._on_corr_changed)
+        row_corr.addWidget(self.chk_gibbs)
+        row_corr.addStretch(1)
+        inputs_l.addLayout(
+            row_corr, len(FILE_ROWS) + 2, 0, 1, 4)
+        corr_hint = QLabel("[!] ZPE / Gibbs 需要 Freq 计算步骤")
+        corr_hint.setStyleSheet("color:#64748B;font-size:9pt;")
+        inputs_l.addWidget(
+            corr_hint, len(FILE_ROWS) + 3, 0, 1, 4)
+        right_l.addWidget(grp_inputs)
+
+        grp_actions = QGroupBox("2  计算")
+        actions_l = QHBoxLayout(grp_actions)
+        actions_l.setContentsMargins(10, 12, 10, 10)
+        self.btn_calculate = QPushButton(">> 计算能量分解")
+        self.btn_calculate.setObjectName("PrimaryBtn")
+        self.btn_calculate.setMinimumHeight(38)
+        self.btn_calculate.clicked.connect(self._calculate)
+        self.btn_clear = QPushButton("清空结果")
+        self.btn_clear.clicked.connect(self._clear_results)
+        actions_l.addWidget(self.btn_calculate, 2)
+        actions_l.addWidget(self.btn_clear)
+        right_l.addWidget(grp_actions)
+
+        grp_results = QGroupBox("3  结果表格")
+        results_l = QVBoxLayout(grp_results)
+        results_l.setContentsMargins(8, 10, 8, 8)
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels([
+            "项目", "能量 (Hartree)", "能量 (kcal/mol)", "说明"])
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.table.verticalHeader().setVisible(False)
+        hdr = self.table.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.Stretch)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.Stretch)
+        self.table.setMinimumHeight(300)
+        results_l.addWidget(self.table, 1)
+        right_l.addWidget(grp_results, 1)
+
+        grp_export = QGroupBox("4  导出")
+        export_l = QHBoxLayout(grp_export)
+        export_l.setContentsMargins(10, 12, 10, 10)
+        self.btn_export_png = QPushButton("导出柱状图 PNG")
+        self.btn_export_png.clicked.connect(self._export_png)
+        self.btn_export_png.setEnabled(False)
+        self.btn_export = QPushButton("导出 HTML 报告")
+        self.btn_export.clicked.connect(self._export_html)
+        self.btn_export.setEnabled(False)
+        export_l.addWidget(self.btn_export_png)
+        export_l.addWidget(self.btn_export)
+        right_l.addWidget(grp_export)
+
+        formula = QLabel(
+            "ΔE_strain = (E_def1 − E_opt1) + (E_def2 − E_opt2)\n"
+            "ΔE_int = E_TS − E_def1 − E_def2\n"
+            "ΔE‡ = ΔE_strain + ΔE_int")
+        formula.setWordWrap(True)
+        formula.setStyleSheet(
+            "background:#EFF6FF;color:#1565C0;border:1px solid #BFDBFE;"
+            "border-radius:7px;padding:8px 10px;"
+            "font-family:Consolas,monospace;font-size:9pt;")
+        right_l.addWidget(formula)
+        right_l.addStretch(1)
+        right_scroll.setWidget(right_content)
+
+        self._splitter.addWidget(right_scroll)
+        self._splitter.setStretchFactor(0, 1)
+        self._splitter.setStretchFactor(1, 0)
+        outer.addWidget(self._splitter, 1)
+        self._sizes_initialized = False
+        self._init_table_rows()
+        self._draw_empty_plot()
+
+    def _build_ui(self):
+        """Responsive DI workspace: plots and logs left, actions/results right."""
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(8, 8, 8, 8)
+        outer.setSpacing(0)
+
+        self._splitter = QSplitter(Qt.Horizontal)
+        self._splitter.setChildrenCollapsible(False)
+        self._splitter.setHandleWidth(8)
+
+        left_splitter = QSplitter(Qt.Vertical)
+        left_splitter.setChildrenCollapsible(False)
+        left_splitter.setHandleWidth(8)
+        self._left_splitter = left_splitter
+
+        # ── Upper left: the two original plots remain side by side ──
+        chart_card = QFrame()
+        chart_card.setObjectName("DiChartCard")
+        chart_card.setStyleSheet(
+            "QFrame#DiChartCard{background:#FFFFFF;border:1px solid #D5DEE9;"
+            "border-radius:10px;}")
+        chart_card.setMinimumHeight(130)
+        chart_l = QVBoxLayout(chart_card)
+        chart_l.setContentsMargins(8, 7, 8, 7)
+        chart_l.setSpacing(3)
+        self.lbl_chart_title = QLabel("Distortion–Interaction 能量分解")
+        self.lbl_chart_title.setStyleSheet(
+            "font-size:14px;font-weight:700;color:#0D47A1;padding:1px 2px;")
+        chart_l.addWidget(self.lbl_chart_title)
+        self.fig_holder = QWidget()
+        self.fig_holder.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._canvas_layout = QVBoxLayout(self.fig_holder)
+        self._canvas_layout.setContentsMargins(0, 0, 0, 0)
+        chart_l.addWidget(self.fig_holder, 1)
+        left_splitter.addWidget(chart_card)
+
+        # ── Lower left: Gaussian log inputs and correction options ──
+        input_scroll = QScrollArea()
+        input_scroll.setWidgetResizable(True)
+        input_scroll.setFrameShape(QFrame.NoFrame)
+        input_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        input_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        input_scroll.setMinimumWidth(320)
+        input_scroll.setMinimumHeight(90)
+        self.log_scroll = input_scroll
+        input_content = QWidget()
+        input_l = QVBoxLayout(input_content)
+        input_l.setContentsMargins(1, 1, 1, 1)
+        input_l.setSpacing(8)
+
+        grp_inputs = QGroupBox("1  载入 Gaussian log")
+        inputs_l = QGridLayout(grp_inputs)
+        inputs_l.setContentsMargins(9, 10, 9, 8)
+        inputs_l.setHorizontalSpacing(6)
+        inputs_l.setVerticalSpacing(4)
+        for i, (key, label) in enumerate(FILE_ROWS):
+            inputs_l.addWidget(QLabel(label + ":"), i, 0)
+            edit = QLineEdit()
+            edit.setPlaceholderText("选择 Gaussian .log 文件")
+            edit.textChanged.connect(
+                lambda _text, k=key: self._on_path_changed(k))
+            self._file_edits[key] = edit
+            inputs_l.addWidget(edit, i, 1, 1, 2)
+            btn_browse = QPushButton("浏览")
+            btn_browse.clicked.connect(
+                lambda _checked, k=key: self._browse_file(k))
+            inputs_l.addWidget(btn_browse, i, 3)
+
+        row_btn = QHBoxLayout()
+        btn_batch = QPushButton("批量选择（按顺序）")
+        btn_batch.clicked.connect(self._batch_select)
+        row_btn.addWidget(btn_batch)
+        btn_match = QPushButton("从文件夹自动匹配")
+        btn_match.clicked.connect(self._auto_match)
+        row_btn.addWidget(btn_match)
+        row_btn.addStretch(1)
+        inputs_l.addLayout(row_btn, len(FILE_ROWS), 0, 1, 4)
+        hint = QLabel("命名含关键词：opt1 / opt2 / frag1_def / frag2_def / ts")
+        hint.setStyleSheet("color:#64748B;font-size:9pt;")
+        inputs_l.addWidget(hint, len(FILE_ROWS) + 1, 0, 1, 4)
+
+        row_corr = QHBoxLayout()
+        self.chk_zpe = QCheckBox("零点能修正 (E0 = E_elec + ZPE)")
+        self.chk_zpe.toggled.connect(self._on_corr_changed)
+        row_corr.addWidget(self.chk_zpe)
+        self.chk_gibbs = QCheckBox("Gibbs 自由能修正（含热修正 + 熵）")
+        self.chk_gibbs.toggled.connect(self._on_corr_changed)
+        row_corr.addWidget(self.chk_gibbs)
+        row_corr.addStretch(1)
+        inputs_l.addLayout(
+            row_corr, len(FILE_ROWS) + 2, 0, 1, 4)
+        corr_hint = QLabel("[!] ZPE / Gibbs 需要 Freq 计算步骤")
+        corr_hint.setStyleSheet("color:#64748B;font-size:9pt;")
+        inputs_l.addWidget(
+            corr_hint, len(FILE_ROWS) + 3, 0, 1, 4)
+        input_l.addWidget(grp_inputs)
+
+        grp_actions = QGroupBox("2  计算")
+        actions_l = QVBoxLayout(grp_actions)
+        actions_l.setContentsMargins(9, 9, 9, 8)
+        actions_l.setSpacing(6)
+        self.btn_calculate = QPushButton(">> 计算能量分解")
+        self.btn_calculate.setObjectName("PrimaryBtn")
+        self.btn_calculate.setMinimumHeight(38)
+        self.btn_calculate.clicked.connect(self._calculate)
+        self.btn_clear = QPushButton("清空结果")
+        self.btn_clear.clicked.connect(self._clear_results)
+        actions_l.addWidget(self.btn_calculate)
+        actions_l.addWidget(self.btn_clear)
+        input_l.addStretch(1)
+        input_scroll.setWidget(input_content)
+        left_splitter.addWidget(input_scroll)
+        left_splitter.setStretchFactor(0, 1)
+        left_splitter.setStretchFactor(1, 0)
+
+        # ── Right: calculation, results table and export, top to bottom ──
+        result_scroll = QScrollArea()
+        result_scroll.setWidgetResizable(True)
+        result_scroll.setFrameShape(QFrame.NoFrame)
+        result_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        result_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        result_scroll.setMinimumWidth(300)
+        result_scroll.setMinimumHeight(90)
+        self.right_scroll = result_scroll
+        result_content = QWidget()
+        result_l = QVBoxLayout(result_content)
+        result_l.setContentsMargins(1, 1, 1, 1)
+        result_l.setSpacing(8)
+        result_l.addWidget(grp_actions)
+
+        grp_results = QGroupBox("3  结果表格")
+        results_l = QVBoxLayout(grp_results)
+        results_l.setContentsMargins(8, 10, 8, 8)
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels([
+            "项目", "能量 (Hartree)", "能量 (kcal/mol)", "说明"])
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.table.verticalHeader().setVisible(False)
+        hdr = self.table.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.Stretch)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.Stretch)
+        self.table.setMinimumHeight(90)
+        results_l.addWidget(self.table, 1)
+        result_l.addWidget(grp_results, 1)
+
+        grp_export = QGroupBox("4  导出")
+        export_l = QVBoxLayout(grp_export)
+        export_l.setContentsMargins(9, 9, 9, 8)
+        export_l.setSpacing(6)
+        self.btn_export_png = QPushButton("导出柱状图 PNG")
+        self.btn_export_png.clicked.connect(self._export_png)
+        self.btn_export_png.setEnabled(False)
+        self.btn_export = QPushButton("导出 HTML 报告")
+        self.btn_export.clicked.connect(self._export_html)
+        self.btn_export.setEnabled(False)
+        export_l.addWidget(self.btn_export_png)
+        export_l.addWidget(self.btn_export)
+        result_l.addWidget(grp_export)
+
+        formula = QLabel(
+            "ΔE_strain = (E_def1 − E_opt1) + (E_def2 − E_opt2)\n"
+            "ΔE_int = E_TS − E_def1 − E_def2\n"
+            "ΔE‡ = ΔE_strain + ΔE_int")
+        formula.setWordWrap(True)
+        formula.setStyleSheet(
+            "background:#EFF6FF;color:#1565C0;border:1px solid #BFDBFE;"
+            "border-radius:7px;padding:7px 9px;"
+            "font-family:Consolas,monospace;font-size:9pt;")
+        result_l.addWidget(formula)
+        result_scroll.setWidget(result_content)
+
+        self._splitter.addWidget(left_splitter)
+        self._splitter.addWidget(result_scroll)
+        self._splitter.setStretchFactor(0, 1)
+        self._splitter.setStretchFactor(1, 0)
+        outer.addWidget(self._splitter, 1)
+        self._sizes_initialized = False
+        self._init_table_rows()
+        self._draw_empty_plot()
 
     # ── 结果表格 ──
     def _init_table_rows(self):
@@ -685,8 +1062,8 @@ class DiAnalysisPanel(QWidget):
 
     # ── 图表 ──
     def _figsize(self):
-        w = max(self.width(), 200)
-        h = max(self.height() - 480, 200)
+        w = max(self.fig_holder.width(), 320)
+        h = max(self.fig_holder.height(), 260)
         return (w / 100.0, h / 100.0)
 
     def _draw_plot(self):
@@ -695,9 +1072,9 @@ class DiAnalysisPanel(QWidget):
             self._draw_empty_plot()
             return
         fig = Figure(figsize=self._figsize(), dpi=100, facecolor="white")
-        gs = fig.add_gridspec(1, 2, width_ratios=[5, 3],
-                              left=0.07, right=0.97, top=0.90, bottom=0.12,
-                              wspace=0.28)
+        gs = fig.add_gridspec(
+            1, 2, width_ratios=[5, 3],
+            left=0.07, right=0.97, top=0.90, bottom=0.12, wspace=0.28)
         self._draw_di_arrows(fig.add_subplot(gs[0, 0]), R)
         self._draw_decomposition(fig.add_subplot(gs[0, 1]), R)
         self._set_canvas(fig)
@@ -705,7 +1082,11 @@ class DiAnalysisPanel(QWidget):
     def _draw_empty_plot(self):
         fig = Figure(figsize=self._figsize(), dpi=100, facecolor="white")
         ax = fig.add_subplot(111)
-        ax.text(0.5, 0.5, "计算后显示 DI 能量分解图",
+        message = ("Load five Gaussian logs and calculate to show the "
+                   "DI energy-decomposition figure"
+                   if self.lang == "en"
+                   else "载入 5 个 log 并计算后显示 DI 能量分解图")
+        ax.text(0.5, 0.5, message,
                 ha="center", va="center", fontsize=12, color="#94A3B8")
         ax.set_xticks([])
         ax.set_yticks([])
@@ -716,6 +1097,9 @@ class DiAnalysisPanel(QWidget):
     def _set_canvas(self, fig):
         if self._canvas is None:
             self._canvas = FigureCanvas(fig)
+            self._canvas.setMinimumSize(0, 0)
+            self._canvas.setSizePolicy(
+                QSizePolicy.Expanding, QSizePolicy.Expanding)
             self._canvas_layout.addWidget(self._canvas)
         else:
             self._canvas_layout.removeWidget(self._canvas)
@@ -724,6 +1108,9 @@ class DiAnalysisPanel(QWidget):
             except Exception:
                 pass
             self._canvas = FigureCanvas(fig)
+            self._canvas.setMinimumSize(0, 0)
+            self._canvas.setSizePolicy(
+                QSizePolicy.Expanding, QSizePolicy.Expanding)
             self._canvas_layout.addWidget(self._canvas)
         self._canvas.draw()
 
@@ -1077,4 +1464,7 @@ class DiAnalysisPanel(QWidget):
     def set_lang(self, lang):
         """切换界面语言（中/英）。"""
         from molstudio.ui.i18n_utils import apply_text_map
-        apply_text_map(self, _LANG_EXTRA, "zh" if lang == "zh" else "en")
+        self.lang = "zh" if lang == "zh" else "en"
+        apply_text_map(self, _LANG_EXTRA, self.lang)
+        if self._last_results is None:
+            self._draw_empty_plot()

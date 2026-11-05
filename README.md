@@ -52,12 +52,13 @@ GXNU MolStudio is an **integrated visualization and workflow platform** for comp
 
 One point about its scope: **the program itself does not perform wavefunction analysis.** Orbital surfaces, charge populations, Mayer bond orders, ESP, IGMH/IRI weak interactions, AIM topology, molecular planarity (MPP) and ETS-NOCV are all computed by [Multiwfn](http://sobereva.com/multiwfn/) (by Prof. Tian Lu). MolStudio drives it, parses its output, and turns the numbers into interactive isosurfaces, curves and charts. Modules such as the DI energy decomposition, the Energetic Span Model and IRC splitting work the same way: the program reads Gaussian / Multiwfn output and does the post-processing and plotting itself.
 
-What is integrated today: **reading** Gaussian / Multiwfn inputs and outputs (fchk, cube, wfn/wfx, log/out, chg, cif, xyz …), **driving** Multiwfn for cube generation and wavefunction analyses, and **doing** the real-time visualization, figure export and batch processing. Structure building/editing and calculation job submission, queuing or monitoring are outside the current release.
+What is integrated today: **reading** Gaussian / Multiwfn inputs and outputs (fchk, cube, wfn/wfx, log/out, chg, cif, xyz …), **driving** Multiwfn for cube generation and wavefunction analyses, and **doing** the real-time visualization, figure export and batch processing. The spectra page can also generate and run local Gaussian spectrum jobs directly from a structure before calling Multiwfn to broaden and plot the result. Generic remote job submission, queueing and cluster monitoring remain outside this release.
 
 | Step | Computed by | MolStudio's role |
 |---|---|---|
 | Wavefunction analysis: charges / Mayer bond orders / ESP / IGMH·IRI / AIM / MPP / ETS-NOCV | Multiwfn | invoke, parse, visualize |
 | Orbital cube generation | Multiwfn | trigger, progress & log, batch mode |
+| UV-Vis / ECD / IR / Raman / VCD / ROA / fluorescence / phosphorescence | Gaussian + Multiwfn | structure import, job generation and local run, broadening, plotting |
 | Live 3D preview and one-click rendering | this program (embedded OpenGL engine) | everything |
 | Offline high-resolution rendering (compatibility channel) | VMD + Tachyon | style setup and invocation |
 | Post-processing & plots (DI / ESM / IRC …) | this program | everything |
@@ -80,7 +81,7 @@ What is integrated today: **reading** Gaussian / Multiwfn inputs and outputs (fc
 
 ### 🧬 Embedded OpenGL rendering engine (ovcanvas)
 - **Order-independent transparency compositing (depth peeling)** — correct in-plane transparency sorting across layers; automatic fallback to sorted blending when unavailable
-- **One-click styles** — sob-art / IBOview / HoukMol / IQmol default looks, switchable in one click
+- **One-click styles** — sob-art / IBOview / HoukMol / HoukMol3d / **2D flat** / IQmol / MolStudio / CYLview / VESTA default looks, switchable in one click (2D flat = HoukMol palette with unshaded, flat spheres)
 - **Atom colors × lights, two orthogonal axes** — atom palettes (CPK / SobArt / HoukMol / Vcube …) × lighting rigs (3-light / 1-light / 2-light / 4-light) in any combination
 - **Per-light glow** — light dialog for direction / count / glow with fine tuning, save & load
 - **Ring rings** — HoukMol-style equatorial great circles; azimuth / elevation adjustable, lockable
@@ -89,6 +90,13 @@ What is integrated today: **reading** Gaussian / Multiwfn inputs and outputs (fc
 - **Hide hydrogens** — hide all H atoms with one click to highlight the heavy-atom skeleton
 - **Keep selected H** — enter indices (e.g. `1,3,5-8`) to show only chosen hydrogens
 - **Atom indices / element symbols** — label each atom with its in-molecule number or element symbol
+- **School molecule library** — 69 built-in junior- and senior-high-school molecules
+  with category, name, formula and alias search; double-click to visualize
+- **PowerPoint 3D models** — export the current molecule as a self-contained `.glb`
+  for PowerPoint 365 (`Insert → 3D Models → This Device`), preserving the canvas
+  palette, bond colours, hidden atoms, ball-and-stick scale and current view,
+  with dense vertex-colour meshes, double-sided PBR, thin black atom outlines,
+  KDTree-baked contact AO and single bonds unless explicitly overridden
 
 ### 🧪 IGMH / IRI weak-interaction analysis
 - **One-click analysis** — pick fragments, run IGMH or IRI indices through Multiwfn
@@ -96,15 +104,72 @@ What is integrated today: **reading** Gaussian / Multiwfn inputs and outputs (fc
 - **IGM scatter plots** — embedded scatter-plot viewer
 
 ### ⚡ Quantum-chemistry data analysis
+- **One-click molecular spectra** — import `.xyz` / `.gjf` / `.log` / `.fchk` or use
+  the current canvas structure, choose UV-Vis, ECD, IR, Raman, VCD, ROA,
+  fluorescence or phosphorescence, and run Gaussian → Multiwfn → plot as one
+  workflow. Electronic spectra can pre-optimise the ground state, vibrational
+  jobs receive the matching `freq` route, and ROA supports multiple incident
+  wavelengths. Fluorescence optimises S1 and keeps only its emission strength;
+  phosphorescence optimises T1, stabilises the S0 reference and computes the
+  triplet vertical-emission energy. Existing `.log/.out` files can be re-plotted
+  without recomputing. Plain Gaussian TDDFT has no spin–orbit coupling, so the
+  phosphorescence band position is meaningful while its intensity is explicitly
+  normalised.
 - **Orbital browser** — orbital energies, occupations, HOMO/LUMO labels; double-click to generate a cube
 - **ESP electrostatic potential** — isosurface + extrema labels + color scale bar
 - **NBO analysis** — bond orders, occupations, second-order perturbation E(2) orbital pairs
 - **Charge analysis** — Mulliken / fitted charges with bond-order visualization
 - **IRC analysis** — track Mayer bond orders and atomic charges along an IRC path, showing each structure live in the shared canvas
-- **Distortion–Interaction (DI) analysis** — fragment energy-decomposition with a report and diagram
+- **Distortion–Interaction (DI) analysis** — chart-left/results-right layout:
+  the original energy-step and decomposition-bar plots remain together in the
+  upper analysis area. Five Gaussian logs load below them on the left; the
+  calculation controls, results table and export actions stay together on the
+  right.
 - **Energetic Span Model (ESM)** — catalytic-cycle analysis: identify TDI/TDTS, compute the energy span δE and TOF, step-shaped energy profiles
 - **AIM topology** — QTAIM bond critical points and bond paths from `.wfn` / `.wfx` / fchk input
 - **Charge & Mayer bond order** — combined charge-population and bond-order analysis
+- **Steric map / buried volume (%VBur)** — orient a complex with the official
+  SambVca convention (centre atom, z-axis atom, xz-plane atom, delete list), then
+  compute the total / quadrant / octant %VBur plus buried and free volumes and
+  plot the topographic steric map (2D + 3D surface) in one go. The map follows the
+  StericRender look: **fixed ±R colour scale**, sambvca palette, black contour
+  lines, molecular skeleton, quadrant labels, axis indicator and a horizontal
+  colour bar, with an alternative official SambVca banded style (0.2 Å contour
+  spacing, as in the official `plot_map.py`); every layer can be toggled.
+  Orientation **defaults to the current canvas view** (what you see is what you
+  get: rotate the molecule on the canvas and the map follows); switch to the
+  SambVca official orientation for literature-comparable %VBur and press "Match
+  canvas view" to rotate the canvas to the same frame. Atoms can be **picked
+  directly on the left canvas** to set the centre / z-axis / xz-plane or to
+  add/remove atoms in the delete list (the delete list stays in sync with the
+  canvas multi-selection). The structure comes from the current canvas or from
+  an imported `.xyz/.gjf/.log/.inp` file; figures export to PNG/PDF/SVG, data to
+  CSV/JSON and an official SambVca `.inp`. The engine is a built-in pure-numpy
+  port of the official SambVca 2.1 Fortran algorithm (%VBur 39.60 for the
+  official nhc example; the map matches the official `nhc-TopSurface.dat` point
+  by point), so no external SambVca program is required.
+- **xTB semiempirical calculations** — runs the external **xTB** program on the
+  canvas structure (or an imported `.xyz/.gjf/.com/.log/.out`) with g-xTB, GFN2,
+  GFN1, GFN0 or GFN-FF: single point, geometry optimisation, optimisation +
+  Hessian/frequencies/thermochemistry, numerical Hessian, TS optimisation, and
+  xcontrol relaxed scans (with an energy plot). Charge/unpaired electrons, SCF
+  accuracy, electronic temperature, ALPB/GBSA/COSMO implicit solvation, thread
+  count and extra command-line arguments are exposed. Results include the total
+  energy, HOMO–LUMO gap, HOMO/LUMO, dipole, gradient, an atomic-charge table,
+  frequencies/imaginary modes and G/H/ZPE; the optimised (or last scan) structure
+  can be **sent back to the canvas** in one click, and XYZ/GJF/JSON/scan
+  trajectories can be exported. The xTB path is auto-detected and settings are
+  saved automatically; xTB itself (LGPL-3.0) is an external program the user
+  installs — MolStudio does not bundle it.
+- **Electron density difference (EDD)** — use the current fchk as the parent,
+  build any number of disjoint fragments by clicking or box-selecting atoms,
+  and generate parent + fragment inputs with the same method/basis that
+  preserve the parent coordinates and force `nosymm`. Run the parent and all
+  fragment jobs plus formchk locally, or load multiple
+  state/fragment wavefunctions manually. Multiwfn evaluates
+  `ρ(parent) − Σρ(fragment)`, exports the cube, and MolStudio displays positive
+  and negative density regions with independent colors, isovalue/opacity
+  controls and VMD scene registration.
 - **AICD induced current** — reads the tensor dump written by Gaussian
   `nmr=csgt iop(10/93=1|2)` and renders the classic AICD figure (yellow
   anisotropy isosurface + green-shaft/red-head current-density arrows + field
@@ -142,6 +207,7 @@ What is integrated today: **reading** Gaussian / Multiwfn inputs and outputs (fc
 | PyMCubes | isosurface extraction | `pip install PyMCubes` |
 | matplotlib | scatter plots / color bars | `pip install matplotlib` |
 | [Multiwfn](http://sobereva.com/multiwfn/) | fchk → cube, IGMH/IRI | download and configure the path |
+| [xTB](https://github.com/grimme-lab/xtb) (optional) | semiempirical calculations (SP/OPT/frequencies/scans) | download and point the "xTB" tab to `xtb.exe` (auto-detected) |
 
 > VMD / Tachyon are only required for the legacy render mode; the embedded OpenGL canvas does not depend on them.
 

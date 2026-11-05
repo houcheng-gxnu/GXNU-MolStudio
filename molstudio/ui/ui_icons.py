@@ -30,7 +30,7 @@ from PyQt5.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 KINDS = (
     # 分子 / 计算化学
     "orbital", "molecule", "atom", "bond", "wave", "cube", "axes", "layers",
-    "thermal", "chart", "grid", "sigma",
+    "thermal", "chart", "grid", "sigma", "bolt",
     # 界面 / 通用
     "folder", "save", "download", "upload", "eye", "play", "stop", "pause",
     "search", "sun", "moon", "gear", "menu", "close", "chevron",
@@ -177,6 +177,10 @@ def icon_pixmap(kind: str, color: str = "#4A5568", size: int = 20,
     elif kind == "play":
         p.setBrush(fill)
         poly((7, 4), (20, 12), (7, 20))
+    elif kind == "bolt":                        # 闪电（xTB 半经验计算）
+        p.setBrush(fill)
+        poly((13.5, 2.5), (6.0, 13.0), (10.2, 13.0), (8.6, 21.5),
+             (18.0, 10.5), (13.8, 10.5), (16.0, 2.5))
     elif kind == "stop":
         p.setBrush(fill)
         rect(6, 6, 12, 12, 1.6)

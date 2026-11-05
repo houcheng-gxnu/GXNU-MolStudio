@@ -187,6 +187,41 @@ def main():
             except Exception:
                 pass
 
+        # ── 写权限自检：诊断“打包后写不了文件”类问题 ──
+        # 把运行上下文和几个关键目录的写测试结果记到 exe 同目录
+        # （源码运行时为仓库根）的 _molstudio_diag.log；只有写失败时才会
+        # 有价值，成功也记一行上下文，便于事后对比。
+        import tempfile as _tempfile
+
+        def _diag_base():
+            if getattr(sys, "frozen", False):
+                return os.path.dirname(os.path.abspath(sys.executable))
+            return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        def _diag(tag, msg):
+            try:
+                with open(os.path.join(_diag_base(), "_molstudio_diag.log"),
+                          "a", encoding="utf-8") as f:
+                    f.write("[%s] %s: %s\n" % (
+                        _time.strftime("%Y-%m-%d %H:%M:%S"), tag, msg))
+            except Exception:
+                pass
+
+        _diag("startup", "exe=%r cwd=%r home=%r temp=%r argv=%r" % (
+            sys.executable, os.getcwd(), os.path.expanduser("~"),
+            _tempfile.gettempdir(), sys.argv))
+        for _tag, _d in (("exe_dir", _diag_base()),
+                         ("home", os.path.expanduser("~")),
+                         ("temp", _tempfile.gettempdir())):
+            try:
+                _probe = os.path.join(_d, "_molstudio_write_probe.tmp")
+                with open(_probe, "w", encoding="utf-8") as _f:
+                    _f.write("ok")
+                os.remove(_probe)
+                _diag("write_test", "%s OK (%s)" % (_tag, _d))
+            except Exception as _e:
+                _diag("write_test", "%s FAIL %r (%s)" % (_tag, _e, _d))
+
         # ── 全局异常钩子：windowed 打包无控制台，未捕获异常会静默闪退；
         #    这里改为写调试日志 + 弹错误对话框，方便定位问题 ──
         import traceback as _traceback

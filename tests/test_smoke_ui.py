@@ -51,6 +51,66 @@ def test_nav_and_tabs():
     try:
         assert w.main_nav.count() >= 16, w.main_nav.count()
         assert w.tabs.count() >= 16, w.tabs.count()
+        # 「位阻地图 / 包埋体积」页必须真的接进主窗口（导航条与页面栈同序）
+        assert "tab_steric" in w._tab_keys, w._tab_keys
+        assert w.steric_panel is not None, "位阻地图面板未加载"
+        assert "tab_dos" in w._tab_keys, w._tab_keys
+        assert w.dos_panel is not None, "态密度面板未加载"
+        assert "tab_edd" in w._tab_keys, w._tab_keys
+        assert w.edd_panel is not None, "电子密度差面板未加载"
+        assert "tab_di" in w._tab_keys, w._tab_keys
+        assert w.di_panel is not None, "DI 分析面板未加载"
+        assert w.btn_molecule_library.text()
+        assert w.btn_ppt3d.text() == "PPT 3D"
+        # DOS input follows the main-window input; it must not duplicate the
+        # file picker or output-directory controls inside the tab.
+        assert not hasattr(w.dos_panel, "edit_source")
+        assert not hasattr(w.dos_panel, "edit_outdir")
+        assert w.dos_panel.chk_tdos.isChecked()
+        assert not w.dos_panel.chk_pdos.isChecked()
+        assert w.dos_panel.chk_fill.isChecked()
+        assert w.dos_panel.chk_centers.isChecked()
+        assert "TDOS" in w.dos_panel._color_buttons
+        assert w.edd_panel.table_fragments.columnCount() == 4
+        assert w.edd_panel.combo_grid.count() == 5
+        _diag = w._tab_keys.index("tab_di")
+        w.main_nav.setCurrentRow(_diag)
+        _pump(60)
+        assert w._left_widget.isHidden(), "DI 页应使用自己的柱状图区域"
+        assert (w.di_panel.fig_holder.geometry().y()
+                < w.di_panel.log_scroll.geometry().y()), \
+            "DI 绘图区应在 log 载入区上方"
+        assert (w.di_panel.log_scroll.geometry().x()
+                < w.di_panel.right_scroll.geometry().x()), \
+            "DI 计算/结果/导出区应在右侧"
+        assert w.di_panel._splitter.orientation() == Qt.Horizontal
+        assert w.di_panel._left_splitter.orientation() == Qt.Vertical
+        assert not hasattr(w.di_panel, "btn_fchk")
+        assert w.dos_panel.cmb_orbital.findData("pz") >= 0
+        assert w.dos_panel.cmb_orbital.findData("s,px,py") >= 0
+        _di = w._tab_keys.index("tab_dos")
+        w.main_nav.setCurrentRow(_di)
+        _pump(60)
+        assert w._left_widget.isHidden(), "DOS 页应让绘图区占满主窗口"
+        assert not w.dos_panel.controls_panel.isHidden()
+        assert (w.dos_panel.grp_preview.geometry().x()
+                < w.dos_panel.controls_panel.geometry().x()), \
+            "DOS 预览应在左，参数面板应一直在右"
+        assert not w.dos_panel._splitter.childrenCollapsible()
+        w.dos_panel._splitter.setSizes([500, 420])
+        _pump(30)
+        assert w.dos_panel._splitter.sizes()[1] >= 300
+        _si = w._tab_keys.index("tab_steric")
+        assert "位阻地图" in w.main_nav.item(_si).text(), w.main_nav.item(_si).text()
+        w.main_nav.setCurrentRow(_si)
+        _pump(80)
+        assert w.steric_panel._tabs.count() == 2
+        w.steric_panel._tabs.setCurrentIndex(0)
+        _pump(60)
+        assert w._left_widget.isHidden(), "位阻绘图页应占满内容区"
+        w.steric_panel._tabs.setCurrentIndex(1)
+        _pump(60)
+        assert not w._left_widget.isHidden(), "位阻参数页应保留画布供点选"
         for i in range(w.main_nav.count()):
             w.main_nav.setCurrentRow(i)
             _pump(25)

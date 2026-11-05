@@ -1152,6 +1152,7 @@ layout(location=0) out vec4 out_Color;
 uniform float u_Outline;       // 0 = off, 1 = on
 uniform vec3  u_OutlineColor;  // edge stroke colour
 uniform float u_OutlineWidth;  // 0..1, thickness of the silhouette band
+uniform float u_FlatAtoms;     // 1 = 球体平涂（2D 样式），0 = 正常径向渐变
 uniform float u_Rings;         // 0 = off, 1 = on（十字圆环）
 uniform vec3  u_RingColor;     // 圆环颜色
 uniform float u_RingWidth;     // 环带半宽（法线夹角阈值，0.03~0.15）
@@ -1207,12 +1208,17 @@ void main() {
             col += w * mv_ramp((u_LightCount > 1) ? 1 : u_MvGrad, v_Color.rgb, t);
             tot += w;
         }
+        // 2D 平涂样式：原子球只取元素色，不做径向渐变/高光
+        //（u_FlatAtoms 只影响原子与化学键，等值面仍按 u_MvGrad 着色）。
+        if (u_FlatAtoms > 0.5) { col = v_Color.rgb; tot = 1.0; }
         col /= max(tot, 1e-4);
         c = vec4(col, v_Color.a);
-        // MolCanvas depth_factor: distant atoms darken (u_FogWidth = 0 when off)
+        // 景深雾化：与多灯路径使用同一套“远端混向背景色”语义。
+        // HoukMol 等样式走径向渐变路径；若仍沿用 MolCanvas 的亮度压暗，
+        // 白底上的远端原子会变深而不是起雾，看起来不像景深。
         float fade = fog_factor();
         fade *= step(0.0001, u_FogWidth);
-        c.rgb *= mix(1.0, 0.55, fade);
+        c.rgb = mix(c.rgb, lp_lin3(u_FogColor), fade);
     } else {
         // 原子走 shade_base_color(false)；vdW 外壳参考轨道等值面走
         // shade_base_color(true)：背面法线翻转 + 启用 FX（neon/pearl/metal）
@@ -1224,13 +1230,20 @@ void main() {
     // fragments have |N.z| ~ 1 and silhouette fragments have |N.z| ~ 0.
     // 窄带剪影描边（与等值面 orb_outline 一致）：只有 |N.z| 接近 0
     // （屏幕边缘）才混入描边色；描边带宽越大描边越粗。
+    //
+    // 注意：基础色在两条光照路径里都已经过雾化，而描边/圆环是在那之后
+    // 覆盖上去的。若直接把原描边色混进去，远处原子仍会保留一圈纯黑边，
+    // 看起来像“黑色圆圈没有景深”。因此覆盖层自身也必须使用同一个雾化
+    // 因子先混向背景，再叠到球体上。
+    float overlayFog = fog_factor();
     float outlineOn = (u_VdwEnable > 0.5) ? u_VdwOutline : u_Outline;
     if (outlineOn > 0.5) {
         vec3  oc = (u_VdwEnable > 0.5) ? u_VdwOutlineColor : u_OutlineColor;
         float ow = (u_VdwEnable > 0.5) ? u_VdwOutlineWidth : u_OutlineWidth;
         float facing = abs(normalize(v_Normal).z);
         float rim = 1.0 - step(ow, facing);
-        c.rgb = mix(c.rgb, lp_lin3(oc), rim);
+        vec3 foggedOutline = mix(lp_lin3(oc), lp_lin3(u_FogColor), overlayFog);
+        c.rgb = mix(c.rgb, foggedOutline, rim);
     }
     // 十字圆环：两条大圆带，直接用球面法线 N 与环面法线（视图系）的夹角判定。
     // 与原子描边同款技术——圆环就是球面几何的一部分，必然贴在球上；
@@ -1241,7 +1254,8 @@ void main() {
         float r2 = abs(dot(RN, u_RingN2));
         float r = min(r1, r2);
         float band = 1.0 - smoothstep(u_RingWidth * 0.7, u_RingWidth, r);
-        c.rgb = mix(c.rgb, u_RingColor, band);
+        vec3 foggedRing = mix(u_RingColor, lp_lin3(u_FogColor), overlayFog);
+        c.rgb = mix(c.rgb, foggedRing, band);
     }
     c.a = v_Color.a;
     out_Color = c;
@@ -1256,6 +1270,7 @@ FRAG_BOND = """
 #version 330 core
 """ + _GLSL_COMMON + """
 layout(location=0) out vec4 out_Color;
+uniform float u_FlatAtoms;   // 1 = 化学键平涂（2D 样式），0 = 正常渐变
 """ + _MV_RAMP_GLSL + """
 void main() {
     vec4 c;
@@ -1276,11 +1291,13 @@ void main() {
             col += w * mv_ramp((u_LightCount > 1) ? 1 : u_MvGrad, v_Color.rgb, t);
             tot += w;
         }
+        // 2D 平涂样式：化学键也只取元素色（与原子一致）
+        if (u_FlatAtoms > 0.5) { col = v_Color.rgb; tot = 1.0; }
         col /= max(tot, 1e-4);
         c = vec4(col, v_Color.a);
+        // 化学键与原子共用同一雾化终色，避免白底场景远端变暗、近端不变。
         float fade = fog_factor();
-        fade *= step(0.0001, u_FogWidth);
-        c.rgb *= mix(1.0, 0.55, fade);
+        c.rgb = mix(c.rgb, lp_lin3(u_FogColor), fade);
     } else {
         c = shade_base_color(false);
     }
@@ -3893,7 +3910,7 @@ class CubGLWidget(QOpenGLWidget):
         self._h_bond_radius = False
         self._bond_thinning = BOND_THINNING_DEFAULT  # midpoint narrowing factor (1.0 = no waist)
 
-        # 景深雾化（远处蒙白雾）开关，默认开启
+        # 景深雾化（远处向背景色淡出）开关，默认开启
         self._fade_enabled = True
         # Bond radius factor — dual-threshold for solid / dashed / no-bond
         self._bond_rf_tight = 1.0   # ≤ this → solid bond
@@ -3967,6 +3984,7 @@ class CubGLWidget(QOpenGLWidget):
         self._ring_locked = False    # True=锁定：环固定在屏幕系，分子旋转时圆环不转
         self._ring_frozen = None     # 锁定瞬间冻结的视图系环法线（锁定当前角度）
         self._mv_grad = 0            # 0=三灯 Phong；>0=MolViewer 径向渐变类型 id
+        self._flat_atoms = False     # True=球棍（原子+键）平涂，不做径向渐变（2D 样式）
         self._orb_outline = False    # 等值面剪影描边
         self._orb_outline_color = (0.0, 0.0, 0.0)
         self._orb_outline_width = 0.3
@@ -5442,6 +5460,15 @@ class CubGLWidget(QOpenGLWidget):
         self._recompute_lights()
         self.update()
 
+    def set_flat_atoms(self, on):
+        """球棍模型是否「平涂」（2D 样式）：原子球与键只画元素色，不做径向渐变。
+
+        只影响原子/化学键；等值面（轨道、ESP）仍走 u_MvGrad 的正常着色，
+        因此 2D 风格的分子图里叠加轨道也不会变成没有明暗的色块。
+        """
+        self._flat_atoms = bool(on)
+        self.update()
+
     def set_orb_outline(self, on, color=None, width=None):
         """等值面剪影描边。color 为 0..1 (r,g,b)；width 为 0..1 剪影带厚度。"""
         self._orb_outline = bool(on)
@@ -5645,11 +5672,9 @@ class CubGLWidget(QOpenGLWidget):
         self.set_orb_outline(False)
         # 等值面 alpha 回到"受光照调制"的默认观感（半透明样式的基准）
         self.set_orb_alpha_mod(1.0)
-        # 景深雾化：一键样式一律**默认不打开**（要雾化用面板滑块自己开）。
-        # 放在这里而不是每个样式字典里，是为了让没有自带 fade 字段的样式
-        # 按钮（如 IQmol 走的是逐步设置而非整字典套用）也不会残留上一个
-        # 样式的雾化状态。
-        self.set_fade_enabled(False)
+        # 景深雾化默认开启。重置样式时恢复开启，用户仍可用面板开关关闭；
+        # FogWidth 保留用户调过的强度，不因切换样式而被覆盖。
+        self.set_fade_enabled(True)
         # 等值面不透明度回到默认（ESP 顶点色表面除外：不透明度归 ESP 面板管）
         if not self._surf_vcolor:
             self._sp['opacity'] = float(_RENDER_DEFAULTS.get('OrbitalOpacity', 1.0))
@@ -5660,6 +5685,7 @@ class CubGLWidget(QOpenGLWidget):
         self._light_az = 0.0
         self._light_el = 0.0
         self.set_mv_gradient("")
+        self.set_flat_atoms(False)
         self.set_carbon_color(None)
         self.set_hydrogen_color(None)
         self.update()
@@ -5679,6 +5705,8 @@ class CubGLWidget(QOpenGLWidget):
         return {
             "mol_style": self._mol_style,
             "gradient": self._mv_grad_name(),
+            # 球棍平涂（2D 样式）：原子球/键不画径向渐变，等值面不受影响
+            "flat_atoms": bool(self._flat_atoms),
             "gloss": self._gloss,
             "light_count": self._light_count,
             "light_dirs": [list(d) for d in self._light_dirs],
@@ -5797,6 +5825,8 @@ class CubGLWidget(QOpenGLWidget):
         if ms in MOL_STYLE_NAMES:
             self.set_mol_style(ms)
         self.set_mv_gradient(st.get("gradient", ""))
+        # 球棍平涂开关：样式没写就复位（其它样式都是正常渐变）
+        self.set_flat_atoms(bool(st.get("flat_atoms", False)))
         # 等值面配色：必须放在**材质块之前** —— set_style() 会整体重建 _sp
         # （style_params），放后面会把文件里显式存的粗糙度/清漆/次表面等覆盖掉。
         # 放在这里则与 set_mol_style / set_mv_gradient 同级，后面的材质值最后生效。
@@ -6071,7 +6101,7 @@ class CubGLWidget(QOpenGLWidget):
         return self._peel_layers
 
     def set_fade_enabled(self, enabled):
-        """景深雾化（远处蒙白雾）开关。默认开启。"""
+        """景深雾化（远处向背景色淡出）开关。默认开启。"""
         self._fade_enabled = bool(enabled)
         self.update()
 
@@ -6087,7 +6117,7 @@ class CubGLWidget(QOpenGLWidget):
         self.update()
 
     def fog_strength(self):
-        """当前景深雾化强度（0..1）。"""
+        """当前景深雾化强度（0..2）。"""
         return float(self._sp.get('FogWidth', 0.0))
 
     # ── 实时后处理（超采样抗锯齿 + 边缘暗化）──────────────────────────
@@ -9951,6 +9981,7 @@ class CubGLWidget(QOpenGLWidget):
                                  spec_color=self._sp.get('spec_color',
                                                          (1.0, 1.0, 1.0)))
         self._set_mv_grad_uniform(self._prog_bond, self._mv_grad)
+        self._set_flat_atoms_uniform(self._prog_bond)
         self._bond_mesh.draw()
         if was_cull:
             glEnable(GL_CULL_FACE)
@@ -10600,6 +10631,7 @@ class CubGLWidget(QOpenGLWidget):
         on=False 时强制 u_MvGrad=0（选中标记等非球棍几何仍用三灯 Phong）。
         """
         self._set_mv_grad_uniform(self._prog_atom, self._mv_grad if on else 0)
+        self._set_flat_atoms_uniform(self._prog_atom)
 
     def _set_atom_ring_uniforms(self, on=True):
         """把十字圆环状态（开关/颜色/带宽 + 两条环面法线）写入原子着色器。
@@ -10633,6 +10665,12 @@ class CubGLWidget(QOpenGLWidget):
         """把一个程序的 u_MvGrad uniform 设为渐变类型 id（0=三灯 Phong）。"""
         if prog:
             glUniform1i(glGetUniformLocation(prog, 'u_MvGrad'), int(grad_id))
+
+    def _set_flat_atoms_uniform(self, prog):
+        """把「球棍平涂」开关写入原子/化学键着色器（等值面程序没有该 uniform）。"""
+        if prog:
+            glUniform1f(glGetUniformLocation(prog, 'u_FlatAtoms'),
+                        1.0 if self._flat_atoms else 0.0)
 
     def _set_orb_outline_uniforms(self, prog):
         """把等值面描边状态写入轨道着色器程序。"""

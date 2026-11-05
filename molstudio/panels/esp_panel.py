@@ -42,6 +42,56 @@ from molstudio.ui.file_dialogs import open_file, open_files, save_file, existing
 
 from molstudio.core.marching_cubes import read_cube, compute_bounding_sphere, marching_cubes, _trilinear
 
+
+# ── 写文件诊断/兜底 ──────────────────────────────────────────────────────
+# 有些运行环境（受限账户、杀软拦截、沙箱、只读目录）不允许在 fchk 所在目录
+# 新建文件；以前表现为 ESP 分析直接失败、_ESP 归档目录不出现。这里统一：
+#   * _test_writable() 先验证目标目录真的能写；
+#   * 写不了就退到 %TEMP%\MolStudio_ESP\ 并显式提示，避免整条流水线失败；
+#   * 任何写失败都记到 exe 同目录（源码运行时为仓库根）的 _molstudio_diag.log。
+
+def _diag_base():
+    """诊断日志所在目录：打包后是 exe 目录，源码运行是仓库根。"""
+    try:
+        import sys as _sys
+        if getattr(_sys, "frozen", False):
+            return os.path.dirname(os.path.abspath(_sys.executable))
+        return os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))
+    except Exception:
+        return os.getcwd()
+
+
+def _diag(msg):
+    """追加一行诊断信息（失败静默，绝不影响主流程）。"""
+    try:
+        import time as _t
+        with open(os.path.join(_diag_base(), "_molstudio_diag.log"),
+                  "a", encoding="utf-8") as f:
+            f.write("[%s] %s\n" % (_t.strftime("%Y-%m-%d %H:%M:%S"), msg))
+    except Exception:
+        pass
+
+
+def _test_writable(d):
+    """在目录 d 里建一个探针文件再删掉，确认真的可写。"""
+    try:
+        os.makedirs(d, exist_ok=True)
+        probe = os.path.join(d, "_write_probe.tmp")
+        with open(probe, "w", encoding="utf-8") as f:
+            f.write("x")
+        os.remove(probe)
+        return True
+    except Exception as e:
+        _diag("目录不可写: %r -> %r" % (d, e))
+        return False
+
+
+def _esp_fallback_dir(stem):
+    """fchk 目录不可写时的归档/导出兜底目录。"""
+    return os.path.join(tempfile.gettempdir(), "MolStudio_ESP", stem)
+
+
 # ── 进度解析（移植自 ESPViewer2/esp_surface_gui.py） ──
 _PROGRESS_PATTERNS = [
     (re.compile(r'(\d+(?:\.\d+)?)\s*%', re.IGNORECASE), 'pct'),
@@ -306,12 +356,43 @@ class EspWorker(QThread):
         self._proc.wait()
         return self._proc.returncode, "".join(out_lines)
 
+    def _prepare_archive_dir(self, fchk, arch_dir):
+        """确保归档目录可写；fchk 目录写不了就退到临时目录。
+
+        返回 (archive_dir, density_path, esp_path)。受限环境（只读目录、杀软
+        拦截、沙箱）下这样能保证 ESP 分析继续跑，而不是整个失败。
+        """
+        stem = os.path.splitext(os.path.basename(fchk))[0]
+        if _test_writable(arch_dir):
+            return (arch_dir,
+                    os.path.join(arch_dir, "density.cub"),
+                    os.path.join(arch_dir, "ESP.cub"))
+        fallback = _esp_fallback_dir(stem)
+        msg = "fchk 目录不可写（%s），归档改存到：%s" % (arch_dir, fallback)
+        _diag("ESP 归档目录兜底: " + msg)
+        try:
+            self.progress.emit("⚠ " + msg)
+            self.stage_msg.emit("⚠ " + msg)
+        except Exception:
+            pass
+        os.makedirs(fallback, exist_ok=True)
+        return (fallback,
+                os.path.join(fallback, "density.cub"),
+                os.path.join(fallback, "ESP.cub"))
+
     def _ensure_cubes(self, fchk):
         """生成（或复用归档的）density.cub / ESP.cub，返回 (density, esp)。"""
         stem = os.path.splitext(os.path.basename(fchk))[0]
         arch_dir = os.path.join(os.path.dirname(os.path.abspath(fchk)), f"{stem}_ESP")
         density_path = os.path.join(arch_dir, "density.cub")
         esp_path = os.path.join(arch_dir, "ESP.cub")
+        if not (os.path.exists(density_path) and os.path.exists(esp_path)):
+            # 上一次在受限环境下生成过归档 → 直接复用临时目录里的那份
+            fb = _esp_fallback_dir(stem)
+            fb_d = os.path.join(fb, "density.cub")
+            fb_e = os.path.join(fb, "ESP.cub")
+            if os.path.exists(fb_d) and os.path.exists(fb_e):
+                arch_dir, density_path, esp_path = fb, fb_d, fb_e
         if not (os.path.exists(density_path) and os.path.exists(esp_path)):
             self.stage_msg.emit(f"运行 Multiwfn 生成 density/ESP cube（{stem}）…")
             self.progress.emit(f"运行 Multiwfn 生成 density/ESP cube（{stem}）…")
@@ -328,7 +409,8 @@ class EspWorker(QThread):
                 e_src = os.path.join(tmp, "totesp.cub")
                 if not (os.path.exists(d_src) and os.path.exists(e_src)):
                     raise RuntimeError("Multiwfn 未生成 density.cub / totesp.cub")
-                os.makedirs(arch_dir, exist_ok=True)
+                arch_dir, density_path, esp_path = self._prepare_archive_dir(
+                    fchk, arch_dir)
                 shutil.move(d_src, density_path)
                 shutil.move(e_src, esp_path)
             finally:
@@ -418,6 +500,8 @@ class EspWorker(QThread):
                 result["n_merged"] = len(surfs)
             self.finished.emit(result)
         except Exception as e:
+            _diag("EspWorker 失败: %r\nfchk=%r\n%s" % (
+                e, getattr(self, "fchk_list", None), traceback.format_exc()))
             traceback.print_exc()
             self.error.emit(str(e))
 
@@ -481,6 +565,11 @@ class EspAreaWorker(QThread):
                     continue
                 all_data.append((os.path.basename(fchk), data))
                 out_dir = os.path.dirname(os.path.abspath(fchk))
+                if not _test_writable(out_dir):
+                    out_dir = _esp_fallback_dir(stem)
+                    os.makedirs(out_dir, exist_ok=True)
+                    self.progress.emit(
+                        "⚠ fchk 目录不可写，图表/数据改存到：%s" % out_dir)
                 chart = os.path.join(out_dir, f"{stem}_esp_area.png")
                 if plot_esp_area_histogram(
                         data, chart, title=f"ESP Area Distribution - {stem}"):
@@ -493,6 +582,8 @@ class EspAreaWorker(QThread):
                 results.append(data_path)
             self.finished.emit({"files": results, "area_data": all_data})
         except Exception as e:
+            _diag("EspAreaWorker 失败: %r\nfchk=%r\n%s" % (
+                e, getattr(self, "fchk_list", None), traceback.format_exc()))
             traceback.print_exc()
             self.error.emit(str(e))
 
@@ -1421,12 +1512,21 @@ class EspPanel(QWidget):
         return f2 if f2 and os.path.exists(f2) else ""
 
     def _cube_paths_for(self, fchk):
-        """返回某 fchk 的归档 density/ESP cube 路径（可能不存在）。"""
+        """返回某 fchk 的归档 density/ESP cube 路径（可能不存在）。
+
+        fchk 目录写不了时归档会在 %TEMP%\\MolStudio_ESP\\<stem>，这里一并查找。
+        """
         stem = os.path.splitext(os.path.basename(fchk))[0]
-        arch_dir = os.path.join(os.path.dirname(os.path.abspath(fchk)),
-                                f"{stem}_ESP")
-        return (os.path.join(arch_dir, "density.cub"),
-                os.path.join(arch_dir, "ESP.cub"))
+        primary = os.path.join(os.path.dirname(os.path.abspath(fchk)),
+                               f"{stem}_ESP")
+        fallback = _esp_fallback_dir(stem)
+        for d in (primary, fallback):
+            dp = os.path.join(d, "density.cub")
+            ep = os.path.join(d, "ESP.cub")
+            if os.path.exists(dp) and os.path.exists(ep):
+                return dp, ep
+        return (os.path.join(primary, "density.cub"),
+                os.path.join(primary, "ESP.cub"))
 
     @staticmethod
     def _vmd_cmap_name(cmap_name, invert=False):

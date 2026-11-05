@@ -35,7 +35,7 @@ binaries = [(_MSVCP140, ".")] if os.path.exists(_MSVCP140) else []
 
 hiddenimports = collect_submodules("molstudio") + [
     # 第三方（部分在函数内延迟 import，显式声明确保收集）
-    "numpy", "mcubes", "matplotlib",
+    "numpy", "scipy", "mcubes", "matplotlib",
     # 导出 SVG 用 QSvgGenerator（PyQt5.QtSvg 是独立扩展模块，
     # 只有 Qt5Svg.dll / qsvg.dll 不会自动带上 Python 绑定）
     "PyQt5.QtSvg",
@@ -76,16 +76,24 @@ pyz = PYZ(a.pure)
 # 直接写入（即使覆盖已存在文件），导致 COLLECT 阶段 PermissionError。
 # 处理：先从 a.binaries 剔除，COLLECT 完成后用「写临时名 → os.rename」
 # 技巧绕过拦截放回 _internal（rename 不受该规则限制）。
-_BLOCKED_DLLS = {'ucrtbase.dll', 'd3dcompiler_47.dll'}
+_BLOCKED_DLLS = {'msvcp140.dll', 'ucrtbase.dll', 'd3dcompiler_47.dll'}
 _blocked_entries = []
-_kept = []
-for b in a.binaries:
-    name = b[0].replace('\\', '/').rsplit('/', 1)[-1]
-    if name in _BLOCKED_DLLS:
-        _blocked_entries.append(b)
-    else:
-        _kept.append(b)
-a.binaries = _kept
+
+
+def _remove_blocked(entries):
+    """Remove blocked DLLs from both binaries and the binary->data fallback."""
+    kept = []
+    for entry in entries:
+        name = entry[0].replace('\\', '/').rsplit('/', 1)[-1].lower()
+        if name in _BLOCKED_DLLS:
+            _blocked_entries.append(entry)
+        else:
+            kept.append(entry)
+    return kept
+
+
+a.binaries = _remove_blocked(a.binaries)
+a.datas = _remove_blocked(a.datas)
 
 exe = EXE(
     pyz,

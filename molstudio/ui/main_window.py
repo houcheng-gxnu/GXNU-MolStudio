@@ -34,7 +34,7 @@ from PyQt5.QtGui import (
 import molstudio.core.fchk_orbital as backend
 from molstudio.core.fchk_orbital import find_tachyon
 import molstudio.render.orbital_viewer_lib as ovlib
-from molstudio.ui.file_dialogs import open_file, existing_directory
+from molstudio.ui.file_dialogs import open_file, save_file, existing_directory
 from molstudio.render.molcanvas import (
     MolCanvas, get_atoms_from_fchk, get_bonds_from_fchk,
     get_atoms_from_cube, get_bonds_from_cube, ELEMENT_SYMBOLS,
@@ -95,6 +95,13 @@ try:
 except Exception:
     _HAS_ETSNOCV_PANEL = False
 
+# ── 电子密度差（母体 − 一个或多个片段/状态波函数，sobereva.com/113） ──
+try:
+    from molstudio.panels.edd_panel import EDDPanel
+    _HAS_EDD_PANEL = True
+except Exception:
+    _HAS_EDD_PANEL = False
+
 # ── MPP 分子平面性参数分析（移植自 mpp_auto_qt.py） ──
 try:
     from molstudio.panels.mpp_panel import MPPPanel
@@ -109,12 +116,40 @@ try:
 except Exception:
     _HAS_SURFPROJ_PANEL = False
 
+# ── 位阻地图 / 包埋体积（SambVca 2.1 官方算法的内置 numpy 复刻） ──
+try:
+    from molstudio.panels.steric_panel import StericPanel
+    _HAS_STERIC_PANEL = True
+except Exception:
+    _HAS_STERIC_PANEL = False
+
+# ── xTB 半经验计算（调用外部 xTB 程序：SP/OPT/OHEss/Hess/TS/Scan） ──
+try:
+    from molstudio.panels.xtb_panel import XtbPanel
+    _HAS_XTB_PANEL = True
+except Exception:
+    _HAS_XTB_PANEL = False
+
 # ── AICD 感应电流密度各向异性（Gaussian nmr=csgt iop(10/93)，Herges 组方法） ──
 try:
     from molstudio.panels.aicd_panel import AicdPanel
     _HAS_AICD_PANEL = True
 except Exception:
     _HAS_AICD_PANEL = False
+
+# ── Gaussian → Multiwfn 分子光谱（UV-Vis / ECD / IR / Raman / VCD / ROA） ──
+try:
+    from molstudio.panels.spectrum_panel import SpectrumPanel
+    _HAS_SPECTRUM_PANEL = True
+except Exception:
+    _HAS_SPECTRUM_PANEL = False
+
+# ── 态密度 TDOS / PDOS / OPDOS（Multiwfn 主功能 10，sobereva.com/482） ──
+try:
+    from molstudio.panels.dos_panel import DOSPanel
+    _HAS_DOS_PANEL = True
+except Exception:
+    _HAS_DOS_PANEL = False
 
 
 # ── IRC 整合分析（整合自早期的 IRC_Integrated_Qt.py） ──
@@ -203,9 +238,14 @@ _NAV_EMOJI = {
     "tab_igmh":        "🕸️",   # IGMH 弱相互作用
     "tab_aim":         "🎯",   # AIM 临界点
     "tab_etsnocv":     "🔄",   # ETS-NOCV 轨道相互作用/电荷转移
+    "tab_edd":         "🪞",   # 电子密度差
     "tab_mpp":         "📐",   # MPP 分子平面性
     "tab_surfproj":    "🗺️",   # 表面距离投影图
+    "tab_steric":      "🧱",   # 位阻地图 / 包埋体积（SambVca）
     "tab_aicd":        "🧲",   # AICD 感应电流密度
+    "tab_spectrum":    "🌈",   # Gaussian → Multiwfn 分子光谱
+    "tab_dos":         "📈",   # TDOS / PDOS / OPDOS
+    "tab_xtb":         "⚡",   # xTB 半经验计算
     "tab_irc":         "🧭",   # IRC 反应路径
     "tab_di":          "🧩",   # DI 能量分解
     "tab_asm_irc":     "📈",   # ASM 沿 IRC 扫描
@@ -958,6 +998,50 @@ class OrbitalVisApp(QMainWindow):
         tab_setup_layout.addWidget(self.orbital_tabs, 1)
         self._add_tab(tab_setup, "tab_setup")
 
+        # ── 光谱工作流：分子导入 → Gaussian → Multiwfn 一键出图 ──
+        self.spectrum_panel = None
+        if _HAS_SPECTRUM_PANEL:
+            try:
+                self.spectrum_panel = SpectrumPanel(
+                    get_structure=lambda: (
+                        getattr(self.mol_canvas, "atoms", []),
+                        getattr(self.mol_canvas, "bonds", [])),
+                    get_multiwfn=lambda: self.paths.get("multiwfn", "") or "",
+                    get_g16=lambda: self.paths.get("gaussian", "") or "",
+                    on_structure_loaded=self._apply_spectrum_structure,
+                    log_func=self._append_log,
+                    parent=self,
+                )
+                self._add_tab(self.spectrum_panel, "tab_spectrum")
+            except Exception as e:
+                self.spectrum_panel = None
+                self._append_log("[spectrum] 光谱面板初始化失败：%s" % e)
+
+        # ── 态密度工作流：轨道能级/片段成分 → Multiwfn → MolStudio 出图 ──
+        self.dos_panel = None
+        if _HAS_DOS_PANEL:
+            try:
+                self.dos_panel = DOSPanel(
+                    get_input_path=lambda: self.var_path.text().strip(),
+                    get_multiwfn=lambda: self.paths.get("multiwfn", "") or "",
+                    get_selected_atoms=lambda: (
+                        [index + 1 for index in getattr(
+                            self.cub_canvas.glw, "_selected_atoms", [])]
+                        if self.cub_canvas is not None
+                        and getattr(self.cub_canvas, "glw", None) is not None
+                        else []),
+                    log_func=self._append_log,
+                    parent=self,
+                )
+                self._add_tab(self.dos_panel, "tab_dos")
+                self.var_path.textChanged.connect(
+                    self.dos_panel.set_source_from_main)
+                self.dos_panel.set_source_from_main(
+                    self.var_path.text().strip())
+            except Exception as e:
+                self.dos_panel = None
+                self._append_log("[DOS] 态密度面板初始化失败：%s" % e)
+
         # （原「VMD 渲染」tab 已取消：渲染参数/动作按钮搬到左侧画布下方，
         #   见 _build_left_vmd_area；tab 索引顺移，_set_tab_texts 已同步）
 
@@ -1065,12 +1149,37 @@ class OrbitalVisApp(QMainWindow):
                     get_multiwfn=_get_mw,
                     get_vmd=lambda: self.paths.get("vmd", "") or "",
                     get_tachyon=lambda: self.paths.get("tachyon", "") or "",
+                    get_g16=lambda: self.paths.get("gaussian", "") or "",
                     log_func=self._append_log,
                     parent=self,
                 )
                 self._add_tab(self.etsnocv_panel, "tab_etsnocv")
             except Exception:
                 self.etsnocv_panel = None
+
+        # ── 电子密度差分析 tab ──
+        self.edd_panel = None
+        if _HAS_EDD_PANEL:
+            glw = self.cub_canvas.glw if self.cub_canvas is not None else None
+            try:
+                self.edd_panel = EDDPanel(
+                    glw=glw,
+                    get_fchk=lambda: getattr(self, "_current_fchk", "") or "",
+                    get_multiwfn=_get_mw,
+                    get_g16=lambda: self.paths.get("gaussian", "") or "",
+                    get_selected_atoms=lambda: (
+                        [index + 1 for index in getattr(glw, "_selected_atoms", [])]
+                        if glw is not None else []),
+                    log_func=self._append_log,
+                    parent=self,
+                )
+                self._add_tab(self.edd_panel, "tab_edd")
+                self.var_path.textChanged.connect(
+                    self.edd_panel.set_complex_from_main)
+                self.edd_panel.set_complex_from_main(self.var_path.text().strip())
+            except Exception as exc:
+                self.edd_panel = None
+                self._append_log("[EDD] 电子密度差面板初始化失败：%s" % exc)
 
         # ── MPP 分子平面性参数分析 tab ──
         self.mpp_panel = None
@@ -1110,6 +1219,40 @@ class OrbitalVisApp(QMainWindow):
             except Exception:
                 self.surfproj_panel = None
 
+        # ── 位阻地图 / 包埋体积 tab（%VBur + topographic steric map） ──
+        # 结构默认取左侧画布当前分子；也可在面板内导入 xyz/gjf/log/inp。
+        # glw 用于「按画布视角定向」与「画布点选球心 / z 轴 / xz / 删除原子」。
+        self.steric_panel = None
+        if _HAS_STERIC_PANEL:
+            glw = self.cub_canvas.glw if self.cub_canvas is not None else None
+            try:
+                self.steric_panel = StericPanel(
+                    get_structure=self._get_canvas_structure,
+                    log_func=self._append_log,
+                    glw=glw,
+                    parent=self,
+                )
+                self._add_tab(self.steric_panel, "tab_steric")
+            except Exception as e:
+                self.steric_panel = None
+                self._append_log("[steric] 位阻地图面板初始化失败：%s" % e)
+
+        # ── xTB 半经验计算 tab（外部 xTB 程序：SP/OPT/OHEss/Hess/TS/Scan） ──
+        # 结构默认取左侧画布；优化/频率结果可一键送回画布。
+        self.xtb_panel = None
+        if _HAS_XTB_PANEL:
+            try:
+                self.xtb_panel = XtbPanel(
+                    get_structure=self._get_canvas_structure,
+                    on_structure_loaded=self._apply_xtb_structure,
+                    log_func=self._append_log,
+                    parent=self,
+                )
+                self._add_tab(self.xtb_panel, "tab_xtb")
+            except Exception as e:
+                self.xtb_panel = None
+                self._append_log("[xtb] xTB 计算面板初始化失败：%s" % e)
+
         # ── AICD 感应电流密度各向异性 tab（Gaussian 张量转储 → 效果图） ──
         self.aicd_panel = None
         if _HAS_AICD_PANEL:
@@ -1146,10 +1289,8 @@ class OrbitalVisApp(QMainWindow):
         # ── DI 能量分解分析 tab ──
         self.di_panel = None
         if _HAS_DI_PANEL:
-            glw = self.cub_canvas.glw if self.cub_canvas is not None else None
             try:
                 self.di_panel = DiAnalysisPanel(
-                    glw=glw,
                     log_func=self._append_log,
                     parent=self,
                 )
@@ -1357,10 +1498,20 @@ class OrbitalVisApp(QMainWindow):
         self.var_path = QLineEdit()
         self.var_path.setPlaceholderText("")
         layout.addWidget(self.var_path, stretch=1)
+        self.btn_molecule_library = QPushButton()
+        self.btn_molecule_library.setObjectName("SmallBtn")
+        self.btn_molecule_library.setCursor(Qt.PointingHandCursor)
+        self.btn_molecule_library.clicked.connect(self._open_molecule_library)
+        layout.addWidget(self.btn_molecule_library)
         self.btn_browse_input = QPushButton("")
         self.btn_browse_input.setObjectName("SmallBtn")
         self.btn_browse_input.clicked.connect(self._browse_input)
         layout.addWidget(self.btn_browse_input)
+        self.btn_ppt3d = QPushButton()
+        self.btn_ppt3d.setObjectName("SmallBtn")
+        self.btn_ppt3d.setCursor(Qt.PointingHandCursor)
+        self.btn_ppt3d.clicked.connect(self._export_current_ppt3d)
+        layout.addWidget(self.btn_ppt3d)
 
         self._lang_btn = QPushButton("EN")
         self._lang_btn.setObjectName("SmallBtn")
@@ -2200,6 +2351,11 @@ class OrbitalVisApp(QMainWindow):
                 self.etsnocv_panel.shutdown()
             except Exception:
                 pass
+        if getattr(self, "edd_panel", None) is not None:
+            try:
+                self.edd_panel.shutdown()
+            except Exception:
+                pass
         if getattr(self, "mpp_panel", None) is not None:
             try:
                 self.mpp_panel.shutdown()
@@ -2248,6 +2404,26 @@ class OrbitalVisApp(QMainWindow):
         if getattr(self, "ircsplit_panel", None) is not None:
             try:
                 self.ircsplit_panel.shutdown()
+            except Exception:
+                pass
+        if getattr(self, "spectrum_panel", None) is not None:
+            try:
+                self.spectrum_panel.shutdown()
+            except Exception:
+                pass
+        if getattr(self, "dos_panel", None) is not None:
+            try:
+                self.dos_panel.shutdown()
+            except Exception:
+                pass
+        if getattr(self, "steric_panel", None) is not None:
+            try:
+                self.steric_panel.shutdown()
+            except Exception:
+                pass
+        if getattr(self, "xtb_panel", None) is not None:
+            try:
+                self.xtb_panel.shutdown()
             except Exception:
                 pass
         # 5) 停掉自旋密度后台线程（cancel_check 使 Multiwfn 快速退出）
@@ -2310,6 +2486,12 @@ class OrbitalVisApp(QMainWindow):
                     self.etsnocv_panel.set_lang(i18n._CURRENT_LANG)
                 except Exception:
                     pass
+        if getattr(self, "edd_panel", None) is not None:
+            if hasattr(self.edd_panel, "set_lang"):
+                try:
+                    self.edd_panel.set_lang(i18n._CURRENT_LANG)
+                except Exception:
+                    pass
         if getattr(self, "mpp_panel", None) is not None:
             if hasattr(self.mpp_panel, "set_lang"):
                 try:
@@ -2319,7 +2501,9 @@ class OrbitalVisApp(QMainWindow):
         # 后加入的面板（IRC / DI / ASM / ESM / IRC 拆分 / CUB 叠加 / 晶体）
         for _name in ("irc_panel", "di_panel", "asm_irc_panel", "esm_panel",
                       "ircsplit_panel", "cub_stack_panel", "crystal_panel",
-                      "crystal_bar", "surfproj_panel", "aicd_panel"):
+                      "crystal_bar", "surfproj_panel", "steric_panel",
+                      "xtb_panel", "aicd_panel", "spectrum_panel",
+                      "dos_panel", "edd_panel"):
             _panel = getattr(self, _name, None)
             if _panel is not None and hasattr(_panel, "set_lang"):
                 try:
@@ -2384,7 +2568,7 @@ class OrbitalVisApp(QMainWindow):
         self._refresh_citation_panel()
 
     # 纯数据/能量分析页面：不需要左侧 OpenGL 画布，隐藏后右栏占满
-    _NO_CANVAS_KEYS = ("tab_esm", "tab_asm_irc")
+    _NO_CANVAS_KEYS = ("tab_esm", "tab_asm_irc", "tab_dos", "tab_di")
 
     def _on_tab_changed(self, index):
         """切换右侧页面：同步导航高亮，并按页面需要显示/隐藏左侧画布。"""
@@ -2506,6 +2690,20 @@ class OrbitalVisApp(QMainWindow):
         self.rb_folder.setText(self._tr("rb_folder"))
         self.rb_file.setText(self._tr("rb_file"))
         self.btn_browse_input.setText(self._tr("btn_browse"))
+        self.btn_molecule_library.setText(
+            "结构库" if self._lang == "zh" else "Library")
+        self.btn_molecule_library.setToolTip(
+            "浏览内置的初中、高中常用分子结构"
+            if self._lang == "zh"
+            else "Browse built-in school molecule structures")
+        self.btn_ppt3d.setText(
+            "PPT 3D" if self._lang == "zh" else "PPT 3D")
+        self.btn_ppt3d.setToolTip(
+            "把当前分子导出为 PowerPoint 365 可旋转的 .glb 3D 模型；"
+            "保留画布配色、键样式、显示范围和当前视角"
+            if self._lang == "zh"
+            else "Export a rotatable PowerPoint 365 .glb using the current "
+                 "canvas palette, bond style, visibility, and view")
         self._lang_btn.setText(self._tr("lang_btn"))
         self.var_path.setPlaceholderText(self._tr("placeholder_input"))
 
@@ -2670,7 +2868,7 @@ class OrbitalVisApp(QMainWindow):
             path = urls[0].toLocalFile()
             ext = os.path.splitext(path)[1].lower()
             if ext in (".fchk", ".fch", ".log", ".out", ".cub", ".cube",
-                       ".xyz"):
+                       ".xyz", ".gjf", ".com"):
                 self.var_path.setText(path)
                 self._load_molecule(path)
 
@@ -4094,6 +4292,165 @@ class OrbitalVisApp(QMainWindow):
 
     # ── Browse Methods ──
 
+    def _open_molecule_library(self):
+        """Open the bundled teaching library and load the chosen XYZ."""
+        try:
+            from molstudio.ui.molecule_library_dialog import MoleculeLibraryDialog
+        except Exception as exc:                              # noqa: BLE001
+            QMessageBox.warning(
+                self, "分子结构库" if self._lang == "zh" else "Molecule library",
+                str(exc))
+            return
+
+        def _load_library_molecule(path, entry):
+            self.var_path.setText(path)
+            self._load_molecule(path)
+            style = str(getattr(entry, "style", "") or "")
+            if style and self.cub_canvas is not None:
+                try:
+                    self.cub_canvas.set_mol_style_name(style)
+                except Exception:                             # noqa: BLE001
+                    pass
+            self._append_log(
+                "[结构库] %s  %s" % (
+                    entry.display_name(self._lang), path))
+
+        def _export_library_ppt(target, entry):
+            from molstudio.core.molecule_export import export_glb
+            from molstudio.core.molecule_library import molecule_path
+            source = str(molecule_path(entry))
+            _load_library_molecule(source, entry)
+            got = self._get_canvas_structure()
+            if not got:
+                raise ValueError("无法从画布读取所选分子")
+            symbols, coords = got
+            export_glb(
+                target, symbols, coords, title=entry.display_name(self._lang),
+                **self._ppt3d_canvas_options(symbols))
+
+        dialog = MoleculeLibraryDialog(
+            parent=self, lang=self._lang, on_visualize=_load_library_molecule,
+            on_export_ppt=_export_library_ppt)
+        dialog.exec_()
+
+    def _export_current_ppt3d(self):
+        """Export the current canvas molecule as PowerPoint-compatible GLB."""
+        got = self._get_canvas_structure()
+        if not got:
+            QMessageBox.information(
+                self, "PPT 3D" if self._lang == "zh" else "PPT 3D",
+                "请先在画布中载入一个分子结构。"
+                if self._lang == "zh" else
+                "Load a molecular structure onto the canvas first.")
+            return
+        symbols, coords = got
+        current = self.var_path.text().strip()
+        stem = (os.path.splitext(os.path.basename(current))[0]
+                if current else "molecule")
+        start_dir = (os.path.dirname(current) if current and os.path.isfile(current)
+                     else os.path.expanduser("~/Desktop"))
+        default = os.path.join(start_dir or os.getcwd(), stem + "_ppt3d.glb")
+        path, _selected = save_file(
+            self, "导出 PowerPoint 3D 模型" if self._lang == "zh"
+            else "Export PowerPoint 3D model",
+            default, "PowerPoint 3D 模型 (*.glb);;GLB (*.glb)")
+        if not path:
+            return
+        if not path.lower().endswith(".glb"):
+            path += ".glb"
+        try:
+            from molstudio.core.molecule_export import export_glb
+            options = self._ppt3d_canvas_options(symbols)
+            export_glb(path, symbols, coords, title=stem, **options)
+        except Exception as exc:                              # noqa: BLE001
+            QMessageBox.warning(
+                self, "PPT 3D" if self._lang == "zh" else "PPT 3D",
+                ("导出失败：%s" if self._lang == "zh" else
+                 "Export failed: %s") % exc)
+            return
+        self._append_log("[PPT 3D] 已导出：%s" % path)
+        QMessageBox.information(
+            self, "PPT 3D" if self._lang == "zh" else "PPT 3D",
+            ("已导出：\n%s\n\nPowerPoint 365：插入 → 3D 模型 → 此设备，"
+             "选择该 .glb 文件。模型已使用当前画布配色与视角；"
+             "插入后可拖动旋转，并可用 3D 模型动画。"
+             if self._lang == "zh" else
+             "Exported:\n%s\n\nPowerPoint 365: Insert → 3D Models → This Device, "
+             "then select the .glb file. The current canvas palette, visibility, "
+             "and view are preserved. Drag to rotate and add a 3D model "
+             "animation as needed.") % path)
+
+    def _ppt3d_canvas_options(self, symbols):
+        """Capture canvas palette, radii, bond style and current view for GLB."""
+        glw = getattr(getattr(self, "cub_canvas", None), "glw", None)
+        if glw is None:
+            return {}
+        bohr_to_angstrom = 0.529177210903
+        atom_colors = []
+        atom_radii = []
+        visible_atoms = []
+        for index, symbol in enumerate(symbols, start=1):
+            anum = int(_SYMBOL_TO_AN.get(str(symbol).capitalize(), 0))
+            visible_atoms.append(bool(glw._hydrogen_visible(index, anum)))
+            color = glw._atom_color(anum)
+            if index in getattr(glw, "_atom_color_overrides", {}):
+                color = glw._atom_color_overrides[index]
+            elif anum in getattr(glw, "_element_color_overrides", {}):
+                color = glw._element_color_overrides[anum]
+            atom_colors.append(tuple(float(v) for v in color[:3]))
+            atom_radii.append(float(glw._ball_radius(anum)) * bohr_to_angstrom)
+
+        state = {}
+        try:
+            state = glw.get_style_state()
+        except Exception:                                    # noqa: BLE001
+            pass
+        uniform_bond = getattr(glw, "_bond_color", None)
+        if uniform_bond is None and getattr(glw, "_mol_style", "") == "HoukMol":
+            uniform_bond = (0.0, 0.0, 0.0)
+
+        # GLB bonds are single by default. Only explicit per-bond edits made
+        # on the canvas are carried into the export.
+        orders = {}
+        for (a, b), value in getattr(glw, "_bond_overrides", {}).items():
+            pair = (min(int(a) + 1, int(b) + 1), max(int(a) + 1, int(b) + 1))
+            if value in ("double", "deloc"):
+                orders[pair] = 2
+            elif value == "triple":
+                orders[pair] = 3
+            else:
+                orders.pop(pair, None)
+
+        rotation = None
+        try:
+            from molstudio.core.surface_projection import camera_rotation
+            rotation = camera_rotation(glw)
+        except Exception:                                    # noqa: BLE001
+            pass
+        return {
+            "atom_colors": atom_colors,
+            "atom_radii": atom_radii,
+            "visible_atoms": visible_atoms,
+            "bond_color": uniform_bond,
+            "bond_dual_colors": uniform_bond is None,
+            "bond_radius": float(glw._bond_radius()) * bohr_to_angstrom,
+            "bond_orders": [
+                (a, b, order) for (a, b), order in sorted(orders.items())
+            ],
+            "view_rotation": rotation,
+            "roughness": float(state.get("roughness", 0.48)),
+            "bond_roughness": 0.55,
+            # Match the clean glTF route used by common molecular web viewers:
+            # one double-sided PBR material, per-vertex colours and dense meshes.
+            "native_pbr": True,
+            "high_detail": True,
+            "bake_ao": True,
+            "ao_rays": 8,
+            "atom_outline": True,
+            "outline_ratio": 0.065,
+            "outline_color": (0.0, 0.0, 0.0),
+        }
+
     def _browse_input(self):
         if self.mode_group.checkedId() == 0:
             path = existing_directory(self, self._tr("dlg_select_input_folder"))
@@ -4173,6 +4530,38 @@ class OrbitalVisApp(QMainWindow):
             else:
                 self._append_log(f"Failed to parse XYZ file: {os.path.basename(path)}")
                 return
+        elif ext in (".gjf", ".com"):
+            try:
+                from molstudio.panels.etsnocv.molcanvas import (
+                    get_atoms_from_any as _get_atoms_any,
+                    get_bonds_from_fchk as _get_bonds_any,
+                )
+                atoms = _get_atoms_any(path)
+                bonds = _get_bonds_any(atoms) if atoms else []
+            except Exception as exc:
+                atoms, bonds = [], []
+                self._append_log(
+                    "Failed to parse Gaussian input: %s" % exc)
+            if atoms:
+                self.mol_canvas.set_data(atoms, bonds)
+                if self.cub_canvas is not None:
+                    self.cub_canvas.set_molecule(atoms, bonds)
+                self._current_fchk = None
+                self.btn_run.setEnabled(False)
+                self.btn_preview.setEnabled(True)
+                self.btn_render.setEnabled(False)
+                self.btn_dash_mode.setEnabled(True)
+                self._update_color_buttons()
+                self._clear_orbital_table()
+                self._append_log(
+                    "%d atoms, %d bonds  |  %s" % (
+                        len(atoms), len(bonds),
+                        os.path.basename(path)))
+                return
+            self._append_log(
+                "No atoms found in Gaussian input: %s" %
+                os.path.basename(path))
+            return
         else:
             return
         try:
@@ -4208,6 +4597,93 @@ class OrbitalVisApp(QMainWindow):
             import traceback
             self._append_log(f"Parse error: {e}\n{traceback.format_exc()}")
 
+    def _apply_spectrum_structure(self, atoms, bonds, path=""):
+        """把光谱面板导入的结构同步到主画布。"""
+        if not atoms:
+            return
+        self.mol_canvas.set_data(atoms, bonds or [])
+        if self.cub_canvas is not None:
+            self.cub_canvas.set_molecule(atoms, bonds or [])
+        self._current_fchk = path if (
+            path and os.path.splitext(path)[1].lower() in (".fchk", ".fch")
+        ) else None
+        self.var_path.setText(path or "")
+        self.btn_run.setEnabled(bool(self._current_fchk))
+        self.btn_preview.setEnabled(True)
+        self.btn_render.setEnabled(bool(self._current_fchk))
+        self.btn_dash_mode.setEnabled(True)
+        self._update_color_buttons()
+        self._append_log(
+            "%d atoms, %d bonds  |  %s" % (
+                len(atoms), len(bonds or []),
+                os.path.basename(path) if path else "canvas"))
+
+    def _get_canvas_structure(self):
+        """把左侧画布当前分子读成 (symbols, coords/Å)，供「位阻地图」等面板使用。
+
+        优先读 MolCanvas 的原子表（``(序号, 元素符号, 原子序数, (x,y,z))``，Å）；
+        MolCanvas 为空时回退到 OpenGL 画布内部坐标（Bohr → Å）。返回 ``None``
+        表示画布上还没有结构。
+        """
+        import numpy as np
+
+        atoms = getattr(self, "mol_canvas", None)
+        atoms = getattr(atoms, "atoms", None) or []
+        symbols, coords = [], []
+        for rec in atoms:
+            try:
+                symbols.append(str(rec[1]))
+                x, y, z = rec[3]
+                coords.append((float(x), float(y), float(z)))
+            except (IndexError, TypeError, ValueError):
+                return None
+        if symbols:
+            return symbols, np.asarray(coords, dtype=float)
+        # 回退：OpenGL 画布内部把坐标存成 Bohr
+        glw = getattr(self, "cub_canvas", None)
+        glw = getattr(glw, "glw", None)
+        if glw is not None:
+            try:
+                from molstudio.core.surface_projection import atoms_from_canvas
+                got = atoms_from_canvas(glw)
+                if got is not None:
+                    syms, xyz = got
+                    if syms:
+                        return list(syms), np.asarray(xyz, dtype=float)
+            except Exception:
+                pass
+        return None
+
+    def _apply_xtb_structure(self, symbols, coords, label=""):
+        """把 xTB 面板算出的结构（优化/末帧/单点输入）送回左侧画布。
+
+        ``symbols`` / ``coords``（Å）来自 ``molstudio.core.xtb``；这里转成
+        MolCanvas 的原子元组并自动判键，不改变当前输入文件路径（不丢 fchk 状态）。
+        """
+        import numpy as np
+
+        symbols = [str(s) for s in (symbols or [])]
+        if not symbols or coords is None:
+            return
+        coords = np.asarray(coords, dtype=float)
+        if coords.ndim != 2 or coords.shape[0] != len(symbols):
+            return
+        atoms = []
+        for i, (sym, xyz) in enumerate(zip(symbols, coords), start=1):
+            an = _SYMBOL_TO_AN.get(sym.capitalize(), 0)
+            atoms.append((i, sym, an,
+                          (float(xyz[0]), float(xyz[1]), float(xyz[2]))))
+        bonds = get_bonds_from_fchk(atoms) if atoms else []
+        try:
+            self.mol_canvas.set_data(atoms, bonds)
+            if self.cub_canvas is not None:
+                self.cub_canvas.set_molecule(atoms, bonds)
+        except Exception as exc:                                   # noqa: BLE001
+            self._append_log("[xtb] 送回画布失败：%s" % exc)
+            return
+        tag = (" " + str(label)) if label else ""
+        self._append_log("[xtb] 结构已送回画布：%d 原子%s" % (len(atoms), tag))
+
     def _parse_xyz(self, path):
         """Parse XYZ file → (atoms, bonds) tuples."""
         atoms = []
@@ -4219,10 +4695,31 @@ class OrbitalVisApp(QMainWindow):
             natom = int(lines[0])
         except ValueError:
             return [], []
-        # 跳过 comment 行, 从第2行开始解析原子
-        start = 2 if len(lines) > 2 and not lines[1][0].isalpha() else 1
+        # 标准 XYZ：第 1 行原子数、第 2 行注释、第 3 行起是原子。注释行可以是
+        # 任意文本（包括 "energy -1.0 2.0 3.0" 这种带数字的），所以不能凭第 2 行
+        # 长相判断；先按标准布局验证第 3 行起的 natom 行是否都像原子行，成立就
+        # 认为有注释行；否则再看第 2 行本身是否像原子行（兼容没有注释行的写法）。
+        def _looks_atom(line):
+            parts = line.split()
+            if len(parts) < 4:
+                return False
+            try:
+                float(parts[1]), float(parts[2]), float(parts[3])
+                return True
+            except ValueError:
+                return False
+
+        if len(lines) >= natom + 2 and all(
+                _looks_atom(ln) for ln in lines[2:2 + natom]):
+            start = 2
+        elif len(lines) > 1 and _looks_atom(lines[1]):
+            start = 1
+        else:
+            start = 2
         center = 0
-        for line in lines[start:start + natom]:
+        for line in lines[start:]:
+            if center >= natom:
+                break
             parts = line.split()
             if len(parts) < 4:
                 continue

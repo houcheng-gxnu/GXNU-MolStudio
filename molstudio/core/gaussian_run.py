@@ -149,8 +149,11 @@ def find_chk_file(log_path):
     return ""
 
 
-def chk_to_fchk(chk_path, formchk_exe=None, timeout=300):
+def chk_to_fchk(chk_path, formchk_exe=None, timeout=300, output_path=None):
     """``formchk`` 把 .chk 转成 .fchk（Multiwfn 的 π 轨道分析要用）。
+
+    ``output_path`` 可指定输出名；ETS-NOCV 流程用 ``.fch``，它与 ``.fchk``
+    是同一格式。省略时保持原来的同名 ``.fchk`` 行为，兼容 AICD 等模块。
 
     返回 fchk 路径；失败抛 ``RuntimeError``（调用方负责显示）。
     """
@@ -159,7 +162,9 @@ def chk_to_fchk(chk_path, formchk_exe=None, timeout=300):
     exe = formchk_exe or find_formchk()
     if not exe or not os.path.isfile(exe):
         raise RuntimeError("找不到 formchk.exe（应与 g16.exe 在同一目录）")
-    fchk = os.path.splitext(os.path.abspath(chk_path))[0] + ".fchk"
+    fchk = (os.path.abspath(output_path) if output_path else
+            os.path.splitext(os.path.abspath(chk_path))[0] + ".fchk")
+    os.makedirs(os.path.dirname(fchk), exist_ok=True)
     creationflags = 0
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NO_WINDOW

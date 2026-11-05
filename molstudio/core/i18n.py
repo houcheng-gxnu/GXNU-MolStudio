@@ -97,7 +97,7 @@ TR = {
     # ── Input panel ──
     "rb_folder": {"zh": "文件夹", "en": "Folder"},
     "rb_file": {"zh": "单个文件", "en": "Single File"},
-    "placeholder_input": {"zh": "选择或拖放 .fchk / .log / .out / .cub 文件...", "en": "Select or drag .fchk / .log / .out / .cub file..."},
+    "placeholder_input": {"zh": "选择或拖放 .fchk / .gjf / .log / .out / .xyz 文件...", "en": "Select or drag .fchk / .gjf / .log / .out / .xyz file..."},
     # ── Orbital panel ──
     "lbl_orbital": {"zh": "轨道编号:", "en": "Orbital ID:"},
     "hint_orbital_sep": {"zh": "逗号分隔，例如: h,l,h-1,l+1", "en": "comma separated, e.g.: h,l,h-1,l+1"},
@@ -202,9 +202,14 @@ TR = {
     "tab_igmh": {"zh": "IGMH", "en": "IGMH"},
     "tab_aim": {"zh": "AIM", "en": "AIM"},
     "tab_etsnocv": {"zh": "ETS-NOCV", "en": "ETS-NOCV"},
+    "tab_edd": {"zh": "电子密度差", "en": "Density Difference"},
     "tab_mpp": {"zh": "MPP", "en": "MPP"},
     "tab_surfproj": {"zh": "表面投影", "en": "Surf. Proj."},
+    "tab_steric": {"zh": "位阻地图", "en": "Steric Map"},
     "tab_aicd": {"zh": "感应电流", "en": "AICD"},
+    "tab_spectrum": {"zh": "分子光谱", "en": "Spectra"},
+    "tab_dos": {"zh": "态密度", "en": "DOS"},
+    "tab_xtb": {"zh": "xTB 计算", "en": "xTB"},
     "tab_irc": {"zh": "IRC 分析", "en": "IRC"},
     "tab_di": {"zh": "DI 分析", "en": "DI"},
     "tab_asm_irc": {"zh": "ASM 扫描", "en": "ASM"},
@@ -345,8 +350,8 @@ TR = {
     "dlg_select_input_folder": {"zh": "选择输入文件夹", "en": "Select Input Folder"},
     "dlg_select_input_file": {"zh": "选择输入文件", "en": "Select Input File"},
     "dlg_input_filter": {
-        "zh": "所有支持的 (*.fchk *.fch *.log *.out *.cub *.cube *.xyz *.molden *.molden.input);;格式化 Checkpoint (*.fchk *.fch);;Gaussian Log (*.log *.out);;XYZ (*.xyz);;Cube (*.cub *.cube);;所有文件 (*.*)",
-        "en": "All Supported (*.fchk *.fch *.log *.out *.cub *.cube *.xyz *.molden *.molden.input);;Formatted Checkpoint (*.fchk *.fch);;Gaussian Log (*.log *.out);;XYZ (*.xyz);;Cube (*.cub *.cube);;All Files (*.*)"
+        "zh": "所有支持的 (*.fchk *.fch *.gjf *.com *.log *.out *.cub *.cube *.xyz *.molden *.molden.input);;格式化 Checkpoint (*.fchk *.fch);;Gaussian Input (*.gjf *.com);;Gaussian Log (*.log *.out);;XYZ (*.xyz);;Cube (*.cub *.cube);;所有文件 (*.*)",
+        "en": "All Supported (*.fchk *.fch *.gjf *.com *.log *.out *.cub *.cube *.xyz *.molden *.molden.input);;Formatted Checkpoint (*.fchk *.fch);;Gaussian Input (*.gjf *.com);;Gaussian Log (*.log *.out);;XYZ (*.xyz);;Cube (*.cub *.cube);;All Files (*.*)"
     },
     "dlg_select_output": {"zh": "选择输出目录", "en": "Select Output Directory"},
     # ── Preview dialogs ──

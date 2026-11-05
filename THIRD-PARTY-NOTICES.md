@@ -75,11 +75,13 @@ create a derivative work, so their licenses do not affect MolStudio's GPLv3.
 | Tool | Used for | License |
 |---|---|---|
 | [Multiwfn](http://sobereva.com/multiwfn/) (Tian Lu) | fchk → cube, IGMH/IRI, ESP, AIM, MPP, charges, bond orders | Free for academic use, **closed source** — redistribution governed by its own terms; MolStudio does not redistribute it |
+| [xTB](https://github.com/grimme-lab/xtb) (Grimme group) | semiempirical xTB calculations (SP / OPT / Hessian / scan / TS) in the "xTB" tab | **LGPL-3.0** — MolStudio does **not** bundle xTB; the user installs it separately and the panel only calls the executable as an external process |
 | [VMD](https://www.ks.uiuc.edu/Research/vmd/) | preview, Tcl-driven rendering | University of Illinois/NCSA open-source style license — see the LICENSE in the VMD distribution |
 | [Tachyon](http://jedi.ks.uiuc.edu/~johns/raytracer/) (John E. Stone) | ray-traced offline rendering | BSD-style license — see the LICENSE in the Tachyon distribution |
 | Tachyon in `ovcanvas/_tachyon_render.py` | bundled `tachyon_WIN32.exe` for offline path tracing | ⚠️ **Verify** whether this binary is redistributed in `dist/`; if so, ship its license text alongside |
 
 > Cite: Lu, T. *J. Comput. Chem.* **2012**, *33*, 580–592 (Multiwfn);
+> Bannwarth, C. *et al.* *WIREs Comput. Mol. Sci.* **2021**, *11*, e01493 (xTB);
 > Humphrey, W.; Dalke, A.; Schulten, K. *J. Molec. Graphics* **1996**, *14*, 33–38 (VMD);
 > Stone, J. E. *An Efficient Library for Parallel Ray Tracing and Animation*,
 > M.Sc. Thesis, Univ. of Missouri–Rolla, 1998 (Tachyon).
@@ -100,6 +102,7 @@ is generally not copyrightable, but the sources are credited here.
 | Isosurface normal handling | `marching_cubes.py` | behaviour follows IboView `FIsoSurface::FixVolumeDataNormals` (algorithm, not code) |
 | VMD orbital render styles | `fchk_orbital.py` presets | vcube 2.0 — Tcl scripts for batch rendering of Gaussian cube files with VMD, by Prof. Cheng Zhong (Wuhan University); 计算化学公社 (Computational Chemistry Commune), thread 18150, http://bbs.keinsci.com/thread-18150-1-1.html |
 | VMD dashed-bond drawing | `_igmh_preview.tcl`, `etsnocv/` | `draw_bond` Tcl script by **Eming** (KeinSci forum) |
+| Steric-map palettes & figure layout | `molstudio/core/steric/render.py` | 18 colour palettes (incl. `sambvca`) and the `steric_map_figure` layout (fixed ±R colour range, smooth imshow, black contours, solid circle, quadrant labels, horizontal colour bar) are ported from **StericRender** — Copyright (c) 2025 James O'Brien, MIT License, <https://github.com/JamesOBrien2/StericRender>. The code here is MolStudio's own implementation; StericRender is **not** a runtime dependency. Full MIT text is kept in the file header. |
 | Render style presets | `IQMOL.json`, `HoukMol.json`, `sob-art.json`, `gxnu_style.json`, `ring_style.json` | light directions / style parameters; the *IQmol* and *HoukMol* sets are named after the look they reproduce |
 
 ---
@@ -112,10 +115,12 @@ together with the rest of the project.
 
 | Component | Origin | Note |
 |---|---|---|
+| Steric-map / buried-volume engine `core/steric/` | **StericMapAnalyzer** (GPLv3, group's own; `cnb.cool/chem311/stericmap`), itself a pure Python/numpy port of the **official SambVca 2.1 Fortran** code (`sambvca21.f`, Cavallo group) | the port is the group's own work, **relicensed under GPLv3**; the original SambVca 2.1 source is published by its authors for academic/research use (commercial use requires their permission — see <https://www.aocdweb.com/OMtools/sambvca2.1/>). MolStudio does not redistribute the original Fortran code, only this independent Python re-implementation |
 | IGMH/IRI panel `igmh_panel.py` | ported from **IGMH_Toolbox V4** (Hou Cheng, Zenodo `10.5281/zenodo.20791253`) | previously labelled "academic use"; **relicensed to GPLv3** as the author owns it |
 | Charge panel `charge_viewer.py` | ported from **ChargeViewer** (`cnb.cool/chem311/ChargeViewer`) | group's own |
 | MPP panel `mpp_panel.py` | ported from `mpp_auto_qt.py` (Hou Cheng group, GXNU) | group's own |
 | ETS-NOCV sub-package `etsnocv/` | **ETS-NOCV Viewer** (group's own) | calls Multiwfn externally |
+| xTB calculation tab `core/xtb.py` + `panels/xtb_panel.py` | command-line construction and output parsing are **informed by xTBridge** (MIT, Hou Cheng / `github.com/houcheng-gxnu/xTBridge`) | self-written; no third-party code is redistributed. xTB itself is an external LGPL program (see §2) |
 | `molcanvas.py`, MolViewer gradients | group's own (`Chem311`) | |
 
 ---

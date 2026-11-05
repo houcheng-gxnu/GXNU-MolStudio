@@ -1,0 +1,4037 @@
+{
+  "version": 1,
+  "title_zh": "中学分子结构库",
+  "title_en": "School molecule library",
+  "source_note": "3D coordinates generated from molecular graphs with RDKit ETKDGv3 and MMFF/UFF; bundled as static XYZ assets for offline use.",
+  "molecules": [
+    {
+      "id": "hydrogen",
+      "name_zh": "氢气",
+      "name_en": "Hydrogen",
+      "formula": "H2",
+      "category": "junior",
+      "file": "hydrogen.xyz",
+      "aliases": [
+        "H2",
+        "氢分子"
+      ],
+      "description_zh": "最简单的双原子分子，含一个 H–H 单键。",
+      "description_en": "The simplest diatomic molecule with one H-H bond.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "oxygen",
+      "name_zh": "氧气",
+      "name_en": "Oxygen",
+      "formula": "O2",
+      "category": "junior",
+      "file": "oxygen.xyz",
+      "aliases": [
+        "O2",
+        "氧分子"
+      ],
+      "description_zh": "双原子分子，常用球棍模型展示氧氧双键。",
+      "description_en": "A diatomic molecule commonly shown with an O=O bond.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          2
+        ]
+      ]
+    },
+    {
+      "id": "nitrogen",
+      "name_zh": "氮气",
+      "name_en": "Nitrogen",
+      "formula": "N2",
+      "category": "junior",
+      "file": "nitrogen.xyz",
+      "aliases": [
+        "N2",
+        "氮分子"
+      ],
+      "description_zh": "稳定的双原子分子，具有氮氮三键。",
+      "description_en": "A stable diatomic molecule with a nitrogen-nitrogen triple bond.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          3
+        ]
+      ]
+    },
+    {
+      "id": "chlorine",
+      "name_zh": "氯气",
+      "name_en": "Chlorine",
+      "formula": "Cl2",
+      "category": "junior",
+      "file": "chlorine.xyz",
+      "aliases": [
+        "Cl2",
+        "氯分子"
+      ],
+      "description_zh": "黄绿色双原子分子。",
+      "description_en": "A green-yellow diatomic molecule.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "hydrogen-chloride",
+      "name_zh": "氯化氢",
+      "name_en": "Hydrogen chloride",
+      "formula": "HCl",
+      "category": "junior",
+      "file": "hydrogen-chloride.xyz",
+      "aliases": [
+        "HCl",
+        "盐酸分子"
+      ],
+      "description_zh": "由氢和氯组成的直线形双原子分子。",
+      "description_en": "A linear diatomic molecule of hydrogen and chlorine.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "water",
+      "name_zh": "水",
+      "name_en": "Water",
+      "formula": "H2O",
+      "category": "junior",
+      "file": "water.xyz",
+      "aliases": [
+        "H2O",
+        "水分子"
+      ],
+      "description_zh": "弯曲形分子，是讲解键角与极性键的常用例子。",
+      "description_en": "A bent molecule often used to teach bond angles and polar bonds.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          1,
+          3,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "carbon-dioxide",
+      "name_zh": "二氧化碳",
+      "name_en": "Carbon dioxide",
+      "formula": "CO2",
+      "category": "junior",
+      "file": "carbon-dioxide.xyz",
+      "aliases": [
+        "CO2",
+        "碳酸气"
+      ],
+      "description_zh": "直线形分子，含两个 C=O 双键。",
+      "description_en": "A linear molecule with two C=O bonds.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          2
+        ],
+        [
+          2,
+          3,
+          2
+        ]
+      ]
+    },
+    {
+      "id": "methane",
+      "name_zh": "甲烷",
+      "name_en": "Methane",
+      "formula": "CH4",
+      "category": "junior",
+      "file": "methane.xyz",
+      "aliases": [
+        "CH4",
+        "沼气"
+      ],
+      "description_zh": "正四面体形分子，是最简单的烷烃。",
+      "description_en": "A tetrahedral molecule and the simplest alkane.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          1,
+          3,
+          1
+        ],
+        [
+          1,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "ammonia",
+      "name_zh": "氨",
+      "name_en": "Ammonia",
+      "formula": "NH3",
+      "category": "junior",
+      "file": "ammonia.xyz",
+      "aliases": [
+        "NH3",
+        "氨气"
+      ],
+      "description_zh": "三角锥形分子。",
+      "description_en": "A trigonal-pyramidal molecule.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          1,
+          3,
+          1
+        ],
+        [
+          1,
+          4,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "carbon-monoxide",
+      "name_zh": "一氧化碳",
+      "name_en": "Carbon monoxide",
+      "formula": "CO",
+      "category": "junior",
+      "file": "carbon-monoxide.xyz",
+      "aliases": [
+        "CO"
+      ],
+      "description_zh": "直线形双原子分子。",
+      "description_en": "A linear diatomic molecule.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          3
+        ]
+      ]
+    },
+    {
+      "id": "sulfur-dioxide",
+      "name_zh": "二氧化硫",
+      "name_en": "Sulfur dioxide",
+      "formula": "SO2",
+      "category": "junior",
+      "file": "sulfur-dioxide.xyz",
+      "aliases": [
+        "SO2"
+      ],
+      "description_zh": "弯曲形分子，是介绍 VSEPR 的常见实例。",
+      "description_en": "A bent molecule commonly used in VSEPR teaching.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          2
+        ],
+        [
+          2,
+          3,
+          2
+        ]
+      ]
+    },
+    {
+      "id": "hydrogen-sulfide",
+      "name_zh": "硫化氢",
+      "name_en": "Hydrogen sulfide",
+      "formula": "H2S",
+      "category": "junior",
+      "file": "hydrogen-sulfide.xyz",
+      "aliases": [
+        "H2S"
+      ],
+      "description_zh": "与水分子的几何构型相似的弯曲形分子。",
+      "description_en": "A bent molecule with geometry similar to water.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          1,
+          3,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "ozone",
+      "name_zh": "臭氧",
+      "name_en": "Ozone",
+      "formula": "O3",
+      "category": "inorganic",
+      "file": "ozone.xyz",
+      "aliases": [
+        "O3"
+      ],
+      "description_zh": "弯曲形三原子分子。",
+      "description_en": "A bent triatomic molecule.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          2
+        ]
+      ]
+    },
+    {
+      "id": "nitric-oxide",
+      "name_zh": "一氧化氮",
+      "name_en": "Nitric oxide",
+      "formula": "NO",
+      "category": "inorganic",
+      "file": "nitric-oxide.xyz",
+      "aliases": [
+        "NO"
+      ],
+      "description_zh": "直线形双原子分子。",
+      "description_en": "A linear diatomic molecule.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          2
+        ]
+      ]
+    },
+    {
+      "id": "nitrogen-dioxide",
+      "name_zh": "二氧化氮",
+      "name_en": "Nitrogen dioxide",
+      "formula": "NO2",
+      "category": "inorganic",
+      "file": "nitrogen-dioxide.xyz",
+      "aliases": [
+        "NO2"
+      ],
+      "description_zh": "弯曲形分子，可作为开壳层结构的展示例子。",
+      "description_en": "A bent molecule useful for illustrating open-shell species.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          2
+        ]
+      ]
+    },
+    {
+      "id": "sulfur-trioxide",
+      "name_zh": "三氧化硫",
+      "name_en": "Sulfur trioxide",
+      "formula": "SO3",
+      "category": "inorganic",
+      "file": "sulfur-trioxide.xyz",
+      "aliases": [
+        "SO3"
+      ],
+      "description_zh": "平面三角形分子。",
+      "description_en": "A trigonal-planar molecule.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          2
+        ],
+        [
+          2,
+          3,
+          2
+        ],
+        [
+          2,
+          4,
+          2
+        ]
+      ]
+    },
+    {
+      "id": "hydrogen-peroxide",
+      "name_zh": "过氧化氢",
+      "name_en": "Hydrogen peroxide",
+      "formula": "H2O2",
+      "category": "inorganic",
+      "file": "hydrogen-peroxide.xyz",
+      "aliases": [
+        "H2O2",
+        "双氧水"
+      ],
+      "description_zh": "具有非平面构型和 O–O 单键。",
+      "description_en": "A non-planar molecule with an O-O bond.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          1,
+          3,
+          1
+        ],
+        [
+          2,
+          4,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "phosphine",
+      "name_zh": "磷化氢",
+      "name_en": "Phosphine",
+      "formula": "PH3",
+      "category": "inorganic",
+      "file": "phosphine.xyz",
+      "aliases": [
+        "PH3"
+      ],
+      "description_zh": "三角锥形分子，可与氨作结构对比。",
+      "description_en": "A trigonal-pyramidal molecule comparable with ammonia.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          1,
+          3,
+          1
+        ],
+        [
+          1,
+          4,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "boron-trifluoride",
+      "name_zh": "三氟化硼",
+      "name_en": "Boron trifluoride",
+      "formula": "BF3",
+      "category": "inorganic",
+      "file": "boron-trifluoride.xyz",
+      "aliases": [
+        "BF3"
+      ],
+      "description_zh": "典型的平面三角形分子。",
+      "description_en": "A classic trigonal-planar molecule.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          2,
+          4,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "silicon-tetrafluoride",
+      "name_zh": "四氟化硅",
+      "name_en": "Silicon tetrafluoride",
+      "formula": "SiF4",
+      "category": "inorganic",
+      "file": "silicon-tetrafluoride.xyz",
+      "aliases": [
+        "SiF4"
+      ],
+      "description_zh": "正四面体形分子。",
+      "description_en": "A tetrahedral molecule.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          2,
+          4,
+          1
+        ],
+        [
+          2,
+          5,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "sulfur-hexafluoride",
+      "name_zh": "六氟化硫",
+      "name_en": "Sulfur hexafluoride",
+      "formula": "SF6",
+      "category": "inorganic",
+      "file": "sulfur-hexafluoride.xyz",
+      "aliases": [
+        "SF6"
+      ],
+      "description_zh": "正八面体形分子。",
+      "description_en": "An octahedral molecule.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          1,
+          3,
+          1
+        ],
+        [
+          1,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          1,
+          7,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "ethane",
+      "name_zh": "乙烷",
+      "name_en": "Ethane",
+      "formula": "C2H6",
+      "category": "organic",
+      "file": "ethane.xyz",
+      "aliases": [
+        "C2H6"
+      ],
+      "description_zh": "最简单的碳碳单键分子。",
+      "description_en": "The simplest molecule containing a C-C single bond.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          1,
+          3,
+          1
+        ],
+        [
+          1,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          2,
+          6,
+          1
+        ],
+        [
+          2,
+          7,
+          1
+        ],
+        [
+          2,
+          8,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "ethene",
+      "name_zh": "乙烯",
+      "name_en": "Ethene",
+      "formula": "C2H4",
+      "category": "organic",
+      "file": "ethene.xyz",
+      "aliases": [
+        "C2H4",
+        "ethylene"
+      ],
+      "description_zh": "平面分子，具有碳碳双键。",
+      "description_en": "A planar molecule with a C=C double bond.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          2
+        ],
+        [
+          1,
+          3,
+          1
+        ],
+        [
+          1,
+          4,
+          1
+        ],
+        [
+          2,
+          5,
+          1
+        ],
+        [
+          2,
+          6,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "ethyne",
+      "name_zh": "乙炔",
+      "name_en": "Ethyne",
+      "formula": "C2H2",
+      "category": "organic",
+      "file": "ethyne.xyz",
+      "aliases": [
+        "C2H2",
+        "acetylene"
+      ],
+      "description_zh": "直线形分子，具有碳碳三键。",
+      "description_en": "A linear molecule with a C#C triple bond.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          3
+        ],
+        [
+          1,
+          3,
+          1
+        ],
+        [
+          2,
+          4,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "propane",
+      "name_zh": "丙烷",
+      "name_en": "Propane",
+      "formula": "C3H8",
+      "category": "organic",
+      "file": "propane.xyz",
+      "aliases": [
+        "C3H8"
+      ],
+      "description_zh": "直链烷烃。",
+      "description_en": "A straight-chain alkane.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          1,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          2,
+          7,
+          1
+        ],
+        [
+          2,
+          8,
+          1
+        ],
+        [
+          3,
+          9,
+          1
+        ],
+        [
+          3,
+          10,
+          1
+        ],
+        [
+          3,
+          11,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "butane",
+      "name_zh": "正丁烷",
+      "name_en": "Butane",
+      "formula": "C4H10",
+      "category": "organic",
+      "file": "butane.xyz",
+      "aliases": [
+        "C4H10",
+        "n-butane"
+      ],
+      "description_zh": "四碳直链烷烃。",
+      "description_en": "A four-carbon straight-chain alkane.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          1,
+          7,
+          1
+        ],
+        [
+          2,
+          8,
+          1
+        ],
+        [
+          2,
+          9,
+          1
+        ],
+        [
+          3,
+          10,
+          1
+        ],
+        [
+          3,
+          11,
+          1
+        ],
+        [
+          4,
+          12,
+          1
+        ],
+        [
+          4,
+          13,
+          1
+        ],
+        [
+          4,
+          14,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "isobutane",
+      "name_zh": "异丁烷",
+      "name_en": "Isobutane",
+      "formula": "C4H10",
+      "category": "organic",
+      "file": "isobutane.xyz",
+      "aliases": [
+        "C4H10",
+        "2-methylpropane"
+      ],
+      "description_zh": "与正丁烷互为同分异构体。",
+      "description_en": "A branched isomer of n-butane.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          2,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          1,
+          7,
+          1
+        ],
+        [
+          2,
+          8,
+          1
+        ],
+        [
+          3,
+          9,
+          1
+        ],
+        [
+          3,
+          10,
+          1
+        ],
+        [
+          3,
+          11,
+          1
+        ],
+        [
+          4,
+          12,
+          1
+        ],
+        [
+          4,
+          13,
+          1
+        ],
+        [
+          4,
+          14,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "cyclopropane",
+      "name_zh": "环丙烷",
+      "name_en": "Cyclopropane",
+      "formula": "C3H6",
+      "category": "organic",
+      "file": "cyclopropane.xyz",
+      "aliases": [
+        "C3H6"
+      ],
+      "description_zh": "三元碳环。",
+      "description_en": "A three-membered carbon ring.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          1,
+          1
+        ],
+        [
+          1,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          2,
+          6,
+          1
+        ],
+        [
+          2,
+          7,
+          1
+        ],
+        [
+          3,
+          8,
+          1
+        ],
+        [
+          3,
+          9,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "cyclohexane",
+      "name_zh": "环己烷",
+      "name_en": "Cyclohexane",
+      "formula": "C6H12",
+      "category": "organic",
+      "file": "cyclohexane.xyz",
+      "aliases": [
+        "C6H12"
+      ],
+      "description_zh": "六元饱和碳环，常用于展示椅式构象。",
+      "description_en": "A six-membered saturated ring, useful for chair conformations.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          4,
+          1
+        ],
+        [
+          4,
+          5,
+          1
+        ],
+        [
+          5,
+          6,
+          1
+        ],
+        [
+          6,
+          1,
+          1
+        ],
+        [
+          1,
+          7,
+          1
+        ],
+        [
+          1,
+          8,
+          1
+        ],
+        [
+          2,
+          9,
+          1
+        ],
+        [
+          2,
+          10,
+          1
+        ],
+        [
+          3,
+          11,
+          1
+        ],
+        [
+          3,
+          12,
+          1
+        ],
+        [
+          4,
+          13,
+          1
+        ],
+        [
+          4,
+          14,
+          1
+        ],
+        [
+          5,
+          15,
+          1
+        ],
+        [
+          5,
+          16,
+          1
+        ],
+        [
+          6,
+          17,
+          1
+        ],
+        [
+          6,
+          18,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "benzene",
+      "name_zh": "苯",
+      "name_en": "Benzene",
+      "formula": "C6H6",
+      "category": "organic",
+      "file": "benzene.xyz",
+      "aliases": [
+        "C6H6"
+      ],
+      "description_zh": "平面芳香环，是理解共轭与芳香性的基础结构。",
+      "description_en": "A planar aromatic ring central to conjugation and aromaticity.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          2
+        ],
+        [
+          2,
+          3,
+          2
+        ],
+        [
+          3,
+          4,
+          2
+        ],
+        [
+          4,
+          5,
+          2
+        ],
+        [
+          5,
+          6,
+          2
+        ],
+        [
+          6,
+          1,
+          2
+        ],
+        [
+          1,
+          7,
+          1
+        ],
+        [
+          2,
+          8,
+          1
+        ],
+        [
+          3,
+          9,
+          1
+        ],
+        [
+          4,
+          10,
+          1
+        ],
+        [
+          5,
+          11,
+          1
+        ],
+        [
+          6,
+          12,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "toluene",
+      "name_zh": "甲苯",
+      "name_en": "Toluene",
+      "formula": "C7H8",
+      "category": "organic",
+      "file": "toluene.xyz",
+      "aliases": [
+        "C7H8",
+        "methylbenzene"
+      ],
+      "description_zh": "苯环上连接一个甲基。",
+      "description_en": "Benzene bearing one methyl substituent.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          2
+        ],
+        [
+          3,
+          4,
+          2
+        ],
+        [
+          4,
+          5,
+          2
+        ],
+        [
+          5,
+          6,
+          2
+        ],
+        [
+          6,
+          7,
+          2
+        ],
+        [
+          7,
+          2,
+          2
+        ],
+        [
+          1,
+          8,
+          1
+        ],
+        [
+          1,
+          9,
+          1
+        ],
+        [
+          1,
+          10,
+          1
+        ],
+        [
+          3,
+          11,
+          1
+        ],
+        [
+          4,
+          12,
+          1
+        ],
+        [
+          5,
+          13,
+          1
+        ],
+        [
+          6,
+          14,
+          1
+        ],
+        [
+          7,
+          15,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "phenol",
+      "name_zh": "苯酚",
+      "name_en": "Phenol",
+      "formula": "C6H6O",
+      "category": "organic",
+      "file": "phenol.xyz",
+      "aliases": [
+        "C6H5OH"
+      ],
+      "description_zh": "苯环直接连接羟基。",
+      "description_en": "Benzene bearing a directly attached hydroxyl group.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          2
+        ],
+        [
+          3,
+          4,
+          2
+        ],
+        [
+          4,
+          5,
+          2
+        ],
+        [
+          5,
+          6,
+          2
+        ],
+        [
+          6,
+          7,
+          2
+        ],
+        [
+          7,
+          2,
+          2
+        ],
+        [
+          1,
+          8,
+          1
+        ],
+        [
+          3,
+          9,
+          1
+        ],
+        [
+          4,
+          10,
+          1
+        ],
+        [
+          5,
+          11,
+          1
+        ],
+        [
+          6,
+          12,
+          1
+        ],
+        [
+          7,
+          13,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "methanol",
+      "name_zh": "甲醇",
+      "name_en": "Methanol",
+      "formula": "CH4O",
+      "category": "organic",
+      "file": "methanol.xyz",
+      "aliases": [
+        "CH3OH",
+        "methyl alcohol"
+      ],
+      "description_zh": "最简单的醇。",
+      "description_en": "The simplest alcohol.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          1,
+          3,
+          1
+        ],
+        [
+          1,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          2,
+          6,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "ethanol",
+      "name_zh": "乙醇",
+      "name_en": "Ethanol",
+      "formula": "C2H6O",
+      "category": "organic",
+      "file": "ethanol.xyz",
+      "aliases": [
+        "C2H5OH",
+        "酒精"
+      ],
+      "description_zh": "中学常见的醇，含羟基官能团。",
+      "description_en": "A common school alcohol containing a hydroxyl group.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          1,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          2,
+          7,
+          1
+        ],
+        [
+          2,
+          8,
+          1
+        ],
+        [
+          3,
+          9,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "propan-1-ol",
+      "name_zh": "正丙醇",
+      "name_en": "Propan-1-ol",
+      "formula": "C3H8O",
+      "category": "organic",
+      "file": "propan-1-ol.xyz",
+      "aliases": [
+        "C3H7OH",
+        "1-propanol"
+      ],
+      "description_zh": "三碳酸直链醇。",
+      "description_en": "A three-carbon straight-chain alcohol.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          1,
+          7,
+          1
+        ],
+        [
+          2,
+          8,
+          1
+        ],
+        [
+          2,
+          9,
+          1
+        ],
+        [
+          3,
+          10,
+          1
+        ],
+        [
+          3,
+          11,
+          1
+        ],
+        [
+          4,
+          12,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "ethylene-glycol",
+      "name_zh": "乙二醇",
+      "name_en": "Ethylene glycol",
+      "formula": "C2H6O2",
+      "category": "organic",
+      "file": "ethylene-glycol.xyz",
+      "aliases": [
+        "C2H6O2"
+      ],
+      "description_zh": "含两个羟基的二元醇。",
+      "description_en": "A diol containing two hydroxyl groups.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          2,
+          6,
+          1
+        ],
+        [
+          2,
+          7,
+          1
+        ],
+        [
+          3,
+          8,
+          1
+        ],
+        [
+          3,
+          9,
+          1
+        ],
+        [
+          4,
+          10,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "glycerol",
+      "name_zh": "甘油",
+      "name_en": "Glycerol",
+      "formula": "C3H8O3",
+      "category": "organic",
+      "file": "glycerol.xyz",
+      "aliases": [
+        "C3H8O3",
+        "glycerin"
+      ],
+      "description_zh": "含三个羟基的多元醇。",
+      "description_en": "A triol containing three hydroxyl groups.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          4,
+          1
+        ],
+        [
+          3,
+          5,
+          1
+        ],
+        [
+          5,
+          6,
+          1
+        ],
+        [
+          1,
+          7,
+          1
+        ],
+        [
+          2,
+          8,
+          1
+        ],
+        [
+          2,
+          9,
+          1
+        ],
+        [
+          3,
+          10,
+          1
+        ],
+        [
+          4,
+          11,
+          1
+        ],
+        [
+          5,
+          12,
+          1
+        ],
+        [
+          5,
+          13,
+          1
+        ],
+        [
+          6,
+          14,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "formaldehyde",
+      "name_zh": "甲醛",
+      "name_en": "Formaldehyde",
+      "formula": "CH2O",
+      "category": "organic",
+      "file": "formaldehyde.xyz",
+      "aliases": [
+        "CH2O",
+        "methanal"
+      ],
+      "description_zh": "最简单的醛。",
+      "description_en": "The simplest aldehyde.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          2
+        ],
+        [
+          1,
+          3,
+          1
+        ],
+        [
+          1,
+          4,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "acetaldehyde",
+      "name_zh": "乙醛",
+      "name_en": "Acetaldehyde",
+      "formula": "C2H4O",
+      "category": "organic",
+      "file": "acetaldehyde.xyz",
+      "aliases": [
+        "CH3CHO",
+        "ethanal"
+      ],
+      "description_zh": "含醛基的二碳有机物。",
+      "description_en": "A two-carbon molecule containing an aldehyde group.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          2
+        ],
+        [
+          1,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          2,
+          7,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "acetone",
+      "name_zh": "丙酮",
+      "name_en": "Acetone",
+      "formula": "C3H6O",
+      "category": "organic",
+      "file": "acetone.xyz",
+      "aliases": [
+        "C3H6O",
+        "propan-2-one"
+      ],
+      "description_zh": "最简单的酮。",
+      "description_en": "The simplest ketone.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          2
+        ],
+        [
+          2,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          1,
+          7,
+          1
+        ],
+        [
+          4,
+          8,
+          1
+        ],
+        [
+          4,
+          9,
+          1
+        ],
+        [
+          4,
+          10,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "formic-acid",
+      "name_zh": "甲酸",
+      "name_en": "Formic acid",
+      "formula": "CH2O2",
+      "category": "organic",
+      "file": "formic-acid.xyz",
+      "aliases": [
+        "HCOOH",
+        "methanoic acid"
+      ],
+      "description_zh": "最简单的羧酸。",
+      "description_en": "The simplest carboxylic acid.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          2
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          2,
+          4,
+          1
+        ],
+        [
+          3,
+          5,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "acetic-acid",
+      "name_zh": "乙酸",
+      "name_en": "Acetic acid",
+      "formula": "C2H4O2",
+      "category": "organic",
+      "file": "acetic-acid.xyz",
+      "aliases": [
+        "CH3COOH",
+        "醋酸"
+      ],
+      "description_zh": "中学常见的羧酸。",
+      "description_en": "A common school carboxylic acid.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          2
+        ],
+        [
+          2,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          1,
+          7,
+          1
+        ],
+        [
+          4,
+          8,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "propanoic-acid",
+      "name_zh": "丙酸",
+      "name_en": "Propanoic acid",
+      "formula": "C3H6O2",
+      "category": "organic",
+      "file": "propanoic-acid.xyz",
+      "aliases": [
+        "C2H5COOH"
+      ],
+      "description_zh": "三碳酸羧酸。",
+      "description_en": "A three-carbon carboxylic acid.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          4,
+          2
+        ],
+        [
+          3,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          1,
+          7,
+          1
+        ],
+        [
+          1,
+          8,
+          1
+        ],
+        [
+          2,
+          9,
+          1
+        ],
+        [
+          2,
+          10,
+          1
+        ],
+        [
+          5,
+          11,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "methyl-formate",
+      "name_zh": "甲酸甲酯",
+      "name_en": "Methyl formate",
+      "formula": "C2H4O2",
+      "category": "organic",
+      "file": "methyl-formate.xyz",
+      "aliases": [
+        "HCOOCH3"
+      ],
+      "description_zh": "甲酸与甲醇形成的酯。",
+      "description_en": "An ester formed from formic acid and methanol.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          4,
+          2
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          1,
+          7,
+          1
+        ],
+        [
+          3,
+          8,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "ethyl-acetate",
+      "name_zh": "乙酸乙酯",
+      "name_en": "Ethyl acetate",
+      "formula": "C4H8O2",
+      "category": "organic",
+      "file": "ethyl-acetate.xyz",
+      "aliases": [
+        "CH3COOC2H5"
+      ],
+      "description_zh": "中学酯化反应常见产物。",
+      "description_en": "A common product of high-school esterification.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          4,
+          1
+        ],
+        [
+          4,
+          5,
+          1
+        ],
+        [
+          4,
+          6,
+          2
+        ],
+        [
+          1,
+          7,
+          1
+        ],
+        [
+          1,
+          8,
+          1
+        ],
+        [
+          1,
+          9,
+          1
+        ],
+        [
+          2,
+          10,
+          1
+        ],
+        [
+          2,
+          11,
+          1
+        ],
+        [
+          5,
+          12,
+          1
+        ],
+        [
+          5,
+          13,
+          1
+        ],
+        [
+          5,
+          14,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "dimethyl-ether",
+      "name_zh": "二甲醚",
+      "name_en": "Dimethyl ether",
+      "formula": "C2H6O",
+      "category": "organic",
+      "file": "dimethyl-ether.xyz",
+      "aliases": [
+        "CH3OCH3"
+      ],
+      "description_zh": "与乙醇互为同分异构体。",
+      "description_en": "An isomer of ethanol.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          1,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          3,
+          7,
+          1
+        ],
+        [
+          3,
+          8,
+          1
+        ],
+        [
+          3,
+          9,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "diethyl-ether",
+      "name_zh": "乙醚",
+      "name_en": "Diethyl ether",
+      "formula": "C4H10O",
+      "category": "organic",
+      "file": "diethyl-ether.xyz",
+      "aliases": [
+        "C2H5OC2H5"
+      ],
+      "description_zh": "常见的醚类化合物。",
+      "description_en": "A common ether.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          4,
+          1
+        ],
+        [
+          4,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          1,
+          7,
+          1
+        ],
+        [
+          1,
+          8,
+          1
+        ],
+        [
+          2,
+          9,
+          1
+        ],
+        [
+          2,
+          10,
+          1
+        ],
+        [
+          4,
+          11,
+          1
+        ],
+        [
+          4,
+          12,
+          1
+        ],
+        [
+          5,
+          13,
+          1
+        ],
+        [
+          5,
+          14,
+          1
+        ],
+        [
+          5,
+          15,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "methylamine",
+      "name_zh": "甲胺",
+      "name_en": "Methylamine",
+      "formula": "CH5N",
+      "category": "organic",
+      "file": "methylamine.xyz",
+      "aliases": [
+        "CH3NH2"
+      ],
+      "description_zh": "最简单的有机胺。",
+      "description_en": "The simplest organic amine.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          1,
+          3,
+          1
+        ],
+        [
+          1,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          2,
+          6,
+          1
+        ],
+        [
+          2,
+          7,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "ethylamine",
+      "name_zh": "乙胺",
+      "name_en": "Ethylamine",
+      "formula": "C2H7N",
+      "category": "organic",
+      "file": "ethylamine.xyz",
+      "aliases": [
+        "C2H5NH2"
+      ],
+      "description_zh": "含氨基的二碳有机物。",
+      "description_en": "A two-carbon organic amine.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          1,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          2,
+          7,
+          1
+        ],
+        [
+          2,
+          8,
+          1
+        ],
+        [
+          3,
+          9,
+          1
+        ],
+        [
+          3,
+          10,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "aniline",
+      "name_zh": "苯胺",
+      "name_en": "Aniline",
+      "formula": "C6H7N",
+      "category": "organic",
+      "file": "aniline.xyz",
+      "aliases": [
+        "C6H5NH2"
+      ],
+      "description_zh": "苯环直接连接氨基。",
+      "description_en": "Benzene bearing a directly attached amino group.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          2
+        ],
+        [
+          3,
+          4,
+          2
+        ],
+        [
+          4,
+          5,
+          2
+        ],
+        [
+          5,
+          6,
+          2
+        ],
+        [
+          6,
+          7,
+          2
+        ],
+        [
+          7,
+          2,
+          2
+        ],
+        [
+          1,
+          8,
+          1
+        ],
+        [
+          1,
+          9,
+          1
+        ],
+        [
+          3,
+          10,
+          1
+        ],
+        [
+          4,
+          11,
+          1
+        ],
+        [
+          5,
+          12,
+          1
+        ],
+        [
+          6,
+          13,
+          1
+        ],
+        [
+          7,
+          14,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "urea",
+      "name_zh": "尿素",
+      "name_en": "Urea",
+      "formula": "CH4N2O",
+      "category": "organic",
+      "file": "urea.xyz",
+      "aliases": [
+        "CO(NH2)2"
+      ],
+      "description_zh": "含酰胺结构的常见含氮化合物。",
+      "description_en": "A common nitrogen compound containing an amide-like unit.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          2
+        ],
+        [
+          2,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          4,
+          7,
+          1
+        ],
+        [
+          4,
+          8,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "acetonitrile",
+      "name_zh": "乙腈",
+      "name_en": "Acetonitrile",
+      "formula": "C2H3N",
+      "category": "organic",
+      "file": "acetonitrile.xyz",
+      "aliases": [
+        "CH3CN"
+      ],
+      "description_zh": "含氰基的极性有机溶剂。",
+      "description_en": "A polar nitrile solvent.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          3
+        ],
+        [
+          1,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "acrylonitrile",
+      "name_zh": "丙烯腈",
+      "name_en": "Acrylonitrile",
+      "formula": "C3H3N",
+      "category": "organic",
+      "file": "acrylonitrile.xyz",
+      "aliases": [
+        "C3H3N"
+      ],
+      "description_zh": "含碳碳双键与氰基。",
+      "description_en": "Contains both a C=C bond and a nitrile group.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          2
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          4,
+          3
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          2,
+          7,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "chloroform",
+      "name_zh": "三氯甲烷",
+      "name_en": "Chloroform",
+      "formula": "CHCl3",
+      "category": "organic",
+      "file": "chloroform.xyz",
+      "aliases": [
+        "CHCl3"
+      ],
+      "description_zh": "四面体形卤代烃。",
+      "description_en": "A tetrahedral halogenated hydrocarbon.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          2,
+          4,
+          1
+        ],
+        [
+          2,
+          5,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "carbon-tetrachloride",
+      "name_zh": "四氯化碳",
+      "name_en": "Carbon tetrachloride",
+      "formula": "CCl4",
+      "category": "organic",
+      "file": "carbon-tetrachloride.xyz",
+      "aliases": [
+        "CCl4"
+      ],
+      "description_zh": "正四面体形卤代烃。",
+      "description_en": "A tetrahedral halogenated hydrocarbon.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          2,
+          4,
+          1
+        ],
+        [
+          2,
+          5,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "bromoethane",
+      "name_zh": "溴乙烷",
+      "name_en": "Bromoethane",
+      "formula": "C2H5Br",
+      "category": "organic",
+      "file": "bromoethane.xyz",
+      "aliases": [
+        "C2H5Br"
+      ],
+      "description_zh": "常见的卤代烃。",
+      "description_en": "A common alkyl bromide.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          1,
+          4,
+          1
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          2,
+          7,
+          1
+        ],
+        [
+          2,
+          8,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "pyridine",
+      "name_zh": "吡啶",
+      "name_en": "Pyridine",
+      "formula": "C5H5N",
+      "category": "organic",
+      "file": "pyridine.xyz",
+      "aliases": [
+        "C5H5N"
+      ],
+      "description_zh": "含一个氮原子的六元芳香环。",
+      "description_en": "A six-membered aromatic ring containing nitrogen.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          2
+        ],
+        [
+          2,
+          3,
+          2
+        ],
+        [
+          3,
+          4,
+          2
+        ],
+        [
+          4,
+          5,
+          2
+        ],
+        [
+          5,
+          6,
+          2
+        ],
+        [
+          6,
+          1,
+          2
+        ],
+        [
+          2,
+          7,
+          1
+        ],
+        [
+          3,
+          8,
+          1
+        ],
+        [
+          4,
+          9,
+          1
+        ],
+        [
+          5,
+          10,
+          1
+        ],
+        [
+          6,
+          11,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "furan",
+      "name_zh": "呋喃",
+      "name_en": "Furan",
+      "formula": "C4H4O",
+      "category": "organic",
+      "file": "furan.xyz",
+      "aliases": [
+        "C4H4O"
+      ],
+      "description_zh": "含氧的五元芳香杂环。",
+      "description_en": "A five-membered oxygen-containing aromatic heterocycle.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          2
+        ],
+        [
+          2,
+          3,
+          2
+        ],
+        [
+          3,
+          4,
+          2
+        ],
+        [
+          4,
+          5,
+          2
+        ],
+        [
+          5,
+          1,
+          2
+        ],
+        [
+          2,
+          6,
+          1
+        ],
+        [
+          3,
+          7,
+          1
+        ],
+        [
+          4,
+          8,
+          1
+        ],
+        [
+          5,
+          9,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "thiophene",
+      "name_zh": "噻吩",
+      "name_en": "Thiophene",
+      "formula": "C4H4S",
+      "category": "organic",
+      "file": "thiophene.xyz",
+      "aliases": [
+        "C4H4S"
+      ],
+      "description_zh": "含硫的五元芳香杂环。",
+      "description_en": "A five-membered sulfur-containing aromatic heterocycle.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          2
+        ],
+        [
+          2,
+          3,
+          2
+        ],
+        [
+          3,
+          4,
+          2
+        ],
+        [
+          4,
+          5,
+          2
+        ],
+        [
+          5,
+          1,
+          2
+        ],
+        [
+          2,
+          6,
+          1
+        ],
+        [
+          3,
+          7,
+          1
+        ],
+        [
+          4,
+          8,
+          1
+        ],
+        [
+          5,
+          9,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "pyrrole",
+      "name_zh": "吡咯",
+      "name_en": "Pyrrole",
+      "formula": "C4H5N",
+      "category": "organic",
+      "file": "pyrrole.xyz",
+      "aliases": [
+        "C4H5N"
+      ],
+      "description_zh": "含氮的五元芳香杂环。",
+      "description_en": "A five-membered nitrogen-containing aromatic heterocycle.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          2
+        ],
+        [
+          2,
+          3,
+          2
+        ],
+        [
+          3,
+          4,
+          2
+        ],
+        [
+          4,
+          5,
+          2
+        ],
+        [
+          5,
+          1,
+          2
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          2,
+          7,
+          1
+        ],
+        [
+          3,
+          8,
+          1
+        ],
+        [
+          4,
+          9,
+          1
+        ],
+        [
+          5,
+          10,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "naphthalene",
+      "name_zh": "萘",
+      "name_en": "Naphthalene",
+      "formula": "C10H8",
+      "category": "organic",
+      "file": "naphthalene.xyz",
+      "aliases": [
+        "C10H8"
+      ],
+      "description_zh": "两个稠合苯环组成的芳香烃。",
+      "description_en": "An aromatic hydrocarbon made of two fused rings.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          2
+        ],
+        [
+          2,
+          3,
+          2
+        ],
+        [
+          3,
+          4,
+          2
+        ],
+        [
+          4,
+          5,
+          2
+        ],
+        [
+          5,
+          6,
+          2
+        ],
+        [
+          6,
+          7,
+          2
+        ],
+        [
+          7,
+          8,
+          2
+        ],
+        [
+          8,
+          9,
+          2
+        ],
+        [
+          9,
+          10,
+          2
+        ],
+        [
+          10,
+          1,
+          2
+        ],
+        [
+          9,
+          4,
+          2
+        ],
+        [
+          1,
+          11,
+          1
+        ],
+        [
+          2,
+          12,
+          1
+        ],
+        [
+          3,
+          13,
+          1
+        ],
+        [
+          5,
+          14,
+          1
+        ],
+        [
+          6,
+          15,
+          1
+        ],
+        [
+          7,
+          16,
+          1
+        ],
+        [
+          8,
+          17,
+          1
+        ],
+        [
+          10,
+          18,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "styrene",
+      "name_zh": "苯乙烯",
+      "name_en": "Styrene",
+      "formula": "C8H8",
+      "category": "organic",
+      "file": "styrene.xyz",
+      "aliases": [
+        "C8H8"
+      ],
+      "description_zh": "苯环连接乙烯基。",
+      "description_en": "Benzene bearing a vinyl group.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          2
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          4,
+          2
+        ],
+        [
+          4,
+          5,
+          2
+        ],
+        [
+          5,
+          6,
+          2
+        ],
+        [
+          6,
+          7,
+          2
+        ],
+        [
+          7,
+          8,
+          2
+        ],
+        [
+          8,
+          3,
+          2
+        ],
+        [
+          1,
+          9,
+          1
+        ],
+        [
+          1,
+          10,
+          1
+        ],
+        [
+          2,
+          11,
+          1
+        ],
+        [
+          4,
+          12,
+          1
+        ],
+        [
+          5,
+          13,
+          1
+        ],
+        [
+          6,
+          14,
+          1
+        ],
+        [
+          7,
+          15,
+          1
+        ],
+        [
+          8,
+          16,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "glycine",
+      "name_zh": "甘氨酸",
+      "name_en": "Glycine",
+      "formula": "C2H5NO2",
+      "category": "biomolecule",
+      "file": "glycine.xyz",
+      "aliases": [
+        "gly",
+        "aminoacetic acid"
+      ],
+      "description_zh": "最简单的氨基酸，同时含氨基和羧基。",
+      "description_en": "The simplest amino acid with amino and carboxyl groups.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          4,
+          2
+        ],
+        [
+          3,
+          5,
+          1
+        ],
+        [
+          1,
+          6,
+          1
+        ],
+        [
+          1,
+          7,
+          1
+        ],
+        [
+          2,
+          8,
+          1
+        ],
+        [
+          2,
+          9,
+          1
+        ],
+        [
+          5,
+          10,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "alanine",
+      "name_zh": "丙氨酸",
+      "name_en": "Alanine",
+      "formula": "C3H7NO2",
+      "category": "biomolecule",
+      "file": "alanine.xyz",
+      "aliases": [
+        "ala"
+      ],
+      "description_zh": "常见的手性氨基酸。",
+      "description_en": "A common chiral amino acid.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          2,
+          4,
+          1
+        ],
+        [
+          4,
+          5,
+          2
+        ],
+        [
+          4,
+          6,
+          1
+        ],
+        [
+          1,
+          7,
+          1
+        ],
+        [
+          1,
+          8,
+          1
+        ],
+        [
+          1,
+          9,
+          1
+        ],
+        [
+          2,
+          10,
+          1
+        ],
+        [
+          3,
+          11,
+          1
+        ],
+        [
+          3,
+          12,
+          1
+        ],
+        [
+          6,
+          13,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "lactic-acid",
+      "name_zh": "乳酸",
+      "name_en": "Lactic acid",
+      "formula": "C3H6O3",
+      "category": "biomolecule",
+      "file": "lactic-acid.xyz",
+      "aliases": [
+        "C3H6O3"
+      ],
+      "description_zh": "含羟基和羧基的生物相关小分子。",
+      "description_en": "A small biomolecule containing hydroxyl and carboxyl groups.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          2,
+          4,
+          1
+        ],
+        [
+          4,
+          5,
+          2
+        ],
+        [
+          4,
+          6,
+          1
+        ],
+        [
+          1,
+          7,
+          1
+        ],
+        [
+          1,
+          8,
+          1
+        ],
+        [
+          1,
+          9,
+          1
+        ],
+        [
+          2,
+          10,
+          1
+        ],
+        [
+          3,
+          11,
+          1
+        ],
+        [
+          6,
+          12,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "glucose",
+      "name_zh": "葡萄糖",
+      "name_en": "Glucose",
+      "formula": "C6H12O6",
+      "category": "biomolecule",
+      "file": "glucose.xyz",
+      "aliases": [
+        "C6H12O6",
+        "dextrose"
+      ],
+      "description_zh": "重要的单糖，常以其开链结构展示多个羟基和一个醛基。",
+      "description_en": "An important monosaccharide shown here in open-chain form.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          4,
+          1
+        ],
+        [
+          3,
+          5,
+          1
+        ],
+        [
+          5,
+          6,
+          1
+        ],
+        [
+          5,
+          7,
+          1
+        ],
+        [
+          7,
+          8,
+          1
+        ],
+        [
+          7,
+          9,
+          1
+        ],
+        [
+          9,
+          10,
+          1
+        ],
+        [
+          9,
+          11,
+          1
+        ],
+        [
+          11,
+          12,
+          2
+        ],
+        [
+          1,
+          13,
+          1
+        ],
+        [
+          2,
+          14,
+          1
+        ],
+        [
+          2,
+          15,
+          1
+        ],
+        [
+          3,
+          16,
+          1
+        ],
+        [
+          4,
+          17,
+          1
+        ],
+        [
+          5,
+          18,
+          1
+        ],
+        [
+          6,
+          19,
+          1
+        ],
+        [
+          7,
+          20,
+          1
+        ],
+        [
+          8,
+          21,
+          1
+        ],
+        [
+          9,
+          22,
+          1
+        ],
+        [
+          10,
+          23,
+          1
+        ],
+        [
+          11,
+          24,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "serotonin",
+      "name_zh": "血清素",
+      "name_en": "Serotonin",
+      "formula": "C10H12N2O",
+      "category": "biomolecule",
+      "file": "serotonin.xyz",
+      "aliases": [
+        "5-hydroxytryptamine",
+        "5-HT",
+        "C10H12N2O"
+      ],
+      "description_zh": "重要的神经递质；含羟基吲哚环、氨基和柔性乙胺侧链。",
+      "description_en": "An important neurotransmitter with a hydroxyindole ring and aminoethyl side chain.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          4,
+          1
+        ],
+        [
+          4,
+          5,
+          2
+        ],
+        [
+          5,
+          6,
+          2
+        ],
+        [
+          6,
+          7,
+          2
+        ],
+        [
+          7,
+          8,
+          2
+        ],
+        [
+          8,
+          9,
+          2
+        ],
+        [
+          9,
+          10,
+          2
+        ],
+        [
+          10,
+          11,
+          1
+        ],
+        [
+          10,
+          12,
+          2
+        ],
+        [
+          12,
+          13,
+          2
+        ],
+        [
+          13,
+          4,
+          2
+        ],
+        [
+          13,
+          7,
+          2
+        ],
+        [
+          1,
+          14,
+          1
+        ],
+        [
+          1,
+          15,
+          1
+        ],
+        [
+          2,
+          16,
+          1
+        ],
+        [
+          2,
+          17,
+          1
+        ],
+        [
+          3,
+          18,
+          1
+        ],
+        [
+          3,
+          19,
+          1
+        ],
+        [
+          5,
+          20,
+          1
+        ],
+        [
+          6,
+          21,
+          1
+        ],
+        [
+          8,
+          22,
+          1
+        ],
+        [
+          9,
+          23,
+          1
+        ],
+        [
+          11,
+          24,
+          1
+        ],
+        [
+          12,
+          25,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "fructose",
+      "name_zh": "果糖",
+      "name_en": "Fructose",
+      "formula": "C6H12O6",
+      "category": "biomolecule",
+      "file": "fructose.xyz",
+      "aliases": [
+        "C6H12O6",
+        "levulose"
+      ],
+      "description_zh": "与葡萄糖互为同分异构体的单糖。",
+      "description_en": "A monosaccharide isomeric with glucose.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          4,
+          1
+        ],
+        [
+          3,
+          5,
+          1
+        ],
+        [
+          5,
+          6,
+          1
+        ],
+        [
+          5,
+          7,
+          1
+        ],
+        [
+          7,
+          8,
+          1
+        ],
+        [
+          7,
+          9,
+          1
+        ],
+        [
+          9,
+          10,
+          2
+        ],
+        [
+          9,
+          11,
+          1
+        ],
+        [
+          11,
+          12,
+          1
+        ],
+        [
+          1,
+          13,
+          1
+        ],
+        [
+          2,
+          14,
+          1
+        ],
+        [
+          2,
+          15,
+          1
+        ],
+        [
+          3,
+          16,
+          1
+        ],
+        [
+          4,
+          17,
+          1
+        ],
+        [
+          5,
+          18,
+          1
+        ],
+        [
+          6,
+          19,
+          1
+        ],
+        [
+          7,
+          20,
+          1
+        ],
+        [
+          8,
+          21,
+          1
+        ],
+        [
+          11,
+          22,
+          1
+        ],
+        [
+          11,
+          23,
+          1
+        ],
+        [
+          12,
+          24,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "sucrose",
+      "name_zh": "蔗糖",
+      "name_en": "Sucrose",
+      "formula": "C12H22O11",
+      "category": "biomolecule",
+      "file": "sucrose.xyz",
+      "aliases": [
+        "C12H22O11",
+        "table sugar"
+      ],
+      "description_zh": "由葡萄糖和果糖单元组成的二糖。",
+      "description_en": "A disaccharide composed of glucose and fructose units.",
+      "style": "HoukMol",
+      "bonds": [
+        [
+          1,
+          2,
+          1
+        ],
+        [
+          2,
+          3,
+          1
+        ],
+        [
+          3,
+          4,
+          1
+        ],
+        [
+          4,
+          5,
+          1
+        ],
+        [
+          5,
+          6,
+          1
+        ],
+        [
+          6,
+          7,
+          1
+        ],
+        [
+          5,
+          8,
+          1
+        ],
+        [
+          8,
+          9,
+          1
+        ],
+        [
+          9,
+          10,
+          1
+        ],
+        [
+          10,
+          11,
+          1
+        ],
+        [
+          11,
+          12,
+          1
+        ],
+        [
+          12,
+          13,
+          1
+        ],
+        [
+          11,
+          14,
+          1
+        ],
+        [
+          14,
+          15,
+          1
+        ],
+        [
+          14,
+          16,
+          1
+        ],
+        [
+          16,
+          17,
+          1
+        ],
+        [
+          16,
+          18,
+          1
+        ],
+        [
+          18,
+          19,
+          1
+        ],
+        [
+          5,
+          20,
+          1
+        ],
+        [
+          20,
+          21,
+          1
+        ],
+        [
+          20,
+          22,
+          1
+        ],
+        [
+          22,
+          23,
+          1
+        ],
+        [
+          22,
+          3,
+          1
+        ],
+        [
+          18,
+          9,
+          1
+        ],
+        [
+          1,
+          24,
+          1
+        ],
+        [
+          2,
+          25,
+          1
+        ],
+        [
+          2,
+          26,
+          1
+        ],
+        [
+          3,
+          27,
+          1
+        ],
+        [
+          6,
+          28,
+          1
+        ],
+        [
+          6,
+          29,
+          1
+        ],
+        [
+          7,
+          30,
+          1
+        ],
+        [
+          9,
+          31,
+          1
+        ],
+        [
+          11,
+          32,
+          1
+        ],
+        [
+          12,
+          33,
+          1
+        ],
+        [
+          12,
+          34,
+          1
+        ],
+        [
+          13,
+          35,
+          1
+        ],
+        [
+          14,
+          36,
+          1
+        ],
+        [
+          15,
+          37,
+          1
+        ],
+        [
+          16,
+          38,
+          1
+        ],
+        [
+          17,
+          39,
+          1
+        ],
+        [
+          18,
+          40,
+          1
+        ],
+        [
+          19,
+          41,
+          1
+        ],
+        [
+          20,
+          42,
+          1
+        ],
+        [
+          21,
+          43,
+          1
+        ],
+        [
+          22,
+          44,
+          1
+        ],
+        [
+          23,
+          45,
+          1
+        ]
+      ]
+    }
+  ]
+}

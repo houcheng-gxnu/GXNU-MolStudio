@@ -54,6 +54,7 @@ ONE_CLICK_STYLES = (
     ("IBOview", "_style_ibo_btn"),
     ("HoukMol", "_style_hm_btn"),
     ("HoukMol3d", "_style_hm3d_btn"),
+    ("2D 平涂", "_style_hm2d_btn"),
     ("IQmol", "_style_iq_btn"),
     ("MolStudio", "_style_ms_btn"),
     ("CYLview", "_style_cv_btn"),

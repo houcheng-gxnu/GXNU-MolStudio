@@ -15,13 +15,22 @@ except ImportError:
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QLabel, QLineEdit, QFileDialog,
-    QMessageBox, QFrame, QGroupBox, QListWidget,
+    QMessageBox, QFrame, QGroupBox, QListWidget, QProgressBar,
 )
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import QUrl
+from PyQt5.QtGui import QDesktopServices
 
 from molstudio.panels.etsnocv.config import LIGHT_QSS
 from molstudio.panels.etsnocv.molcanvas import MolCanvas, get_atoms_from_any, get_bonds_from_fchk as calc_bonds
 from molstudio.panels.etsnocv.locale import get_locale
+from molstudio.panels.etsnocv.local_jobs import (
+    LocalETSCancelled,
+    prepare_ets_jobs,
+    run_ets_jobs,
+    write_gaussian_input,
+)
+from molstudio.core.gaussian_run import find_formchk, find_gaussian
 
 
 class SciFiGroupBox(QGroupBox):
@@ -29,21 +38,58 @@ class SciFiGroupBox(QGroupBox):
         super().__init__(title, parent)
 
 
+class LocalETSWorker(QThread):
+    """Run three Gaussian jobs and formchk conversions off the UI thread."""
+
+    log = pyqtSignal(str)
+    completed = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, jobs, g16_exe, formchk_exe, parent=None):
+        super().__init__(parent)
+        self.jobs = jobs
+        self.g16_exe = g16_exe
+        self.formchk_exe = formchk_exe
+        self._cancel_requested = False
+
+    def request_cancel(self):
+        self._cancel_requested = True
+
+    def is_cancel_requested(self):
+        return self._cancel_requested
+
+    def run(self):
+        try:
+            result = run_ets_jobs(
+                self.jobs, self.g16_exe, self.formchk_exe,
+                on_log=self.log.emit, cancel=self.is_cancel_requested)
+            self.completed.emit(result)
+        except LocalETSCancelled:
+            self.failed.emit("本机计算已停止。")
+        except Exception as exc:  # noqa: BLE001 - surfaced in the dialog
+            self.failed.emit(str(exc))
+
+
 class GjfGeneratorWidget(QWidget):
     """Gaussian gjf input file generator with 3D fragment editor."""
 
     last_dir_changed = pyqtSignal(str)
+    local_analysis_ready = pyqtSignal(object)
 
-    def __init__(self, L=None, last_dir=""):
+    def __init__(self, L=None, last_dir="", get_g16=None, log_func=None):
         super().__init__()
         self.L = L if L is not None else get_locale("zh")
         self._last_dir = last_dir if last_dir else os.path.expanduser("~")
+        self._get_g16 = get_g16 or (lambda: "")
+        self._log_func = log_func
 
         # Gen state
         self._gen_atoms = []
         self._gen_bonds = []
         self._gen_fragments = []  # list of {name, charge, multiplicity, atoms: set}
         self._gen_sel_frag = -1
+        self._last_generated_jobs = []
+        self._local_worker = None
 
         self._build_ui()
 
@@ -83,6 +129,12 @@ class GjfGeneratorWidget(QWidget):
         btn_browse_out = QPushButton(L["btn_browse"])
         btn_browse_out.clicked.connect(self._browse_output)
         ic_layout.addWidget(btn_browse_out, 1, 2)
+        self.btn_open_output = QPushButton(L.get(
+            "btn_open_output_dir", "打开输出目录"))
+        self.btn_open_output.setToolTip(L.get(
+            "btn_open_output_tip", "在文件资源管理器中打开输出目录"))
+        self.btn_open_output.clicked.connect(self._open_output_dir)
+        ic_layout.addWidget(self.btn_open_output, 2, 1, 1, 2)
 
         left_layout.addWidget(input_card)
 
@@ -186,6 +238,33 @@ class GjfGeneratorWidget(QWidget):
         btn_clr.clicked.connect(self._clear_all)
         btn_bottom.addWidget(btn_clr)
         left_layout.addLayout(btn_bottom)
+
+        run_row = QHBoxLayout()
+        run_row.setSpacing(6)
+        self.btn_run_local = QPushButton(L.get(
+            "btn_run_local", "本机运行 3 个任务并分析"))
+        self.btn_run_local.setObjectName("PrimaryBtn")
+        self.btn_run_local.setToolTip(L.get(
+            "btn_run_local_tip",
+            "依次运行复合物、碎片 1、碎片 2；formchk 后自动载入 ETS-NOCV。"))
+        self.btn_run_local.clicked.connect(self._run_local_workflow)
+        run_row.addWidget(self.btn_run_local, 1)
+        self.btn_stop_local = QPushButton(L.get("btn_stop_local", "停止"))
+        self.btn_stop_local.setEnabled(False)
+        self.btn_stop_local.clicked.connect(self._stop_local_workflow)
+        run_row.addWidget(self.btn_stop_local)
+        left_layout.addLayout(run_row)
+
+        self.gen_local_progress = QProgressBar()
+        self.gen_local_progress.setRange(0, 3)
+        self.gen_local_progress.setValue(0)
+        self.gen_local_progress.setTextVisible(False)
+        self.gen_local_progress.hide()
+        left_layout.addWidget(self.gen_local_progress)
+        self.gen_status = QLabel("")
+        self.gen_status.setObjectName("HintLabel")
+        self.gen_status.setWordWrap(True)
+        left_layout.addWidget(self.gen_status)
         left_layout.addStretch()
 
         page_layout.addWidget(left_panel)
@@ -219,12 +298,19 @@ class GjfGeneratorWidget(QWidget):
     def _browse_input(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "Load molecular structure",
-            self._last_dir, "Molecule files (*.xyz *.gjf *.com *.log);;All (*.*)")
+            self._last_dir,
+            "Molecule files (*.xyz *.gjf *.com *.log *.out);;All (*.*)")
         if path:
             self._last_dir = os.path.dirname(path)
             self.last_dir_changed.emit(self._last_dir)
             self.gen_input_path.setText(path)
-            atoms = get_atoms_from_any(path)
+            try:
+                atoms = get_atoms_from_any(path)
+            except Exception as exc:  # noqa: BLE001 - malformed user input
+                QMessageBox.warning(
+                    self, "Error",
+                    "%s\n\n%s" % (self.L["frag_warn_parse_fail"], exc))
+                return
             if not atoms:
                 QMessageBox.warning(self, "Error", self.L["frag_warn_parse_fail"])
                 return
@@ -235,11 +321,38 @@ class GjfGeneratorWidget(QWidget):
             self._gen_sel_frag = -1
             self.gen_canvas.set_data(atoms, bonds)
             self._add_fragment()
+            self._add_fragment()
+            self.gen_frag_list.setCurrentRow(0)
+            if not self.gen_output_dir.text().strip():
+                stem = os.path.splitext(os.path.basename(path))[0] or "molecule"
+                self.gen_output_dir.setText(
+                    os.path.join(os.path.dirname(path), stem + "_ETS_NOCV"))
+            self.gen_status.setText(
+                "已载入 %d 个原子。请把全部原子分配给两个片段，再生成或运行。"
+                % len(atoms))
 
     def _browse_output(self):
         path = QFileDialog.getExistingDirectory(self, "Select output directory", "")
         if path:
             self.gen_output_dir.setText(path)
+
+    def _open_output_dir(self):
+        path = self.gen_output_dir.text().strip()
+        if not path:
+            QMessageBox.information(
+                self, "ETS-NOCV",
+                self.L.get("frag_warn_no_output", "请先选择输出目录。"))
+            return
+        try:
+            os.makedirs(path, exist_ok=True)
+            opened = QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        except OSError as exc:
+            QMessageBox.warning(self, "ETS-NOCV", str(exc))
+            return
+        if not opened:
+            QMessageBox.warning(
+                self, "ETS-NOCV",
+                "无法打开输出目录：\n%s" % path)
 
     def _convert_smiles(self):
         if not HAS_RDKIT:
@@ -271,6 +384,8 @@ class GjfGeneratorWidget(QWidget):
             self.gen_input_path.clear()
             self.gen_canvas.set_data(atoms, bonds)
             self._add_fragment()
+            self._add_fragment()
+            self.gen_frag_list.setCurrentRow(0)
         except Exception as e:
             QMessageBox.warning(self, "Error", f"{self.L['frag_warn_smiles_fail']}\n{str(e)}")
 
@@ -295,6 +410,10 @@ class GjfGeneratorWidget(QWidget):
         self.gen_canvas.repaint()
 
     def _add_fragment(self):
+        if len(self._gen_fragments) >= 2:
+            QMessageBox.information(
+                self, "ETS-NOCV", "ETS-NOCV 只需要两个片段。")
+            return
         idx = len(self._gen_fragments) + 1
         self._gen_fragments.append({
             'name': f'Fragment{idx}',
@@ -326,6 +445,22 @@ class GjfGeneratorWidget(QWidget):
         remaining = all_atoms - used
         if not remaining:
             QMessageBox.information(self, self.L["frag_auto_title"], "All atoms already assigned.")
+            return
+        if len(self._gen_fragments) == 2:
+            target = self._gen_sel_frag
+            if target < 0 or self._gen_fragments[target]['atoms']:
+                empty = [i for i, frag in enumerate(self._gen_fragments)
+                         if not frag['atoms']]
+                if not empty:
+                    QMessageBox.warning(
+                        self, self.L["frag_auto_title"],
+                        "两片段都已有原子，无法自动补全。")
+                    return
+                target = empty[0]
+            self._gen_fragments[target]['atoms'].update(remaining)
+            self._gen_sel_frag = target
+            self._refresh_frag_list()
+            self._update_frag_ui()
             return
         reply = QMessageBox.question(
             self, self.L["frag_auto_title"],
@@ -366,9 +501,36 @@ class GjfGeneratorWidget(QWidget):
             frag = self._gen_fragments[self._gen_sel_frag]
             frag['charge'] = int(self.gen_frag_charge.text())
             frag['multiplicity'] = int(self.gen_frag_multiplicity.text())
+            atoms = self._parse_atom_ids(self.gen_atom_entry.text())
+            valid = {atom[0] for atom in self._gen_atoms}
+            invalid = atoms - valid
+            if invalid:
+                raise ValueError("无效原子序号：%s" % ", ".join(map(str, sorted(invalid))))
+            for i, other in enumerate(self._gen_fragments):
+                if i != self._gen_sel_frag:
+                    other['atoms'].difference_update(atoms)
+            frag['atoms'] = atoms
             self._refresh_frag_list()
-        except ValueError:
-            pass
+            self._update_frag_ui()
+        except ValueError as exc:
+            QMessageBox.warning(self, "Warning", str(exc))
+
+    @staticmethod
+    def _parse_atom_ids(text):
+        result = set()
+        for token in text.replace("，", ",").replace(";", ",").split(","):
+            token = token.strip()
+            if not token:
+                continue
+            if "-" in token:
+                start, end = token.split("-", 1)
+                start, end = int(start), int(end)
+                if start > end:
+                    start, end = end, start
+                result.update(range(start, end + 1))
+            else:
+                result.add(int(token))
+        return result
 
     def _clear_frag_atoms(self):
         if self._gen_sel_frag < 0:
@@ -384,6 +546,9 @@ class GjfGeneratorWidget(QWidget):
         if atom_idx in frag['atoms']:
             frag['atoms'].remove(atom_idx)
         else:
+            for i, other in enumerate(self._gen_fragments):
+                if i != self._gen_sel_frag:
+                    other['atoms'].discard(atom_idx)
             frag['atoms'].add(atom_idx)
         self._refresh_frag_list()
         self._update_frag_ui()
@@ -394,63 +559,144 @@ class GjfGeneratorWidget(QWidget):
         frag = self._gen_fragments[self._gen_sel_frag]
         for idx in atom_indices:
             if idx not in frag['atoms']:
+                for i, other in enumerate(self._gen_fragments):
+                    if i != self._gen_sel_frag:
+                        other['atoms'].discard(idx)
                 frag['atoms'].add(idx)
         self._refresh_frag_list()
         self._update_frag_ui()
 
-    def _generate_all(self):
+    def _prepare_jobs_from_ui(self):
         if not self._gen_atoms:
             QMessageBox.warning(self, "Warning", self.L["frag_warn_no_atoms"])
-            return
-        if len(self._gen_fragments) < 2:
-            QMessageBox.warning(self, "Warning", self.L["frag_warn_no_frags"])
-            return
+            return None
+        if len(self._gen_fragments) != 2:
+            QMessageBox.warning(
+                self, "Warning",
+                "ETS-NOCV 需要恰好两个片段（当前 %d 个）。" %
+                len(self._gen_fragments))
+            return None
         out_dir = self.gen_output_dir.text().strip()
         if not out_dir:
             QMessageBox.warning(self, "Warning", "Please select an output directory.")
+            return None
+        try:
+            charge = int(self.gen_sys_charge.text().strip())
+            mult = int(self.gen_sys_multiplicity.text().strip())
+            for fragment in self._gen_fragments:
+                fragment["charge"] = int(fragment.get("charge", 0))
+                fragment["multiplicity"] = int(fragment.get("multiplicity", 1))
+            method = self.gen_method.text().strip() or "M06L/def2SVP"
+            name = os.path.splitext(
+                os.path.basename(self.gen_input_path.text()))[0] or "molecule"
+            jobs = prepare_ets_jobs(
+                self._gen_atoms, self._gen_fragments, out_dir, name, method,
+                charge, mult)
+        except (TypeError, ValueError, OSError) as exc:
+            QMessageBox.warning(
+                self, "ETS-NOCV", "无法生成输入文件：\n%s" % exc)
+            return None
+        self._last_generated_jobs = jobs
+        return jobs
+
+    def _generate_all(self):
+        jobs = self._prepare_jobs_from_ui()
+        if not jobs:
             return
-        if not os.path.isdir(out_dir):
-            os.makedirs(out_dir)
-        method = self.gen_method.text().strip()
-        charge = self.gen_sys_charge.text().strip()
-        mult = self.gen_sys_multiplicity.text().strip()
-        name = os.path.splitext(os.path.basename(self.gen_input_path.text()))[0] or "molecule"
-
-        # Build reordered whole molecule
-        atom_map = {a[0]: a for a in self._gen_atoms}
-        all_set = set(atom_map.keys())
-        used_set = set()
-        for f in self._gen_fragments:
-            used_set.update(f['atoms'])
-        ordered = []
-        for f in self._gen_fragments:
-            for a_idx in sorted(f['atoms']):
-                if a_idx in atom_map:
-                    ordered.append(atom_map[a_idx])
-        for a_idx in sorted(all_set - used_set):
-            if a_idx in atom_map:
-                ordered.append(atom_map[a_idx])
-
-        self._write_gjf(ordered, os.path.join(out_dir, f"{name}.gjf"), method, charge, mult)
-        for f in self._gen_fragments:
-            f_atoms = [atom_map[a] for a in sorted(f['atoms']) if a in atom_map]
-            self._write_gjf(f_atoms, os.path.join(out_dir, f"{f['name']}.gjf"),
-                            method, str(f['charge']), str(f['multiplicity']))
-        QMessageBox.information(self, "Success",
-            self.L["frag_gen_success"].format(n=len(self._gen_fragments) + 1))
+        QMessageBox.information(
+            self, "Success",
+            "已生成 3 个 Gaussian 输入文件：\n\n" +
+            "\n".join(os.path.basename(job["gjf"]) for job in jobs) +
+            "\n\n复合物中的碎片坐标保持连续，并已写入 nosymm。")
 
     def _write_gjf(self, atoms, path, method, charge, multiplicity):
-        chk_name = os.path.basename(path).replace('.gjf', '.chk')
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(f"%nprocshared=24\n%mem=10GB\n%chk={chk_name}\n")
-            f.write(f"#P {method} nosymm\n\n")
-            f.write(f"{os.path.basename(path).replace('.gjf', '')}\n\n")
-            f.write(f"{charge} {multiplicity}\n")
-            for _, sym, _, (x, y, z) in atoms:
-                f.write(f" {sym:2s}  {x:14.8f}  {y:14.8f}  {z:14.8f}\n")
-            f.write(f"\n")
+        write_gaussian_input(atoms, path, method, charge, multiplicity)
+
+    def _append_log(self, message):
+        if self._log_func:
+            try:
+                self._log_func(message + "\n")
+            except Exception:  # noqa: BLE001 - logging must never block a job
+                pass
+
+    def _run_local_workflow(self):
+        if self._local_worker is not None and self._local_worker.isRunning():
+            return
+        jobs = self._prepare_jobs_from_ui()
+        if not jobs:
+            return
+        g16 = (self._get_g16() or find_gaussian()).strip()
+        if not g16 or not os.path.isfile(g16):
+            QMessageBox.warning(
+                self, "Gaussian",
+                "没有找到 g16.exe。请先在主窗口 ⚙️ 路径设置中配置。")
+            return
+        formchk = find_formchk(g16)
+        if not formchk:
+            QMessageBox.warning(
+                self, "Gaussian",
+                "没有找到 formchk.exe，它应与 g16.exe 位于同一目录。")
+            return
+
+        self._local_worker = LocalETSWorker(jobs, g16, formchk, self)
+        self._local_worker.log.connect(self._on_local_log)
+        self._local_worker.completed.connect(self._on_local_completed)
+        self._local_worker.failed.connect(self._on_local_failed)
+        self.gen_local_progress.setValue(0)
+        self.gen_local_progress.show()
+        self.gen_status.setText("准备运行 3 个 Gaussian 任务...")
+        self._set_local_running(True)
+        self._append_log("ETS-NOCV 本机流程：3 个 Gaussian 任务开始")
+        self._local_worker.start()
+
+    def _set_local_running(self, running):
+        self.btn_run_local.setEnabled(not running)
+        self.btn_stop_local.setEnabled(running)
+        self.gen_frag_list.setEnabled(not running)
+
+    def _on_local_log(self, message):
+        self._append_log(message)
+        stripped = message.strip()
+        if stripped.startswith("=== [") and "/3]" in stripped:
+            try:
+                index = int(stripped.split("[", 1)[1].split("/", 1)[0])
+                self.gen_local_progress.setValue(max(0, index - 1))
+            except (ValueError, IndexError):
+                pass
+        if stripped:
+            self.gen_status.setText(stripped[:180])
+
+    def _on_local_completed(self, result):
+        self._set_local_running(False)
+        self.gen_local_progress.setValue(3)
+        self.gen_status.setText("3 个任务及 formchk 已完成，正在载入 ETS-NOCV 分析。")
+        self._append_log("ETS-NOCV 本机流程完成，3 个 .fch 已生成")
+        self.local_analysis_ready.emit(result)
+
+    def _on_local_failed(self, message):
+        self._set_local_running(False)
+        self.gen_local_progress.setValue(0)
+        self.gen_status.setText(message.splitlines()[0][:180] if message else "计算失败")
+        self._append_log("ETS-NOCV 本机流程失败：" + message)
+        QMessageBox.warning(self, "Gaussian / formchk", message)
+
+    def _stop_local_workflow(self):
+        if self._local_worker is not None and self._local_worker.isRunning():
+            self.btn_stop_local.setEnabled(False)
+            self.gen_status.setText("正在停止当前 Gaussian 任务...")
+            self._local_worker.request_cancel()
+
+    def shutdown(self):
+        """Cancel and join a running local job before the dialog is destroyed."""
+        worker = self._local_worker
+        if worker is not None and worker.isRunning():
+            worker.request_cancel()
+            worker.wait(15000)
 
     def _clear_all(self):
+        if self._local_worker is not None and self._local_worker.isRunning():
+            QMessageBox.information(self, "ETS-NOCV", "本机任务运行中，请先停止。")
+            return
         self._gen_atoms = []
         self._gen_bonds = []
         self._gen_fragments = []
@@ -463,3 +709,5 @@ class GjfGeneratorWidget(QWidget):
         self.gen_frag_multiplicity.setText("1")
         self.gen_canvas.fragment_atoms = {}
         self.gen_canvas.set_data([], [])
+        self.gen_status.clear()
+        self.gen_local_progress.hide()

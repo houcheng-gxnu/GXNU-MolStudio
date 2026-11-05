@@ -369,7 +369,7 @@ _SOBART_LIGHT = {
 # 默认样式「sob-art」（导出自 sob-art.json 的**全量**状态，2026-09 更新）：
 # SobArt 原子配色 / 四灯（glow 0.1）/ Blinn-Phong 镜面模型 / 光泽 0.77 /
 # 次表面散射 0.3 / 等值面透明度 0.7（orb_opacity 0.30）/ 原子描边 0.35 /
-# 白底 / 关景深雾化。改这里的数值即改「一键样式 → sob-art」的效果。
+# 白底 / 默认开景深雾化。改这里的数值即改「一键样式 → sob-art」的效果。
 _SOBART_STYLE = {**_STYLE_NEUTRAL,
     "mol_style":       'SobArt',
     "gradient":        '',
@@ -393,7 +393,7 @@ _SOBART_STYLE = {**_STYLE_NEUTRAL,
     "phase_neg":       [0.0, 0.7, 0.9],
     "bg":              [1.0, 1.0, 1.0, 1.0],
     "crosshair":       False,
-    "fade":            False,
+    "fade":            True,
     "fog_strength":    0.6,
     "shader_regs":     {'atom': [0.85, 0.7, 0.77, -0.5],
                         'orb': [0.85, 0.6, 0.385, 1.0]},
@@ -440,9 +440,25 @@ _HOUKMOL_STYLE = {**_STYLE_NEUTRAL,
     "phase_neg": [0.0, 0.6666666666666666, 1.0],
     "bg": [1.0, 1.0, 1.0, 1.0],
     "crosshair": False,
-    "fade": False,
+    "fade": True,
     "carbon": None,
     "hydrogen": None,
+}
+
+# 一键样式「2D 平涂」：与 HoukMol 同一套配色/尺寸/黑色化学键/细黑描边，
+# 但球棍开启 flat_atoms —— 原子球和化学键只画元素色，不做径向渐变与高光，
+# 得到 2D 图示那种"纯色圆圈 + 黑键"的观感。
+# 等值面仍按 HoukMol 的 gau_default 渐变着色（flat_atoms 只作用于原子/键）。
+_HOUKMOL2D_STYLE = {**_HOUKMOL_STYLE,
+    "flat_atoms": True,
+    "gradient": "gau_default",
+    "gloss": 0.0,
+    "atom_scale": 1.68,
+    "bond_scale": 2.0,
+    # 化学键不收腰：直圆柱（默认 0.70 是"中段收细到 70%"，2D 平涂不需要立体收腰）
+    "bond_thinning": 1.0,
+    "atom_outline": [True, [0.0, 0.0, 0.0], 0.35],
+    "orb_outline": [True, [0.0, 0.0, 0.0], 0.2],
 }
 
 # HoukMol 一键样式的默认圆环方位（导出自 ring_style.json，随分子转；默认不显示）
@@ -480,7 +496,7 @@ _IQMOL_STYLE = {**_STYLE_NEUTRAL,
     "phase_neg": [0.0, 0.3843137254901961, 1.0],
     "bg": [1.0, 1.0, 1.0, 1.0],
     "crosshair": False,
-    "fade": False,
+    "fade": True,
     "carbon": None,
     "hydrogen": None,
 }
@@ -521,7 +537,7 @@ _IBOVIEW_STYLE = {**_STYLE_NEUTRAL,
     "phase_neg": [0.4, 0.6235294117647059, 1.0],
     "bg": [1.0, 1.0, 1.0, 1.0],
     "crosshair": False,
-    "fade": False,
+    "fade": True,
     "carbon": None,
     "hydrogen": None,
     "hide_hydrogens": False,
@@ -574,7 +590,7 @@ _MOLSTUDIO_STYLE = {**_STYLE_NEUTRAL,
     "phase_neg": [0.5, 0.9, 0.1],
     "bg": [1.0, 1.0, 1.0, 1.0],
     "crosshair": False,
-    "fade": False,
+    "fade": True,
     "carbon": None,
     "hydrogen": None,
     "hide_hydrogens": False,
@@ -628,12 +644,8 @@ _VESTA_STYLE.update({
     "roughness": 0.55,                         # 0.45 → 0.55
     "coat_roughness": 0.15,                    # 0.10 → 0.15
     "coat_strength": 1.78,                     # 0.80 → 1.78（清漆加强）
-    # 景深雾化：他导出的 VESTA.json 里是**开着**的（fade=true），但本项目有一条
-    # 明文规则 —— 「一键样式一律不打开景深雾化」（见 _glwidget.reset_molviewer_style
-    # 的注释；_oneclick_style_probe.py 会强制检查"点任何一键样式后雾化必须是关的"）。
-    # 所以这里按规则压回关闭，fog_strength 仍记他那个值（0.6，也是渲染默认值）。
-    # 想恢复成"VESTA 带雾化"，把 fade 改 True 即可，同时得松掉那条规则的判定。
-    "fade": False,
+    # 景深雾化与 VESTA.json 一致默认开启；强度 0.6 也取该导出的值。
+    "fade": True,
     "fog_strength": 0.6,
     # 键收腰 0.70（BOND_THINNING_DEFAULT）→ 1.00：直圆柱不收腰，与 VESTA 的
     # 键一致（VESTA 的 stick 就是等径圆柱）
@@ -679,7 +691,7 @@ _VESTA_STYLE.update({
 
 # 一键样式「CYLview」（MolStudio 的变体，2026-09-20）。
 # 与 MolStudio 完全同源，按 CYLview 观感改这几处：
-#   · 景深雾化关闭（fade=False → u_FogWidth=0，物体不向背景淡出）
+#   · 景深雾化默认开启（fade=True；仍可在面板单独关闭）
 #   · 原子描边关闭（atom_outline on=False）
 #   · 原子半径 1.8（MolStudio 为 1.5）
 #   · 化学键半径 3.79（MolStudio 为 2.0）
@@ -733,7 +745,7 @@ _CYLVVIEW_STYLE = {**_STYLE_NEUTRAL,
     "bond_thinning": 1.0,
     "bg": [1.0, 1.0, 1.0, 1.0],
     "crosshair": False,
-    "fade": False,
+    "fade": True,
     "carbon": None,
     "hydrogen": None,
     "hide_hydrogens": False,
@@ -782,7 +794,7 @@ _HOUKMOL3D_STYLE = {**_STYLE_NEUTRAL,
     "phase_neg": [0.5, 0.9, 0.1],
     "bg": [1.0, 1.0, 1.0, 1.0],
     "crosshair": False,
-    "fade": False,
+    "fade": True,
     "carbon": None,
     "hydrogen": None,
     "hide_hydrogens": False,
@@ -2574,6 +2586,15 @@ class CubCanvasPanel(QWidget):
             "等值面半透明 0.48 / 相位白-绿 / 原子描边 0.35）")
         self._style_hm3d_btn.clicked.connect(self._apply_houkmol3d_style)
         h.addWidget(self._style_hm3d_btn)
+        self._style_hm2d_btn = QPushButton("2D 平涂")
+        self._style_hm2d_btn.setObjectName("SmallBtn")
+        self._style_hm2d_btn.setToolTip(
+            "一键应用样式 2D 平涂（HoukMol 配色 + 平涂球体）：\n"
+            "原子球与化学键只画元素色，不做径向渐变与高光，等同 2D 图示的\n"
+            "纯色圆圈；化学键为等径直圆柱（不收腰），保留细黑描边与黑色化学键。\n"
+            "等值面仍按正常明暗着色。")
+        self._style_hm2d_btn.clicked.connect(self._apply_houkmol2d_style)
+        h.addWidget(self._style_hm2d_btn)
         self._style_iq_btn = QPushButton("IQmol")
         self._style_iq_btn.setObjectName("SmallBtn")
         self._style_iq_btn.setToolTip("一键应用默认样式 IQmol（CPK 双光 + 每灯独立光晕 + 红蓝相位 + 原子配色 GaussView）")
@@ -4169,7 +4190,7 @@ class CubCanvasPanel(QWidget):
         self._bg_color_btn.clicked.connect(self._on_bg_color)
         gi_p.addWidget(self._bg_color_btn, 9, 1)
 
-        # 景深雾化（IboView Fade：远处蒙白雾）
+        # 景深雾化（IboView Fade：远处向背景色淡出）
         self._fade_chk = QCheckBox()
         self._fade_chk.setText(self._cv_bind(self._fade_chk, "景深雾化"))
         self._fade_chk.setChecked(True)
@@ -4181,7 +4202,7 @@ class CubCanvasPanel(QWidget):
         #   漏了这一步复选框就整个不在界面上（程序里还在，isChecked() 照样能读，
         #   所以只会表现为"小方块不见了"这种肉眼可见、探针却测不到的回归）。
         gi_p.addWidget(self._promote_chk(self._fade_chk), 10, 0)
-        # 雾化强度：场景最远处向白渐变的幅度（0..1）。
+        # 雾化强度：场景最远处向背景色渐变的幅度（0..2）。
         # 分子/轨道的可见深度范围通常不大，弱档看不出差别，故给一个可调滑块。
         self._fade_sld = QSlider(Qt.Horizontal)
         # 0..200 → 雾化强度 0.0..2.0（1.0 = 最深处完全融入背景，>1 更强）
@@ -4631,7 +4652,7 @@ class CubCanvasPanel(QWidget):
             self.glw.set_background(_parse_color(color))
 
     def set_fade_enabled(self, enabled):
-        """景深雾化（IboView Fade：远处蒙白雾）开关。默认开启以保留原貌。"""
+        """景深雾化（IboView Fade：远处向背景色淡出）开关。默认开启。"""
         if self.glw is not None:
             self.glw.set_fade_enabled(bool(enabled))
         if hasattr(self, "_fade_chk"):
@@ -4642,7 +4663,7 @@ class CubCanvasPanel(QWidget):
             self._fade_sld.setEnabled(bool(enabled))
 
     def set_fog_strength(self, value):
-        """景深雾化强度 0..1（场景最远处蒙白的幅度）。"""
+        """景深雾化强度 0..2（场景最远处向背景色淡出的幅度）。"""
         if self.glw is not None:
             self.glw.set_fog_strength(float(value))
         if hasattr(self, "_fade_sld"):
@@ -5051,7 +5072,7 @@ class CubCanvasPanel(QWidget):
         """一键应用默认样式 CYLview。
 
         与 MolStudio 同源（GaussView 配色 / 单光 / 白底 / 相位白-绿 / 全套材质），
-        按 CYLview 观感改这几处：关闭景深雾化（fade=False）、关闭原子描边、
+        按 CYLview 观感改这几处：景深雾化默认开启、关闭原子描边、
         原子半径 1.8、化学键半径 3.79、**氢原子球半径跟随键半径**（H 与键
         一样粗）、单光源方向与光晕按 light_style.json（光晕 0.5）。
         先 reset_molviewer_style() 清掉 MolViewer 预设残留，再整体套用 ——
@@ -5238,6 +5259,25 @@ class CubCanvasPanel(QWidget):
         self.glw.apply_style_state(dict(_HOUKMOL3D_STYLE))
         self._sync_style_ui()
         self._set_status("已应用默认样式 HoukMol3d")
+
+    def _apply_houkmol2d_style(self):
+        """一键应用「2D 平涂」：HoukMol 的配色/尺寸/黑键 + 平涂球体（无渐变）。
+
+        与 _apply_houkmol_style 的唯一差别是样式字典里 flat_atoms=True：
+        原子球与化学键只画元素色，不做径向渐变/高光。
+        """
+        if self.glw is None:
+            return
+        # 与 HoukMol 按钮保持一致的等值面风格与相位色来源
+        self.glw.set_style("mango-lime")
+        st = dict(_HOUKMOL2D_STYLE)
+        st.pop("phase_pos", None)   # 相位色保持 mango-lime，不覆盖
+        st.pop("phase_neg", None)
+        self.glw.apply_style_state(st)
+        self.glw.set_atom_scale(1.5)
+        self.glw.apply_ring_state(_HOUKMOL_RING)
+        self._sync_style_ui()
+        self._set_status("已应用样式 2D 平涂（球体无渐变）")
 
     def _save_style(self):
         if self.glw is None:
@@ -5518,8 +5558,8 @@ class CubCanvasPanel(QWidget):
             self._ring_dialog.sync_from_glw()
         # 镜面模型 / 粗糙度 / 清漆 / 次表面 / 明暗柔和度 / 半球环境光
         # （放最后：这些都读 canvas 的 _sp，须等样式应用完再取）
-        # 景深雾化：开关 + 强度。样式里 fade=False 时必须同步勾选框，
-        # 否则界面显示"已开启"而画面已经关掉（CYLview 就是这种情况）。
+        # 景深雾化：开关 + 强度。切换样式或载入存档后同步勾选框与实际画面，
+        # 避免界面状态和渲染状态不一致。
         if hasattr(self, "_fade_chk"):
             on = bool(getattr(self.glw, "_fade_enabled", True))
             self._fade_chk.blockSignals(True)
@@ -6045,7 +6085,7 @@ class CubCanvasPanel(QWidget):
             self._fade_sld.setEnabled(bool(on))
 
     def _on_fade_strength(self, value):
-        """景深雾化强度 0..1（场景最远处向白渐变的幅度）。"""
+        """景深雾化强度 0..2（场景最远处向背景色淡出的幅度）。"""
         if self.glw is not None:
             self.glw.set_fog_strength(value / 100.0)
 

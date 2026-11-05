@@ -93,7 +93,8 @@ CTRL_RADIUS = 9
 ICON_MUTED = "#64748B"      # 常态图标色
 ICON_ACCENT = "#1D4ED8"     # 选中态图标色
 
-# 左侧导航：tab key → 图标名（16 项各不同，全部是 ui_icons 现画的矢量图）
+# 左侧导航：tab key → 图标名（新增面板记得在这里登记，否则画布优先界面的
+# 图标 rail 会留一个空条目；图标全部是 ui_icons 现画的矢量图）
 NAV_ICONS = {
     "tab_viz": "orbital",
     "tab_setup": "chart",
@@ -104,12 +105,17 @@ NAV_ICONS = {
     "tab_aim": "axes",
     "tab_etsnocv": "thermal",
     "tab_mpp": "grid",
+    "tab_surfproj": "chart",     # 表面距离投影
+    "tab_steric": "target",      # 位阻地图 / %VBur
+    "tab_aicd": "wave",          # 感应电流密度
     "tab_irc": "arrow",
     "tab_di": "cube",
     "tab_asm_irc": "molecule",
     "tab_cub_stack": "eye",
     "tab_esm": "play",
     "tab_ircsplit": "folder",
+    "tab_spectrum": "wave",
+    "tab_xtb": "bolt",
     "tab_log": "list",
 }
 

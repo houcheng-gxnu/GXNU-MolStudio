@@ -335,6 +335,12 @@ ELEMENT_SYMBOLS = {
     106: 'Sg', 107: 'Bh', 108: 'Hs', 109: 'Mt', 110: 'Ds', 111: 'Rg',
 }
 
+#: 元素符号 → 原子序数（xyz/gjf 的坐标行只有符号，没有序号）。
+#: 3D 画布（ovcanvas）按原子序数取球径和元素色：这里若给 0，球棍模型会退化成
+#: “黑色骨架、没有球”，所以符号必须映射回真实 Z。D/T 按氢处理。
+SYMBOL_TO_AN = {sym: an for an, sym in ELEMENT_SYMBOLS.items()}
+SYMBOL_TO_AN.update({"D": 1, "T": 1})
+
 
 # ── fchk Parser ──────────────────────────────────────
 
@@ -441,72 +447,150 @@ def parse_xyz_file(filepath):
             y = float(parts[2])
             z = float(parts[3])
             idx = i - 1
-            atoms.append((idx, sym, 0, (x, y, z)))
+            atoms.append((idx, sym, SYMBOL_TO_AN.get(sym, 0), (x, y, z)))
     return atoms
 
 
 def parse_gjf_file(filepath):
-    """Parse atomic coordinates from Gaussian .gjf/.com input file."""
+    """Parse the first Cartesian geometry from a Gaussian .gjf/.com file.
+
+    Gaussian input files do not carry an atom count in the coordinate section.
+    The old implementation treated *any* later ``int int`` line as a new
+    charge/multiplicity line and then accepted every four-column line as an
+    atom.  That made it easy to wander into a following Link1 section.  Here we
+    only accept a charge/multiplicity candidate when it is immediately followed
+    by a valid Cartesian coordinate row, and we stop at the coordinate blank.
+    """
     atoms = []
     with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
         content = f.read()
-    lines = content.split('\n')
+    lines = content.splitlines()
+
+    def parse_atom_row(line):
+        parts = line.strip().split()
+        if len(parts) < 4:
+            return None
+        raw_symbol = parts[0].strip()
+        # Fragment labels may be attached to the element symbol in generated
+        # inputs, e.g. ``C(Fragment=1)``.
+        base_symbol = raw_symbol.split("(", 1)[0]
+        try:
+            x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
+        except ValueError:
+            return None
+        if base_symbol.isdigit():
+            atomic_number = int(base_symbol)
+            symbol = ELEMENT_SYMBOLS.get(atomic_number, "X")
+        else:
+            symbol = base_symbol.capitalize()
+            atomic_number = SYMBOL_TO_AN.get(symbol, 0)
+        if not symbol:
+            return None
+        return symbol, atomic_number, (x, y, z)
+
     start_idx = None
     for i, line in enumerate(lines):
-        ls = line.strip()
-        if ls and not ls.startswith('#') and not ls.startswith('%') and not ls.startswith('--'):
-            if start_idx is None:
-                parts = ls.split()
-                if len(parts) == 2:
-                    try:
-                        int(parts[0])
-                        int(parts[1])
-                        start_idx = i + 1
-                    except ValueError:
-                        pass
+        parts = line.strip().split()
+        if len(parts) != 2:
+            continue
+        try:
+            int(parts[0])
+            int(parts[1])
+        except ValueError:
+            continue
+        # The charge/multiplicity line is immediately followed by the first
+        # atom row in a conventional Cartesian input.
+        for following in lines[i + 1:]:
+            if following.strip():
+                if parse_atom_row(following) is not None:
+                    start_idx = i + 1
+                break
+        if start_idx is not None:
+            break
+
     if start_idx is not None:
-        idx = 0
         for line in lines[start_idx:]:
-            parts = line.strip().split()
-            if not parts or parts[0].startswith('--'):
-                continue
-            if len(parts) >= 4:
-                sym = parts[0].capitalize()
-                x = float(parts[1])
-                y = float(parts[2])
-                z = float(parts[3])
-                idx += 1
-                atoms.append((idx, sym, 0, (x, y, z)))
+            stripped = line.strip()
+            if not stripped:
+                break
+            if stripped.startswith("--Link1--"):
+                break
+            parsed = parse_atom_row(line)
+            if parsed is None:
+                break
+            symbol, atomic_number, xyz = parsed
+            atoms.append((len(atoms) + 1, symbol, atomic_number, xyz))
     return atoms
 
 
 def parse_log_file(filepath):
-    """Parse the last frame from a Gaussian .log output file."""
+    """Parse the last geometry from a Gaussian .log/.out output file.
+
+    A normal Gaussian log contains many unrelated sections after the coordinate
+    tables (basis-set information, population analysis, etc.).  The parser
+    therefore reads only rows strictly bounded by the orientation table's
+    dashed separators and validates both integer columns before converting
+    them.  Every complete orientation table is considered, and the one that
+    occurs last in the file wins.  This matters for logs containing several
+    optimization steps or both Input and Standard orientations: the screen
+    must show the final optimized geometry, regardless of table type.
+    """
     atoms = []
     with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-        content = f.read()
-    patterns = [
-        r"Standard orientation:\s*\n[\s\S]*?\n\s*Center\s+Atomic\s+Atomic\s+Coordinates \(Angstroms\)\s*\n[\s\S]*?(?=\n\s*$|\n\n)",
-        r"Input orientation:\s*\n[\s\S]*?\n\s*Center\s+Atomic\s+Atomic\s+Coordinates \(Angstroms\)\s*\n[\s\S]*?(?=\n\s*$|\n\n)",
-    ]
-    coords_text = None
-    for pattern in patterns:
-        match = re.search(pattern, content)
-        if match:
-            coords_text = match.group()
-            break
-    if coords_text:
-        for line in coords_text.split('\n'):
-            parts = line.split()
-            if len(parts) >= 6 and parts[0].isdigit():
+        lines = f.readlines()
+
+    def read_orientation(start):
+        """Return atom tuples for one orientation block, or ``None``."""
+        header = -1
+        for j in range(start + 1, min(start + 16, len(lines))):
+            text = lines[j].strip()
+            if "Center" in text and "Atomic" in text and "Coordinates" in text:
+                header = j
+                break
+        if header < 0:
+            return None
+
+        rows = []
+        in_rows = False
+        for raw in lines[header + 1:]:
+            text = raw.strip()
+            if not text:
+                if in_rows:
+                    break
+                continue
+            # The header is followed by a dashed separator.
+            if set(text) <= {"-"}:
+                if in_rows:
+                    break
+                in_rows = True
+                continue
+            if not in_rows:
+                continue
+            parts = text.split()
+            if len(parts) < 6 or not parts[0].isdigit() or not parts[1].isdigit():
+                break
+            try:
                 idx = int(parts[0])
-                an = int(parts[1])
-                sym = ELEMENT_SYMBOLS.get(an, 'X')
-                x = float(parts[3])
-                y = float(parts[4])
-                z = float(parts[5])
-                atoms.append((idx, sym, an, (x, y, z)))
-    return atoms
+                atomic_number = int(parts[1])
+                xyz = (float(parts[3]), float(parts[4]), float(parts[5]))
+            except (ValueError, IndexError):
+                break
+            rows.append((idx, ELEMENT_SYMBOLS.get(atomic_number, "X"),
+                         atomic_number, xyz))
+        return rows or None
+
+    last_orientation = None
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped in (
+                "Standard orientation:",
+                "Input orientation:",
+                "Z-Matrix orientation:"):
+            parsed = read_orientation(i)
+            if parsed:
+                last_orientation = parsed
+
+    return last_orientation or atoms
 
 
 def get_atoms_from_any(filepath):
@@ -516,7 +600,7 @@ def get_atoms_from_any(filepath):
         return parse_xyz_file(filepath)
     elif ext in ('.gjf', '.com'):
         return parse_gjf_file(filepath)
-    elif ext == '.log':
+    elif ext in ('.log', '.out'):
         return parse_log_file(filepath)
     else:
         atoms = parse_xyz_file(filepath)

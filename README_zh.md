@@ -53,12 +53,13 @@ GXNU MolStudio 是一个面向计算化学的**可视化与工作流整合平台
 
 需要说明它的定位——**软件本身不做波函数分析**。轨道、电荷布居、Mayer 键级、ESP 静电势、IGMH/IRI 弱相互作用、AIM 拓扑、分子平面性（MPP）、ETS-NOCV 等定量结果，全部由 [Multiwfn](http://sobereva.com/multiwfn/)（卢天老师开发）计算；MolStudio 负责驱动它、解析输出，并把结果变成可交互的等值面、曲线与图表。DI 能量分解、能量跨度（ESM）、IRC 拆分等模块，则是在读取 Gaussian / Multiwfn 输出之后由软件自行整理与作图。
 
-当前版本「整合」的具体范围是：**读取** Gaussian / Multiwfn 的输入与输出（fchk、cube、wfn/wfx、log/out、chg、cif、xyz 等），**驱动** Multiwfn 生成 cube 并完成波函数分析，以及**完成**实时可视化、出图与批量处理。结构建模/编辑，以及计算任务的提交、排队与监控，不在本版范围内。
+当前版本「整合」的具体范围是：**读取** Gaussian / Multiwfn 的输入与输出（fchk、cube、wfn/wfx、log/out、chg、cif、xyz 等），**驱动** Multiwfn 生成 cube 并完成波函数分析，以及**完成**实时可视化、出图与批量处理。分子光谱页还可以从结构直接生成并本机运行 Gaussian 光谱任务，再自动调用 Multiwfn 出图。通用计算任务的远程排队、监控与集群调度仍不在本版范围内。
 
 | 环节 | 由谁计算 | MolStudio 的角色 |
 |---|---|---|
 | 波函数分析：电荷 / Mayer 键级 / ESP / IGMH·IRI / AIM / MPP / ETS-NOCV | Multiwfn | 调用、解析、可视化 |
 | 轨道 cube 生成 | Multiwfn | 触发、进度与日志、批处理 |
+| UV-Vis / ECD / IR / Raman / VCD / ROA / 荧光 / 磷光 | Gaussian + Multiwfn | 结构导入、任务生成与本机运行、展宽、绘图 |
 | 实时三维预览、一键出图 | 本软件（内嵌 OpenGL 引擎） | 全部 |
 | 离线高分辨率渲染（兼容通道） | VMD + Tachyon | 风格编排与调用 |
 | DI / ESM / IRC 等结果整理与作图 | 本软件 | 全部 |
@@ -81,7 +82,7 @@ GXNU MolStudio 是一个面向计算化学的**可视化与工作流整合平台
 
 ### 🧬 内嵌 OpenGL 渲染引擎（ovcanvas）
 - **顺序无关透明合成（深度剥离）** — 多层面内透明正确排序；不可用时自动回退排序混合
-- **一键样式** — sob-art / IBOview / HoukMol / IQmol 四种默认观感，一键切换
+- **一键样式** — sob-art / IBOview / HoukMol / HoukMol3d / **2D 平涂** / IQmol / MolStudio / CYLview / VESTA，一键切换（2D 平涂 = HoukMol 配色 + 球体平涂，无渐变）
 - **原子配色与光照正交双轴** — 原子配色（CPK / SobArt / HoukMol / Vcube …）× 光照（三光 / 单光 / 双光 / 四光）自由组合
 - **每灯独立光晕** — 光源对话框支持方向/数量/光晕精细调节并保存载入
 - **十字圆环** — HoukMol 风格球面大圆环，方位/俯仰可调、可锁定
@@ -90,6 +91,13 @@ GXNU MolStudio 是一个面向计算化学的**可视化与工作流整合平台
 - **隐藏氢原子** — 一键隐藏全部 H，突出重原子骨架
 - **保留指定 H** — 输入编号（如 `1,3,5-8`），仅显示选中的 H
 - **显示原子编号 / 元素符号** — 每个原子旁标注分子内序号或元素符号
+- **中学分子结构库** — 内置 69 个初中、高中常用分子，可按分类、中文名、
+  英文名、化学式和别名搜索；双击即可载入现有三维画布
+- **PowerPoint 3D 模型** — 当前分子可导出为自包含 `.glb`，在 PowerPoint 365
+  中通过“插入 → 3D 模型 → 此设备”加入；导出会保留画布当前原子配色、
+  黑色/半色键样式、隐藏氢设置、球棍比例与视角，并使用高细分顶点色网格、
+  双面 PBR、黑色细描边和 KDTree 接触 AO 表现原子搭接处的自然阴影；
+  未手动指定时化学键统一按单键导出
 
 ### 🧪 IGMH / IRI 弱相互作用分析
 - **一键分析** — 选择片段，调用 Multiwfn 计算 IGMH 或 IRI 指标
@@ -97,15 +105,54 @@ GXNU MolStudio 是一个面向计算化学的**可视化与工作流整合平台
 - **IGM 散点图** — 内嵌散点图查看器
 
 ### ⚡ 量子化学数据分析
+- **分子光谱一键工作流** — 导入 `.xyz` / `.gjf` / `.log` / `.fchk` 或使用当前画布结构，
+  选择 UV-Vis、ECD、IR、Raman、VCD、ROA、荧光、磷光，一键完成 Gaussian 计算、
+  Multiwfn 展宽和出图；UV-Vis/ECD 可自动先优化基态，振动谱自动生成对应的
+  `freq` 路由，ROA 支持多入射波长。荧光自动完成 S1 几何优化并只保留 S1 发射；
+  磷光自动优化 T1、建立稳定基态参考并计算三重态垂直发射能。已有 `.log/.out`
+  也可直接复用，只重绘谱图。普通 Gaussian TDDFT 不含旋轨耦合，因此磷光峰位
+  可用于分析，谱带强度明确标为归一化结果。
 - **轨道浏览器** — 轨道能量、占据数、HOMO/LUMO 标注，双击自动生成 cube
 - **ESP 静电势** — 等值面 + 极值点标注 + 色标条
 - **NBO 分析** — 键级、占据、二阶微扰能（E2）轨道对
 - **电荷分析** — Mulliken / 拟合电荷、键级可视化
 - **IRC 分析** — 沿反应路径追踪 Mayer 键级与原子电荷变化，共享画布实时显示对应结构
-- **Distortion–Interaction（DI）分析** — 片段能量分解，附分析报告与示意图
+- **Distortion–Interaction（DI）分析** — 左图右表布局：左侧整高显示原有
+  “能量阶梯 + 分解柱状图”双图；绘图区下方左侧载入五个 Gaussian log，
+  右侧集中显示计算按钮、能量/形变能/相互作用能结果表和导出操作
 - **Energetic Span Model（ESM）** — 催化循环分析：识别 TDI/TDTS，计算能量跨度 δE 与 TOF，绘制台阶式能量剖面
 - **AIM 拓扑** — 基于 `.wfn` / `.wfx` / fchk 输入的 QTAIM 键临界点（BCP）与键径分析
 - **电荷与 Mayer 键级** — 电荷布居与 Mayer 键级组合面板
+- **位阻地图 / 包埋体积（%VBur）** — 按 SambVca 官方流程（球心 / z 轴 / xz 平面
+  原子 + 删除列表）定向配合物，一次算出整体/四象限/八分区 %VBur、buried / free
+  体积，并绘制地形位阻地图（2D + 3D 地形）。地图形制对齐 StericRender：**固定
+  ±R 色标** + sambvca 配色 + 黑色等高线 + 分子骨架 + 象限标签 + 轴指示 +
+  横向色标，也可切换 SambVca 官方分阶风格（等高线间距 0.2 Å，与官方
+  `plot_map.py` 一致）；色标、配色、骨架、等高线均可开关。「定向方式」**默认
+  按左侧画布当前视角**（所见即所得：画布转到哪、地图就朝哪），也可切到
+  SambVca 官方定向与文献 %VBur 对照，并用「同步画布朝向」把画布转到同一朝向；
+  **画布点选**可把球心 / z 轴 / xz 平面原子和删除原子直接点出来——删除列表与
+  画布多选实时同步，并有「用画布选中作删除列表 / 清空」按钮。结构可直接取
+  画布或导入 `.xyz/.gjf/.log/.inp`，可导出 PNG/PDF/SVG、CSV、JSON 与官方
+  SambVca `.inp`。引擎为 SambVca 2.1 官方 Fortran 算法的内置纯 numpy 复刻
+  （官方 nhc 算例 %VBur 39.60，地形图与官方 `nhc-TopSurface.dat` 逐点一致），
+  无需外部 SambVca 程序
+- **xTB 半经验计算** — 直接调用外部 **xTB** 程序对画布结构（或导入
+  `.xyz/.gjf/.com/.log/.out`）做 g-xTB / GFN2 / GFN1 / GFN0 / GFN-FF 计算：
+  单点、几何优化、优化+频率与热化学、数值 Hessian、TS 优化、xcontrol 松弛扫描
+  （带能量曲线）；支持电荷/未成对电子、SCF 精度、电子温度、ALPB/GBSA/COSMO
+  隐式溶剂化、并行核数与额外命令行参数。结果显示总能量、HOMO–LUMO gap、
+  HOMO/LUMO、偶极、梯度、原子电荷表、频率/虚频与 G/H/ZPE；优化或扫描末帧
+  结构可**一键送回画布**，并可导出 XYZ/GJF/JSON/扫描轨迹。xTB 路径自动检测、
+  设置自动保存；xTB 本体（LGPL-3.0）需自行安装，不随本软件分发
+
+- **电子密度差（EDD）** — 以当前 fchk 为母体，在画布中框选/点选任意数量
+  片段；母体和片段使用同一方法/基组、按母体原坐标并强制 `nosymm` 生成
+  Gaussian 输入，可本地连续计算母体与全部片段并 formchk，也可手工载入多个
+  状态/片段波函数。Multiwfn 执行
+  `ρ(parent) − Σρ(fragment)` 并导出 cube，正、负密度区域在左侧画布中分别
+  调色显示，支持等值面、透明度和 VMD 场景同步。
+
 - **AICD 感应电流** — 读 Gaussian `nmr=csgt iop(10/93=1|2)` 的张量转储，
   直接出经典 AICD 效果图（黄色各向异性等值面 + 绿杆红尖头电流箭头 + 外磁场
   示意），支持轨道分解；「计算范围」下拉可一键切到**只看 π / 只看 σ**：
@@ -139,6 +186,7 @@ GXNU MolStudio 是一个面向计算化学的**可视化与工作流整合平台
 | PyMCubes | 等值面提取 | `pip install PyMCubes` |
 | matplotlib | 散点图/色标 | `pip install matplotlib` |
 | [Multiwfn](http://sobereva.com/multiwfn/) | fchk → cube、IGMH/IRI | 下载后配置路径 |
+| [xTB](https://github.com/grimme-lab/xtb)（可选） | 半经验计算（SP/OPT/频率/扫描） | 下载后在「xTB 计算」页指定 `xtb.exe`（自动检测） |
 
 > VMD / Tachyon 仅传统渲染模式需要；内嵌 OpenGL 画布不依赖它们。
 

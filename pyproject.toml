@@ -27,6 +27,7 @@ dependencies = [
     "PyOpenGL>=3.1",
     "PyOpenGL-accelerate>=3.1 ; platform_system == 'Windows'",
     "numpy>=1.20",
+    "scipy>=1.8",
     "PyMCubes>=0.1.4",
     "matplotlib>=3.5",
 ]
@@ -46,4 +47,4 @@ molstudio = "molstudio.app:main"
 include = ["molstudio*"]
 
 [tool.setuptools.package-data]
-molstudio = ["assets/*"]
+molstudio = ["assets/*", "assets/molecule_library/*"]

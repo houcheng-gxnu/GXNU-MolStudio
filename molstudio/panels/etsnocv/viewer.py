@@ -217,8 +217,11 @@ class ETSNOCVViewer(QMainWindow):
         self._build_molecule_page(L)
         self._build_analysis_page(L)
         self._build_log_page(L)
-        self._gen_widget = GjfGeneratorWidget(L, self._last_dir)
+        self._gen_widget = GjfGeneratorWidget(
+            L, self._last_dir, log_func=self._log)
         self._gen_widget.last_dir_changed.connect(self._on_gen_dir_changed)
+        self._gen_widget.local_analysis_ready.connect(
+            self._on_generator_results_ready)
         self._content_stack.addWidget(self._gen_widget)
         self._build_settings_page(L)
         main_layout.addWidget(body_wrapper, stretch=1)
@@ -795,6 +798,35 @@ class ETSNOCVViewer(QMainWindow):
         self._log("\n" + L["log_loaded"] + os.path.basename(fchk_path) + "\n", "#4ec9b0")
         self._log(L["log_atoms"] + str(len(atoms)) + L["log_bonds"] + str(len(bonds)) + "\n", "#4ec9b0")
         self.lbl_hint.setText(L["hint_default"])
+
+    def _on_generator_results_ready(self, result):
+        """Load the generated .fch trio, then reuse the normal analysis path."""
+        comp = result.get("complex", "") if isinstance(result, dict) else ""
+        frag1 = result.get("frag1", "") if isinstance(result, dict) else ""
+        frag2 = result.get("frag2", "") if isinstance(result, dict) else ""
+        if not all(p and os.path.isfile(p) for p in (comp, frag1, frag2)):
+            QMessageBox.critical(
+                self, self.L["err_title"],
+                "Generated .fch files are incomplete.")
+            return
+        self.fchk_complex = comp
+        self.fchk_frag1 = frag1
+        self.fchk_frag2 = frag2
+        self.txt_fchk_complex.setText(os.path.basename(comp))
+        self.txt_fchk_frag1.setText(os.path.basename(frag1))
+        self.txt_fchk_frag2.setText(os.path.basename(frag2))
+        self._load_molecule(comp)
+
+        ab1 = read_fch_alpha_beta(frag1)
+        ab2 = read_fch_alpha_beta(frag2)
+        self.frag1_open_shell = ab1 is not None and ab1[0] != ab1[1]
+        self.frag2_open_shell = ab2 is not None and ab2[0] != ab2[1]
+        self._update_spin_flip_ui()
+        self._log(
+            "\nLocal Gaussian workflow completed; loading ETS-NOCV analysis.\n",
+            "#4ec9b0")
+        self._switch_page(0)
+        QTimer.singleShot(100, self._run_analysis)
 
     def _on_atom_selected(self, atom_idx):
         if not self.current_atoms:
