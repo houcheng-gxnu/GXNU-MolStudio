@@ -92,11 +92,13 @@ What is integrated today: **reading** Gaussian / Multiwfn inputs and outputs (fc
 - **Atom indices / element symbols** — label each atom with its in-molecule number or element symbol
 - **School molecule library** — 69 built-in junior- and senior-high-school molecules
   with category, name, formula and alias search; double-click to visualize
-- **PowerPoint 3D models** — export the current molecule as a self-contained `.glb`
-  for PowerPoint 365 (`Insert → 3D Models → This Device`), preserving the canvas
-  palette, bond colours, hidden atoms, ball-and-stick scale and current view,
-  with dense vertex-colour meshes, double-sided PBR, thin black atom outlines,
-  KDTree-baked contact AO and single bonds unless explicitly overridden
+- **PowerPoint 3D models** — export the current molecule and every visible
+  molecular-orbital, electrostatic-potential or other isosurface as one
+  self-contained `.glb` for PowerPoint 365 (`Insert → 3D Models → This Device`).
+  Phase/ESP vertex colours, transparency, atom palette, bonds, hidden atoms,
+  ball-and-stick scale and the current view are preserved, with dense
+  vertex-colour meshes, double-sided PBR, thin black outlines and KDTree-baked
+  contact AO. ESP scenes also write a matching `_legend.png` colour bar.
 
 ### 🧪 IGMH / IRI weak-interaction analysis
 - **One-click analysis** — pick fragments, run IGMH or IRI indices through Multiwfn

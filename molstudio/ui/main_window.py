@@ -2699,11 +2699,11 @@ class OrbitalVisApp(QMainWindow):
         self.btn_ppt3d.setText(
             "PPT 3D" if self._lang == "zh" else "PPT 3D")
         self.btn_ppt3d.setToolTip(
-            "把当前分子导出为 PowerPoint 365 可旋转的 .glb 3D 模型；"
-            "保留画布配色、键样式、显示范围和当前视角"
+            "把当前分子和画布上显示的等值面导出为 PowerPoint 365 可旋转的 "
+            ".glb 3D 模型；保留配色、键样式、透明度和当前视角"
             if self._lang == "zh"
-            else "Export a rotatable PowerPoint 365 .glb using the current "
-                 "canvas palette, bond style, visibility, and view")
+            else "Export the current molecule and visible isosurfaces as a "
+                 "rotatable PowerPoint 365 .glb")
         self._lang_btn.setText(self._tr("lang_btn"))
         self.var_path.setPlaceholderText(self._tr("placeholder_input"))
 
@@ -4359,26 +4359,104 @@ class OrbitalVisApp(QMainWindow):
         if not path.lower().endswith(".glb"):
             path += ".glb"
         try:
-            from molstudio.core.molecule_export import export_glb
+            from molstudio.core.molecule_export import (
+                export_glb, surface_layers_from_canvas,
+            )
             options = self._ppt3d_canvas_options(symbols)
+            glw = getattr(getattr(self, "cub_canvas", None), "glw", None)
+            surfaces = surface_layers_from_canvas(glw)
+            options["surfaces"] = surfaces
             export_glb(path, symbols, coords, title=stem, **options)
+            legend_path = self._write_ppt3d_esp_legend(path, glw, surfaces)
         except Exception as exc:                              # noqa: BLE001
             QMessageBox.warning(
                 self, "PPT 3D" if self._lang == "zh" else "PPT 3D",
                 ("导出失败：%s" if self._lang == "zh" else
                  "Export failed: %s") % exc)
             return
-        self._append_log("[PPT 3D] 已导出：%s" % path)
+        surface_count = len(surfaces)
+        self._append_log(
+            "[PPT 3D] 已导出：%s（含 %d 个等值面/叠加层）"
+            % (path, surface_count))
+        legend_note = (
+            ("\n静电势色标图：\n%s" % legend_path) if legend_path else "")
+        if self._lang != "zh" and legend_path:
+            legend_note = "\nESP colour-scale image:\n%s" % legend_path
         QMessageBox.information(
             self, "PPT 3D" if self._lang == "zh" else "PPT 3D",
-            ("已导出：\n%s\n\nPowerPoint 365：插入 → 3D 模型 → 此设备，"
-             "选择该 .glb 文件。模型已使用当前画布配色与视角；"
-             "插入后可拖动旋转，并可用 3D 模型动画。"
+            ("已导出：\n%s\n\n包含 %d 个当前显示的等值面/叠加层。"
+             "PowerPoint 365：插入 → 3D 模型 → 此设备，选择该 .glb 文件。"
+             "模型已使用当前画布配色与视角；插入后可拖动旋转，并可用 "
+             "3D 模型动画。%s"
              if self._lang == "zh" else
-             "Exported:\n%s\n\nPowerPoint 365: Insert → 3D Models → This Device, "
-             "then select the .glb file. The current canvas palette, visibility, "
-             "and view are preserved. Drag to rotate and add a 3D model "
-             "animation as needed.") % path)
+             "Exported:\n%s\n\nIncluded %d visible isosurface/overlay layer(s). "
+             "PowerPoint 365: Insert → 3D Models → This Device, then select "
+             "the .glb file. The current canvas palette, visibility, and view "
+             "are preserved. Drag to rotate and add a 3D model animation as "
+             "needed.%s") % (path, surface_count, legend_note))
+
+    @staticmethod
+    def _write_ppt3d_esp_legend(glb_path, glw, surfaces):
+        """Write a reusable ESP colour bar beside a transparent 3D surface."""
+        if (glw is None or not getattr(glw, "_surf_vcolor", False)
+                or not any(getattr(layer, "kind", "") == "esp"
+                           for layer in surfaces or [])):
+            return None
+        try:
+            low = float(getattr(glw, "_cs_low", -0.03))
+            high = float(getattr(glw, "_cs_high", 0.03))
+            unit = str(getattr(glw, "_cs_unit", "ESP (a.u.)"))
+            sample = getattr(glw, "_cs_cmap_rgb")
+        except (AttributeError, TypeError, ValueError):
+            return None
+
+        try:
+            import numpy as np
+            from matplotlib.backends.backend_agg import FigureCanvasAgg
+            from matplotlib.colors import ListedColormap, Normalize
+            from matplotlib.figure import Figure
+
+            colours = []
+            for i in range(256):
+                try:
+                    rgb = sample(i / 255.0)
+                    colours.append(tuple(
+                        max(0.0, min(1.0, float(c))) for c in rgb[:3]))
+                except (TypeError, ValueError, IndexError):
+                    colours.append((0.7, 0.7, 0.7))
+            cmap = ListedColormap(colours, name="MolStudioESP")
+
+            figure = Figure(figsize=(7.5, 1.6), dpi=160)
+            FigureCanvasAgg(figure)
+            axis = figure.add_axes((0.08, 0.30, 0.84, 0.25))
+            gradient = np.linspace(0.0, 1.0, 512, dtype=float)[None, :]
+            axis.imshow(
+                gradient, aspect="auto", cmap=cmap,
+                norm=Normalize(0.0, 1.0),
+                extent=(low, high, 0.0, 1.0),
+                interpolation="bilinear",
+            )
+            tick_count = 5
+            axis.set_xticks(np.linspace(low, high, tick_count))
+            axis.set_xticklabels([
+                "%.4g" % value
+                for value in np.linspace(low, high, tick_count)
+            ])
+            axis.set_yticks([])
+            axis.set_xlabel(unit, fontsize=10, labelpad=6)
+            axis.tick_params(axis="x", labelsize=9, length=3, pad=3)
+            for spine in axis.spines.values():
+                spine.set_linewidth(0.8)
+                spine.set_color("#202124")
+            figure.patch.set_facecolor("#FFFFFF")
+        except Exception:
+            return None
+        target = os.path.splitext(os.fspath(glb_path))[0] + "_legend.png"
+        try:
+            figure.savefig(target, dpi=160, facecolor="#FFFFFF")
+        except Exception:
+            return None
+        return target if os.path.isfile(target) else None
 
     def _ppt3d_canvas_options(self, symbols):
         """Capture canvas palette, radii, bond style and current view for GLB."""

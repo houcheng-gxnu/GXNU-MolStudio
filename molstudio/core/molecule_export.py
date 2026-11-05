@@ -14,7 +14,7 @@ import struct
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Optional, Sequence
 
 import numpy as np
 
@@ -48,6 +48,29 @@ _TYPE_COMPONENTS = {
     "SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4,
     "MAT2": 4, "MAT3": 9, "MAT4": 16,
 }
+
+
+@dataclass
+class SurfaceLayer:
+    """A self-contained triangle surface for a combined molecular-scene GLB.
+
+    ``vertices`` use the same Angstrom coordinate system as the molecule.
+    ``colors`` may be RGB/RGBA values in display sRGB space; they are converted
+    to linear vertex colours when the GLB is built. The material alpha is kept
+    in ``opacity`` so PowerPoint receives a standard alpha-blended PBR material.
+    """
+
+    name: str
+    vertices: np.ndarray
+    indices: np.ndarray
+    normals: Optional[np.ndarray] = None
+    colors: Optional[np.ndarray] = None
+    opacity: float = 0.72
+    roughness: float = 0.52
+    kind: str = "isosurface"
+    visible: bool = True
+    double_sided: bool = True
+    color: tuple[float, float, float] = (0.65, 0.75, 0.90)
 
 
 def _symbol(value) -> str:
@@ -84,6 +107,98 @@ def _colour_rgba(value, fallback="#9aa4b2") -> list[float]:
     except Exception:                                      # noqa: BLE001
         pass
     return _rgb(fallback)
+
+
+def _colour_array(rgba, fallback=(0.65, 0.75, 0.90)) -> np.ndarray:
+    """Convert sRGB surface colours to linear RGB, one row per vertex."""
+    if rgba is None:
+        src = np.asarray(fallback, dtype=np.float64).reshape(1, 3)
+    else:
+        src = np.asarray(rgba, dtype=np.float64)
+        if src.ndim == 1 and src.size >= 3:
+            src = src[:3].reshape(1, 3)
+        elif src.ndim != 2 or src.shape[1] < 3:
+            raise ValueError("surface colors must be RGB or RGBA values")
+        src = src[:, :3]
+    src = np.clip(src, 0.0, 1.0)
+    return np.where(
+        src <= 0.04045,
+        src / 12.92,
+        ((src + 0.055) / 1.055) ** 2.4,
+    )
+
+
+def _compute_vertex_normals(vertices: np.ndarray,
+                            indices: np.ndarray) -> np.ndarray:
+    """Area-weighted smooth normals, used only when a surface omits normals."""
+    triangles = vertices[indices.reshape(-1, 3)]
+    face_normals = np.cross(
+        triangles[:, 1] - triangles[:, 0],
+        triangles[:, 2] - triangles[:, 0],
+    )
+    normals = np.zeros_like(vertices, dtype=np.float64)
+    np.add.at(
+        normals,
+        indices.reshape(-1),
+        np.repeat(face_normals, 3, axis=0),
+    )
+    lengths = np.linalg.norm(normals, axis=1)
+    valid = lengths > 1e-12
+    normals[valid] /= lengths[valid, None]
+    normals[~valid] = np.array((0.0, 0.0, 1.0))
+    return normals.astype(np.float32)
+
+
+def _prepare_surface(layer: SurfaceLayer):
+    """Validate and convert a public surface layer into indexed mesh arrays."""
+    if not isinstance(layer, SurfaceLayer):
+        raise TypeError("surfaces must contain SurfaceLayer objects")
+    if not layer.visible:
+        return None
+    try:
+        opacity = max(0.0, min(1.0, float(layer.opacity)))
+        roughness = max(0.03, min(1.0, float(layer.roughness)))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("surface opacity/roughness must be numeric") from exc
+    if opacity <= 0.001:
+        return None
+
+    vertices = np.asarray(layer.vertices, dtype=np.float32)
+    if vertices.ndim != 2 or vertices.shape[1] != 3 or not vertices.size:
+        raise ValueError("surface vertices must be a non-empty (N, 3) array")
+    if not np.isfinite(vertices).all():
+        raise ValueError("surface vertices contain non-finite coordinates")
+
+    indices = np.asarray(layer.indices)
+    if indices.ndim != 1 or indices.size == 0 or indices.size % 3:
+        raise ValueError("surface indices must be a non-empty triangle list")
+    if not np.issubdtype(indices.dtype, np.integer):
+        if not np.equal(indices, np.floor(indices)).all():
+            raise ValueError("surface indices must be integers")
+    indices = indices.astype(np.uint32, copy=False)
+    if int(indices.min()) < 0 or int(indices.max()) >= len(vertices):
+        raise ValueError("surface index is outside the vertex array")
+
+    normals = layer.normals
+    if normals is None:
+        normals = _compute_vertex_normals(vertices, indices)
+    else:
+        normals = np.asarray(normals, dtype=np.float32)
+        if normals.shape != vertices.shape or not np.isfinite(normals).all():
+            raise ValueError("surface normals must match the (N, 3) vertices")
+        lengths = np.linalg.norm(normals, axis=1)
+        valid = lengths > 1e-12
+        normals[valid] /= lengths[valid, None]
+        normals[~valid] = np.array((0.0, 0.0, 1.0), dtype=np.float32)
+
+    colours = _colour_array(layer.colors, layer.color)
+    if len(colours) == 1:
+        colours = np.repeat(colours, len(vertices), axis=0)
+    elif len(colours) != len(vertices):
+        raise ValueError("surface colors must have one row per vertex")
+    return (str(layer.name or "Surface"), vertices, normals, indices,
+            colours.astype(np.float32), opacity, roughness,
+            bool(layer.double_sided), str(layer.kind or "isosurface"))
 
 
 def _baked_vertex_colours(normals) -> np.ndarray:
@@ -365,7 +480,7 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
                 unlit=False, texture_colours=False, native_pbr=False,
                 high_detail=False, bake_ao=True, ao_rays=8,
                 atom_outline=False, outline_ratio=0.045,
-                outline_color=(0.0, 0.0, 0.0)):
+                outline_color=(0.0, 0.0, 0.0), surfaces=None):
     n = len(symbols)
     visible = np.ones(n, dtype=bool)
     if visible_atoms is not None:
@@ -383,20 +498,31 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
         try:
             rotation = np.asarray(view_rotation, dtype=float)
             if rotation.shape == (3, 3) and np.isfinite(rotation).all():
-                oriented = oriented @ rotation.T
+                pass
             else:
                 rotation = None
         except (TypeError, ValueError):
             rotation = None
     else:
         rotation = None
-    if rotation is None:
+
+    def _orient_points(points):
+        points = np.asarray(points, dtype=float) - center
+        if rotation is not None:
+            # Camera view coordinates are already x-right / y-up / z-towards-eye.
+            return points @ rotation.T
         # Convert the chemistry convention (z up) to glTF's y-up convention.
-        converted = np.column_stack(
-            (oriented[:, 0], oriented[:, 2], -oriented[:, 1]))
-    else:
-        # Camera view coordinates are already x-right / y-up / z-towards-eye.
-        converted = oriented
+        return np.column_stack(
+            (points[:, 0], points[:, 2], -points[:, 1]))
+
+    def _orient_vectors(vectors):
+        vectors = np.asarray(vectors, dtype=float)
+        if rotation is not None:
+            return vectors @ rotation.T
+        return np.column_stack(
+            (vectors[:, 0], vectors[:, 2], -vectors[:, 1]))
+
+    converted = _orient_points(coords)
 
     try:
         roughness = max(0.03, min(1.0, float(roughness)))
@@ -566,6 +692,47 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
         else:
             material_specs.pop("__outline__", None)
 
+    # Surfaces deliberately remain separate primitives from the molecule:
+    # their alpha/material must not make the opaque atoms and bonds translucent.
+    surface_materials = {}
+    surface_metadata = []
+    for surface_index, layer in enumerate(surfaces or []):
+        prepared = _prepare_surface(layer)
+        if prepared is None:
+            continue
+        (name, vertices, normals, indices, colours,
+         opacity, surface_roughness, double_sided, kind) = prepared
+        vertices = _orient_points(vertices)
+        normals = _orient_vectors(normals)
+        normal_lengths = np.linalg.norm(normals, axis=1)
+        valid_normals = normal_lengths > 1e-12
+        normals[valid_normals] /= normal_lengths[valid_normals, None]
+        normals[~valid_normals] = np.array(
+            (0.0, 0.0, 1.0), dtype=float)
+
+        key = f"__surface_{surface_index}__"
+        while key in parts:
+            key += "_"
+        parts[key] = _Part(
+            positions=vertices.reshape(-1).astype(float).tolist(),
+            normals=normals.reshape(-1).astype(float).tolist(),
+            indices=indices.astype(int).tolist(),
+        )
+        material_specs[key] = (
+            [1.0, 1.0, 1.0, opacity], surface_roughness, name)
+        native_colours[key] = colours.reshape(-1).astype(float).tolist()
+        surface_materials[key] = {
+            "double_sided": double_sided,
+            "opacity": opacity,
+        }
+        surface_metadata.append({
+            "name": name,
+            "kind": kind,
+            "vertices": int(len(vertices)),
+            "triangles": int(len(indices) // 3),
+            "opacity": round(float(opacity), 4),
+        })
+
     material_index = {}
     materials = []
     material_images = {}
@@ -590,6 +757,11 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
                 else _solid_png(rgba))
         if native_pbr or key == "__outline__":
             materials[-1]["doubleSided"] = key != "__outline__"
+        if key in surface_materials:
+            surface_material = surface_materials[key]
+            materials[-1]["doubleSided"] = surface_material["double_sided"]
+            materials[-1]["alphaMode"] = (
+                "BLEND" if surface_material["opacity"] < 0.999 else "OPAQUE")
 
     buffer = bytearray()
     buffer_views = []
@@ -649,7 +821,7 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
                               (vertex_count, 1))
             attributes["TEXCOORD_0"] = append_array(
                 uvs.reshape(-1), 5126, "VEC2", 34962)
-        if native_pbr:
+        if key in native_colours:
             attributes["COLOR_0"] = append_array(
                 native_colours[key], 5126, "VEC3", 34962)
         elif unlit:
@@ -706,6 +878,7 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
                 "contact_ao": bool(native_pbr and bake_ao),
                 "ao_rays": int(ao_rays if native_pbr and bake_ao else 0),
                 "atom_outline": bool("__outline__" in parts),
+                "surface_layers": surface_metadata,
                 "source": "MolStudio",
                 "powerpoint": "Insert > 3D Models > This Device",
             }
@@ -723,6 +896,79 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
     return gltf, bytes(buffer)
 
 
+def surface_layers_from_canvas(glw, *,
+                               bohr_to_angstrom: float = 0.529177210903):
+    """Snapshot visible isosurfaces from a MolStudio OpenGL canvas.
+
+    The canvas stores positions in Bohr; GLB uses Angstrom. Vertex colours
+    and normals are preserved so ESP maps and multi-orbital phase colours
+    survive the transfer. AICD current arrows are exported as an opaque
+    vertex-coloured overlay when they are visible.
+    """
+    if glw is None:
+        return []
+    try:
+        opacity = max(0.0, min(1.0, float(glw._sp.get("opacity", 1.0))))
+        roughness = max(0.03, min(1.0, float(glw._sp.get("roughness", 0.52))))
+    except (AttributeError, TypeError, ValueError):
+        opacity, roughness = 1.0, 0.52
+
+    if getattr(glw, "_surf_vcolor", False):
+        kind = "esp"
+        names = ("Electrostatic potential surface", "")
+    elif getattr(glw, "_orbital_recs", None):
+        kind = "orbital"
+        names = ("Molecular orbital — positive phase",
+                 "Molecular orbital — negative phase")
+    else:
+        kind = "isosurface"
+        names = ("Positive-phase isosurface", "Negative-phase isosurface")
+
+    layers = []
+    for index, (surface, name) in enumerate(zip(
+            (getattr(glw, "_pos_surf", None),
+             getattr(glw, "_neg_surf", None)), names)):
+        if surface is None or getattr(surface, "vertex_count", 0) <= 0:
+            continue
+        colors = getattr(surface, "colors", None)
+        if colors is None:
+            fallback = (getattr(glw, "_pc", (0.65, 0.75, 0.90))
+                        if index == 0 else
+                        getattr(glw, "_nc", (0.90, 0.55, 0.45)))
+            colors = tuple(float(v) for v in fallback[:3])
+        normals = getattr(surface, "normals", None)
+        layers.append(SurfaceLayer(
+            name=name or f"Isosurface {index + 1}",
+            vertices=np.asarray(surface.vertices, dtype=float)
+            * float(bohr_to_angstrom),
+            normals=(None if normals is None
+                     else np.asarray(normals, dtype=float)),
+            indices=np.asarray(surface.indices),
+            colors=colors,
+            opacity=opacity,
+            roughness=roughness,
+            kind=kind,
+        ))
+
+    aicd = getattr(glw, "_aicd_surf", None)
+    if (aicd is not None and getattr(glw, "_aicd_show", False)
+            and getattr(aicd, "vertex_count", 0) > 0):
+        normals = getattr(aicd, "normals", None)
+        layers.append(SurfaceLayer(
+            name="AICD induced-current arrows",
+            vertices=np.asarray(aicd.vertices, dtype=float)
+            * float(bohr_to_angstrom),
+            normals=(None if normals is None
+                     else np.asarray(normals, dtype=float)),
+            indices=np.asarray(aicd.indices),
+            colors=aicd.colors,
+            opacity=1.0,
+            roughness=0.55,
+            kind="aicd_arrows",
+        ))
+    return layers
+
+
 def export_glb(path, symbols: Iterable[str], coords, *, bonds=None,
                bond_orders=None, atom_colors=None, atom_radii=None,
                visible_atoms=None, bond_color=None, bond_radius=None,
@@ -731,12 +977,13 @@ def export_glb(path, symbols: Iterable[str], coords, *, bonds=None,
                texture_colours=False, native_pbr=False, high_detail=False,
                bake_ao=True, ao_rays=8, atom_outline=False,
                outline_ratio=0.045, outline_color=(0.0, 0.0, 0.0),
-               title: str = "Molecule") -> Path:
-    """Write an interactive 3D molecule as a self-contained PowerPoint GLB.
+               surfaces=None, title: str = "Molecule") -> Path:
+    """Write a molecule and optional isosurfaces as a PowerPoint GLB.
 
     The returned file can be inserted in Microsoft 365 PowerPoint through
     ``Insert > 3D Models > This Device``. PowerPoint normalises the model size
     and provides rotation controls; the source remains editable in MolStudio.
+    Surface layers use the same Angstrom coordinate system as ``coords``.
     """
     symbols = [_symbol(s) for s in symbols]
     coords = np.asarray(coords, dtype=float)
@@ -760,7 +1007,7 @@ def export_glb(path, symbols: Iterable[str], coords, *, bonds=None,
         texture_colours=texture_colours, native_pbr=native_pbr,
         high_detail=high_detail, bake_ao=bake_ao, ao_rays=ao_rays,
         atom_outline=atom_outline, outline_ratio=outline_ratio,
-        outline_color=outline_color)
+        outline_color=outline_color, surfaces=surfaces)
     json_bytes = json.dumps(gltf, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     json_bytes += b" " * ((4 - len(json_bytes) % 4) % 4)
     binary += b"\0" * ((4 - len(binary) % 4) % 4)
@@ -823,5 +1070,5 @@ def validate_glb(path) -> dict:
 
 __all__ = [
     "ATOM_RADII", "BOND_RADIUS", "ELEMENT_COLOURS",
-    "export_glb", "validate_glb",
+    "SurfaceLayer", "export_glb", "surface_layers_from_canvas", "validate_glb",
 ]

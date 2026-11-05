@@ -62,6 +62,7 @@ def test_nav_and_tabs():
         assert w.di_panel is not None, "DI 分析面板未加载"
         assert w.btn_molecule_library.text()
         assert w.btn_ppt3d.text() == "PPT 3D"
+        assert "等值面" in w.btn_ppt3d.toolTip()
         # DOS input follows the main-window input; it must not duplicate the
         # file picker or output-directory controls inside the tab.
         assert not hasattr(w.dos_panel, "edit_source")
