@@ -650,7 +650,12 @@ def _run_multiwfn(exe, input_file, sequence, workdir, on_log=None,
 
 
 def _render_curve(curve, kind, output_path, transitions=None, title=""):
-    """Render Multiwfn's exported curve with Matplotlib (Agg backend)."""
+    """Render Multiwfn's exported curve with Matplotlib (Agg backend).
+
+    The canvas is 16:9 so it fills the (now stretchable) preview area without
+    leaving tall empty bands.  Styling stays flat: solid fills, light grid,
+    dark-blue curve, amber transition sticks and a marked peak.
+    """
     global _LAST_RENDER_LIMITS
     try:
         from matplotlib.figure import Figure
@@ -666,45 +671,106 @@ def _render_curve(curve, kind, output_path, transitions=None, title=""):
         max_abs = max((abs(value) for value in ys), default=0.0)
         if max_abs > 0:
             ys = [value / max_abs for value in ys]
-    fig = Figure(figsize=(7.2, 4.6), dpi=160, facecolor="white")
+    transitions = list(transitions or [])
+    x_lo, x_hi = min(xs), max(xs)
+    # 虚频（负波数）或横轴范围外的跃迁会把坐标轴撑大，必须过滤掉。
+    kept_all = [(point[0], point[1]) for point in transitions
+                if x_lo <= point[0] <= x_hi]
+    # 有右侧跃迁强度轴时多留一点边距，避免 ylabel 被画布裁掉。
+    right_margin = 0.90 if kept_all else 0.96
+
+    fig = Figure(figsize=(10.4, 5.85), dpi=180, facecolor="white")
     FigureCanvasAgg(fig)
     ax = fig.add_subplot(111)
-    ax.plot(xs, ys, color="#1565C0", linewidth=1.7)
-    ax.fill_between(xs, ys, 0, color="#90CAF9", alpha=0.28)
-    ax.axhline(0, color="#64748B", linewidth=0.7, alpha=0.6)
-    if transitions:
-        # 只画落在曲线横轴范围内的离散跃迁线：虚频（负波数）或横轴范围外的
-        # 跃迁一旦画进来会把坐标轴撑大，导致与 Multiwfn 原生图的横轴不一致。
-        x_lo, x_hi = min(xs), max(xs)
-        kept = [(point[0], point[1]) for point in transitions
-                if x_lo <= point[0] <= x_hi]
-        if kept:
-            tx = [point[0] for point in kept]
-            ty = [point[1] for point in kept]
-            right = ax.twinx()
-            right.vlines(tx, 0, ty, color="#64748B", linewidth=0.9, alpha=0.5)
-            right.axhline(0, color="#94A3B8", linewidth=0.5, alpha=0.6)
-            right.set_ylabel("Transition intensity", color="#64748B")
-            right.tick_params(axis="y", colors="#64748B", labelsize=8)
-            right.spines["top"].set_visible(False)
-            lo, hi = min(0.0, min(ty)), max(0.0, max(ty))
-            pad = (hi - lo) * 0.08 or 1.0
-            right.set_ylim(lo - pad, hi + pad)
+    fig.subplots_adjust(left=0.095, right=right_margin,
+                        top=0.87, bottom=0.14)
+    ax.set_axisbelow(True)
+    ax.set_facecolor("white")
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color("#94A3B8")
+        ax.spines[side].set_linewidth(1.1)
+    ax.tick_params(axis="both", which="major", colors="#334155",
+                   labelsize=11, length=5, width=1.0, direction="out")
+    ax.grid(True, which="major", color="#E2E8F0", linewidth=0.9,
+            linestyle="-", alpha=0.9)
+
+    ax.plot(xs, ys, color="#1565C0", linewidth=2.4,
+            solid_capstyle="round", label="Broadened spectrum", zorder=3)
+    ax.fill_between(xs, ys, 0, color="#90CAF9", alpha=0.28,
+                    linewidth=0, zorder=2)
+    ax.axhline(0, color="#64748B", linewidth=0.9, alpha=0.7, zorder=2)
+
+    x_unit = "nm" if kind.x_unit == "nm" else "cm$^{-1}$"
+    if ys:
+        peak = max(range(len(ys)), key=lambda i: abs(ys[i]))
+        px, py = xs[peak], ys[peak]
+        if abs(py) > 1e-12:
+            ax.scatter([px], [py], s=46, color="#C62828",
+                       edgecolors="white", linewidths=1.2, zorder=5)
+            ax.annotate("peak  %.0f %s" % (px, x_unit),
+                        xy=(px, py), xytext=(0, 15),
+                        textcoords="offset points", ha="center",
+                        va="bottom", fontsize=10.5, color="#0F172A",
+                        bbox=dict(boxstyle="round,pad=0.35",
+                                  facecolor="white",
+                                  edgecolor="#CBD5E1", linewidth=0.8),
+                        zorder=6)
+
+    right = None
+    if kept_all:
+        tx = [point[0] for point in kept_all]
+        ty = [point[1] for point in kept_all]
+        right = ax.twinx()
+        right.vlines(tx, 0, ty, color="#F59E0B", linewidth=1.2,
+                     alpha=0.8, label="Discrete transitions", zorder=1)
+        right.axhline(0, color="#94A3B8", linewidth=0.5, alpha=0.6)
+        right.set_ylabel("Transition intensity", color="#B45309",
+                         fontsize=12, labelpad=10)
+        right.tick_params(axis="y", colors="#B45309", labelsize=10)
+        right.spines["top"].set_visible(False)
+        right.spines["left"].set_visible(False)
+        for side in ("right", "bottom"):
+            right.spines[side].set_color("#94A3B8")
+            right.spines[side].set_linewidth(1.0)
+        lo, hi = min(0.0, min(ty)), max(0.0, max(ty))
+        pad = (hi - lo) * 0.08 or 1.0
+        right.set_ylim(lo - pad, hi + pad)
+
     # 横轴严格取 Multiwfn 导出的曲线范围（与 Multiwfn 原生图一致）
     ax.set_xlim(min(xs), max(xs))
     _LAST_RENDER_LIMITS = (min(xs), max(xs), len(transitions),
                            len(transitions) - len(
                                [p for p in transitions
                                 if min(xs) <= p[0] <= max(xs)]))
-    ax.set_xlabel("Wavelength (nm)" if kind.x_unit == "nm"
-                  else "Wavenumber (cm$^{-1}$)")
-    ax.set_ylabel(kind.y_unit)
-    ax.set_title(title or ("%s spectrum" % kind.name), fontsize=13)
-    ax.grid(True, color="#E2E8F0", linewidth=0.8)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    fig.tight_layout()
-    fig.savefig(output_path, facecolor="white")
+    ax.set_xlabel("Wavelength / nm" if kind.x_unit == "nm"
+                  else "Wavenumber / cm$^{-1}$",
+                  fontsize=13, color="#0F172A", labelpad=10)
+    ax.set_ylabel(kind.y_unit, fontsize=13, color="#0F172A", labelpad=10)
+    heading = title or ("%s spectrum" % kind.name)
+    # DejaVu Sans (the Agg default) has no CJK glyphs; a Chinese spectrum
+    # name would render as tofu boxes, so fall back to the ASCII kind key.
+    if any(ord(ch) > 127 for ch in heading):
+        heading = "%s spectrum" % kind.key.upper()
+    ax.set_title(heading, fontsize=16, fontweight="bold",
+                 color="#0F172A", pad=16)
+
+    handles, labels = ax.get_legend_handles_labels()
+    if right is not None:
+        h2, l2 = right.get_legend_handles_labels()
+        handles += h2
+        labels += l2
+    if handles:
+        legend = ax.legend(handles, labels, loc="upper right",
+                           fontsize=10.5, frameon=True, fancybox=True)
+        legend.get_frame().set_facecolor("white")
+        legend.get_frame().set_edgecolor("#E2E8F0")
+        legend.get_frame().set_linewidth(0.9)
+        for text in legend.get_texts():
+            text.set_color("#334155")
+
+    fig.savefig(output_path, facecolor="white", dpi=180)
     return output_path
 
 

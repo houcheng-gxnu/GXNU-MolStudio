@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import os
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
-    QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-    QProgressBar, QPushButton, QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout,
+    QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+    QMessageBox, QProgressBar, QPushButton, QScrollArea, QSizePolicy,
+    QSpinBox, QVBoxLayout, QWidget,
 )
 
 from molstudio.core.spectra import (
@@ -74,8 +75,16 @@ TEXT = {
         "stop": "停止",
         "open": "打开输出目录",
         "ready": "就绪：导入分子后点击一键计算。",
-        "plot": "4  Multiwfn 光谱图",
-        "none": "计算完成后在这里预览光谱",
+        "plot": "4  光谱图预览",
+        "none": "计算完成后在这里预览光谱（图表会自动填满整个预览区）",
+        "plot_hint": "双击图像可放大查看 · 可另存为高清 PNG",
+        "zoom": "放大查看",
+        "save_plot": "保存图片",
+        "zoom_title": "光谱图 · 放大查看",
+        "zoom_hint": "原始尺寸显示，可拖动滚动条查看细节；也可以用「适应窗口」快速浏览",
+        "fit": "适应窗口",
+        "actual": "原始大小",
+        "close": "关闭",
         "warning": "提示",
         "need_structure": "请先导入分子结构，或先在主画布载入结构。",
         "need_paths": "请先在主窗口 ⚙️ 路径设置中配置 Gaussian 和 Multiwfn。",
@@ -148,8 +157,18 @@ TEXT = {
         "stop": "Stop",
         "open": "Open output folder",
         "ready": "Ready: import a molecule, then run the workflow.",
-        "plot": "4  Multiwfn spectrum",
-        "none": "The spectrum preview appears here after the workflow",
+        "plot": "4  Spectrum preview",
+        "none": "The spectrum preview appears here after the workflow "
+                "(the plot fills the whole preview area)",
+        "plot_hint": "Double-click the plot to zoom · export a high-resolution PNG",
+        "zoom": "Zoom",
+        "save_plot": "Save PNG",
+        "zoom_title": "Spectrum · zoomed view",
+        "zoom_hint": "Shown at native size; scroll to inspect details, "
+                     "or use Fit to window",
+        "fit": "Fit to window",
+        "actual": "Actual size",
+        "close": "Close",
         "warning": "Notice",
         "need_structure": "Import a molecular structure first.",
         "need_paths": "Configure Gaussian and Multiwfn in ⚙️ Path Settings.",
@@ -181,6 +200,110 @@ TEXT = {
         },
     },
 }
+
+
+class _ParamScroll(QScrollArea):
+    """Scrollable settings area with a *bounded* size hint.
+
+    ``PagedScrollArea`` sizes every right-hand page to ``max(viewport,
+    page.sizeHint())``.  A plain QVBoxLayout containing all the spectrum
+    settings has a ~1360px size hint on a 1080px screen, so the page was
+    always taller than the window and the plot was pushed off-screen.  Giving
+    the settings their own scroll area with a bounded hint keeps the whole
+    page within one viewport; the plot then receives all remaining height.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setStyleSheet("QScrollArea{background:transparent;border:none;}")
+
+    def sizeHint(self):
+        return QSize(760, 300)
+
+    def minimumSizeHint(self):
+        return QSize(320, 160)
+
+
+class SpectrumPlotView(QLabel):
+    """Scalable spectrum preview.
+
+    Previously the PNG was scaled once to a hard-coded 1000x620 and shown in a
+    330px-high label, so the chart stayed small even on a tall panel.  This
+    view keeps the original pixmap and re-fits it whenever the panel resizes.
+    """
+
+    zoomRequested = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._source = QPixmap()
+        self._path = ""
+        self.setAlignment(Qt.AlignCenter)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMinimumHeight(360)
+        self._set_empty_style()
+
+    def _set_empty_style(self):
+        self.setStyleSheet(
+            "background:#F8FAFC;border:1px dashed #CBD5E1;"
+            "border-radius:8px;color:#64748B;font-size:13px;")
+
+    def set_empty(self, text):
+        self._source = QPixmap()
+        self._path = ""
+        super().setPixmap(QPixmap())
+        self.setText(text)
+        self._set_empty_style()
+
+    def has_plot(self):
+        return not self._source.isNull()
+
+    def source(self):
+        return self._source
+
+    def path(self):
+        return self._path
+
+    def set_plot(self, path):
+        pix = QPixmap(str(path or ""))
+        if pix.isNull():
+            return False
+        self._source = pix
+        self._path = str(path)
+        self.setStyleSheet(
+            "background:white;border:1px solid #E2E8F0;border-radius:8px;")
+        self._fit()
+        return True
+
+    def sizeHint(self):
+        return QSize(900, 380)
+
+    def minimumSizeHint(self):
+        return QSize(320, 300)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.has_plot():
+            self._fit()
+
+    def _fit(self):
+        if self._source.isNull():
+            return
+        rect = self.contentsRect()
+        target = QSize(max(1, rect.width() - 12),
+                       max(1, rect.height() - 12))
+        scaled = self._source.scaled(
+            target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        super().setPixmap(scaled)
+
+    def mouseDoubleClickEvent(self, event):
+        if self.has_plot():
+            self.zoomRequested.emit()
+        super().mouseDoubleClickEvent(event)
 
 
 class SpectrumWorker(QThread):
@@ -245,7 +368,7 @@ class SpectrumPanel(QWidget):
         self._lang = "zh"
         self._last_result = None
         self.setMinimumWidth(0)
-        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         self._build_ui()
         self._apply_lang()
         self._on_kind_changed()
@@ -269,6 +392,15 @@ class SpectrumPanel(QWidget):
         self.lbl_intro.setStyleSheet("color:#475569;")
         root.addWidget(self.lbl_intro)
 
+        # Settings live in their own scroll area so the preview never gets
+        # pushed below the fold.  The plot group takes the remaining height.
+        self.param_scroll = _ParamScroll()
+        self.param_content = QWidget()
+        self.param_content.setStyleSheet("background:transparent;")
+        param_l = QVBoxLayout(self.param_content)
+        param_l.setContentsMargins(0, 2, 6, 0)
+        param_l.setSpacing(8)
+
         self.grp_structure = QGroupBox()
         sg = QVBoxLayout(self.grp_structure)
         sg.setContentsMargins(10, 12, 10, 10)
@@ -288,7 +420,7 @@ class SpectrumPanel(QWidget):
         self.lbl_structure = QLabel()
         self.lbl_structure.setStyleSheet("color:#64748B;")
         sg.addWidget(self.lbl_structure)
-        root.addWidget(self.grp_structure)
+        param_l.addWidget(self.grp_structure)
 
         self.grp_calc = QGroupBox()
         form = QFormLayout(self.grp_calc)
@@ -423,7 +555,7 @@ class SpectrumPanel(QWidget):
         adv.setColumnStretch(1, 1)
         adv.setColumnStretch(3, 1)
         form.addRow("", adv)
-        root.addWidget(self.grp_calc)
+        param_l.addWidget(self.grp_calc)
 
         self.grp_output = QGroupBox()
         out_l = QVBoxLayout(self.grp_output)
@@ -459,20 +591,43 @@ class SpectrumPanel(QWidget):
         self.lbl_status = QLabel()
         self.lbl_status.setWordWrap(True)
         out_l.addWidget(self.lbl_status)
+        self.param_scroll.setWidget(self.param_content)
+        root.addWidget(self.param_scroll, 0)
+        # Step 3 stays outside the scroll area: the primary "run" button and
+        # progress must always be visible, even when settings are scrolled.
         root.addWidget(self.grp_output)
 
         self.grp_plot = QGroupBox()
         plot_l = QVBoxLayout(self.grp_plot)
-        plot_l.setContentsMargins(10, 12, 10, 10)
-        self.lbl_plot = QLabel()
-        self.lbl_plot.setAlignment(Qt.AlignCenter)
-        self.lbl_plot.setMinimumHeight(330)
-        self.lbl_plot.setStyleSheet(
-            "background:#F8FAFC;border:1px dashed #CBD5E1;"
-            "border-radius:6px;color:#64748B;")
-        plot_l.addWidget(self.lbl_plot)
-        root.addWidget(self.grp_plot)
-        root.addStretch(1)
+        plot_l.setContentsMargins(12, 14, 12, 12)
+        plot_l.setSpacing(8)
+        bar = QHBoxLayout()
+        bar.setSpacing(6)
+        self.lbl_plot_hint = QLabel()
+        self.lbl_plot_hint.setStyleSheet("color:#64748B;")
+        bar.addWidget(self.lbl_plot_hint, 1)
+        self.btn_zoom = QPushButton()
+        self.btn_zoom.setEnabled(False)
+        self.btn_zoom.clicked.connect(self._zoom_plot)
+        self.btn_save_plot = QPushButton()
+        self.btn_save_plot.setEnabled(False)
+        self.btn_save_plot.clicked.connect(self._save_plot)
+        for btn in (self.btn_zoom, self.btn_save_plot):
+            btn.setStyleSheet(
+                "QPushButton{padding:5px 12px;border:1px solid #CBD5E1;"
+                "border-radius:6px;background:#FFFFFF;color:#334155;}"
+                "QPushButton:hover{background:#EFF6FF;border-color:#93C5FD;}"
+                "QPushButton:disabled{color:#94A3B8;background:#F8FAFC;}")
+        bar.addWidget(self.btn_zoom)
+        bar.addWidget(self.btn_save_plot)
+        plot_l.addLayout(bar)
+        self.plot_view = SpectrumPlotView()
+        self.plot_view.zoomRequested.connect(self._zoom_plot)
+        plot_l.addWidget(self.plot_view, 1)
+        # The stretch goes to the preview itself.  PagedScrollArea stretches
+        # each page to the viewport height, so the chart now grows with the
+        # window instead of staying at a fixed 330px label.
+        root.addWidget(self.grp_plot, 1)
 
         self._advanced_widgets = [
             self.edit_fwhm, self.spin_scale, self.edit_xrange]
@@ -527,8 +682,12 @@ class SpectrumPanel(QWidget):
         self.btn_stop.setText(t("stop"))
         self.btn_open.setText(t("open"))
         self.grp_plot.setTitle(t("plot"))
-        if not self._last_result:
-            self.lbl_plot.setText(t("none"))
+        self.btn_zoom.setText(t("zoom"))
+        self.btn_save_plot.setText(t("save_plot"))
+        if not self.plot_view.has_plot():
+            self.plot_view.set_empty(t("none"))
+        self.lbl_plot_hint.setText(
+            t("plot_hint") if self.plot_view.has_plot() else "")
         if not self._atoms:
             self.lbl_structure.setText(t("not_loaded"))
         else:
@@ -744,14 +903,10 @@ class SpectrumPanel(QWidget):
     def _on_completed(self, result):
         self._last_result = result
         path = result.get("plot_path", "")
-        pix = QPixmap(path)
-        if not pix.isNull():
-            self.lbl_plot.setPixmap(
-                pix.scaled(1000, 620, Qt.KeepAspectRatio,
-                           Qt.SmoothTransformation))
-            self.lbl_plot.setStyleSheet(
-                "background:white;border:1px solid #E2E8F0;"
-                "border-radius:6px;")
+        if path and self.plot_view.set_plot(path):
+            self.btn_zoom.setEnabled(True)
+            self.btn_save_plot.setEnabled(True)
+            self.lbl_plot_hint.setText(self._t("plot_hint"))
         self.progress.setValue(100)
         status_lines = [
             self._t("done"),
@@ -769,6 +924,65 @@ class SpectrumPanel(QWidget):
         self.lbl_status.setText("\n".join(status_lines))
         self.btn_open.setEnabled(True)
         self._log_func("MolStudio 光谱输出：%s" % path)
+
+    def _zoom_plot(self):
+        """Open the full-resolution plot in a scrollable dialog."""
+        if not self.plot_view.has_plot():
+            return
+        source = self.plot_view.source()
+        dlg = QDialog(self)
+        dlg.setWindowTitle(self._t("zoom_title"))
+        dlg.resize(1500, 980)
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(12, 12, 12, 12)
+        lay.setSpacing(8)
+        hint = QLabel(self._t("zoom_hint"))
+        hint.setStyleSheet("color:#64748B;")
+        lay.addWidget(hint)
+        scroll = QScrollArea(dlg)
+        scroll.setWidgetResizable(False)
+        scroll.setAlignment(Qt.AlignCenter)
+        scroll.setStyleSheet(
+            "background:#F1F5F9;border:1px solid #E2E8F0;border-radius:8px;")
+        view = QLabel()
+        view.setAlignment(Qt.AlignCenter)
+        view.setPixmap(source)
+        scroll.setWidget(view)
+        lay.addWidget(scroll, 1)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        btn_fit = QPushButton(self._t("fit"))
+        btn_actual = QPushButton(self._t("actual"))
+        btn_close = QPushButton(self._t("close"))
+        row.addWidget(btn_fit)
+        row.addWidget(btn_actual)
+        row.addWidget(btn_close)
+        lay.addLayout(row)
+
+        def show_scaled(scale_to_view):
+            pix = (source.scaled(scroll.viewport().size(),
+                                 Qt.KeepAspectRatio,
+                                 Qt.SmoothTransformation)
+                   if scale_to_view else source)
+            view.setPixmap(pix)
+            view.adjustSize()
+
+        btn_fit.clicked.connect(lambda: show_scaled(True))
+        btn_actual.clicked.connect(lambda: show_scaled(False))
+        btn_close.clicked.connect(dlg.reject)
+        show_scaled(True)
+        dlg.exec_()
+
+    def _save_plot(self):
+        """Export the currently displayed plot as a high-resolution PNG."""
+        if not self.plot_view.has_plot():
+            return
+        dest, _filter = QFileDialog.getSaveFileName(
+            self, self._t("save_plot"),
+            self.plot_view.path() or "spectrum.png",
+            "PNG image (*.png);;All files (*.*)")
+        if dest:
+            self.plot_view.source().save(dest, "PNG")
 
     def _on_failed(self, message):
         self.progress.setValue(0)
