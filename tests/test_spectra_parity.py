@@ -50,6 +50,27 @@ def test_render_without_transitions_fits_curve(tmp_path):
     assert limits[3] == 0
 
 
+def test_vibrational_axis_keeps_multiwfn_high_to_low_direction(tmp_path):
+    # Multiwfn 导出的振动谱曲线是 4000 -> 0 cm^-1，原生图左高右低；
+    # 若强制 set_xlim(min, max) 会把谱图左右镜像。
+    curve = [(4000.0 - i * 10.0, float(i)) for i in range(401)]
+    _render(tmp_path, curve, [], kind_key="ir")
+    assert spectra._LAST_RENDER_XLIM == pytest.approx((4000.0, 0.0))
+
+
+def test_electronic_axis_stays_ascending(tmp_path):
+    curve = [(150.0 + i, 1.0) for i in range(251)]
+    _render(tmp_path, curve, [], kind_key="uvvis")
+    assert spectra._LAST_RENDER_XLIM == pytest.approx((150.0, 400.0))
+
+
+def test_reversed_range_from_multiwfn_option3_is_honoured(tmp_path):
+    # 文章第 4 节：选项 3 可写 1000,0,100 主动反转横轴。
+    curve = [(1000.0 - i * 5.0, 1.0) for i in range(201)]
+    _render(tmp_path, curve, [], kind_key="vcd")
+    assert spectra._LAST_RENDER_XLIM == pytest.approx((1000.0, 0.0))
+
+
 def test_phosphorescence_curve_is_normalised_before_plotting(tmp_path):
     pytest.importorskip("matplotlib")
     kind = spectra.get_spectrum_kind("phosphorescence")

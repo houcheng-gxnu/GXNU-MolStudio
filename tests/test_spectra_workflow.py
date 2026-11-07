@@ -104,6 +104,36 @@ def test_multiwfn_sequence_has_startup_blank_and_menu_paths():
     assert fluorescence.startswith("\n11\n3\n20\n2-5\n0\n2\n1\n")
 
 
+def test_roa_always_sends_wavelength_index():
+    # Multiwfn 无条件询问 "Load data for which frequency?"，即使只有一个波长。
+    # 以前单波长时省略序号，后续命令整体错位并触发 EOF 崩溃。
+    one = spectra.multiwfn_plot_sequence("roa", roa_wavelengths="532nm")
+    assert one.startswith("\n11\n6\n1\n2\n")
+    # 文章 5.6 节示例：输出文件含 600/532/500 nm，选 532nm 应落在第 2 项。
+    matched = spectra.multiwfn_plot_sequence(
+        "roa", roa_wavelengths="532nm",
+        available_wavelengths=[600.0, 532.0, 500.0])
+    assert matched.startswith("\n11\n6\n2\n2\n")
+
+
+def test_parse_roa_wavelengths_reads_gaussian_output(tmp_path):
+    path = tmp_path / "roa.out"
+    path.write_text(
+        " Incident light (cm**-1):   16666.67  18796.99  20000.00\n"
+        " Alpha(-w;w) w=  600.0nm:\n"
+        " Alpha(-w;w) w=  532.0nm:\n"
+        " Alpha(-w;w) w=  500.0nm:\n"
+        " Alpha(-w;w) w=  600.0nm:\n",
+        encoding="utf-8")
+    assert spectra.parse_roa_wavelengths(str(path)) == [600.0, 532.0, 500.0]
+    fallback = tmp_path / "fallback.out"
+    fallback.write_text(
+        " Incident light (cm**-1):   16666.67  18796.99  20000.00\n",
+        encoding="utf-8")
+    assert spectra.parse_roa_wavelengths(str(fallback))[1] == \
+        pytest.approx(532.0, abs=0.01)
+
+
 def test_parse_curve_accepts_fortran_exponents(tmp_path):
     path = tmp_path / "spectrum_curve.txt"
     path.write_text(

@@ -40,6 +40,8 @@ from molstudio.core.gaussian_run import run_gaussian
 # (xmin, xmax, 跃迁线条数, 被裁掉的越界跃迁线条数)。供验证脚本/测试读取，
 # 用来断言"MolStudio 图的横轴 == Multiwfn 导出曲线的横轴"。
 _LAST_RENDER_LIMITS = None
+# 最近一次渲染实际设置的横轴 (left, right)，含方向。振动谱应为 (4000, 0)。
+_LAST_RENDER_XLIM = None
 
 
 class SpectrumCancelled(RuntimeError):
@@ -148,6 +150,46 @@ def normalize_wavelengths(wavelengths):
             raise ValueError("入射波长应写成 532、532nm 或空格分隔的一组波长")
         out.append(match.group(1) + "nm")
     return out
+
+
+def parse_roa_wavelengths(log_path):
+    """Read the incident wavelengths (nm) actually present in a ROA output.
+
+    Multiwfn *always* asks ``Load data for which frequency?`` when a ROA file
+    is loaded, even if it contains only one wavelength.  The answer must be an
+    index into the file's own wavelength list, not into the wavelengths typed
+    into MolStudio's job builder (which only describes a future Gaussian job).
+    Gaussian prints the list both as ``Alpha(-w;w) w= 532.0nm`` and as
+    ``Incident light (cm**-1)``; prefer the former because its order is the
+    one Multiwfn uses for the index.
+    """
+    alpha = re.compile(r"Alpha\(-w;w\)\s*w=\s*([0-9.]+)\s*nm", re.I)
+    incident = re.compile(r"Incident light\s*\(cm\*\*-1\)\s*:\s*(.+)", re.I)
+    found = []
+    cm_values = []
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                match = alpha.search(line)
+                if match:
+                    value = float(match.group(1))
+                    if value not in found:
+                        found.append(value)
+                    continue
+                match = incident.search(line)
+                if match:
+                    for token in match.group(1).split():
+                        try:
+                            value = float(token)
+                        except ValueError:
+                            continue
+                        if value > 0:
+                            nm = 1.0e7 / value
+                            if nm not in cm_values:
+                                cm_values.append(nm)
+    except OSError:
+        return []
+    return found or cm_values
 
 
 def build_gaussian_route(kind_key, theory, job_kind="spectrum", nstates=20,
@@ -497,7 +539,7 @@ def parse_spectrum_lines(path):
 def multiwfn_plot_sequence(kind_key, fwhm=None, frequency_scale=1.0,
                            x_range="", ecd_representation="velocity",
                            roa_wavelengths="", roa_wavelength_index=1,
-                           nstates=20):
+                           nstates=20, available_wavelengths=None):
     """Return the stdin sequence for Multiwfn main function 11.
 
     A leading blank line is required by recent Multiwfn builds when the input
@@ -510,11 +552,33 @@ def multiwfn_plot_sequence(kind_key, fwhm=None, frequency_scale=1.0,
         seq.append("2" if ecd_representation != "length" else "1")
     elif kind.key == "roa":
         wave = normalize_wavelengths(roa_wavelengths)
-        if len(wave) > 1:
-            index = max(1, min(int(roa_wavelength_index), len(wave)))
-            seq.append(str(index))
-        # Gaussian output contains SCP(180), SCP(90) and DCP(180); Multiwfn's
-        # article/reference workflow uses the SCP(180) data for the main plot.
+        available = [float(v) for v in (available_wavelengths or [])]
+        try:
+            requested = max(1, int(roa_wavelength_index))
+        except (TypeError, ValueError):
+            requested = 1
+        target = None
+        if wave:
+            chosen = wave[min(requested, len(wave)) - 1]
+            try:
+                target = float(chosen[:-2])   # "532nm" -> 532.0
+            except ValueError:
+                target = None
+        if available and target is not None:
+            index = min(range(len(available)),
+                        key=lambda i: abs(available[i] - target)) + 1
+        elif available:
+            index = min(requested, len(available))
+        elif len(wave) > 1:
+            index = min(requested, len(wave))
+        else:
+            index = 1
+        # Multiwfn asks "Load data for which frequency?" unconditionally,
+        # even for a single wavelength.  Omitting this index shifts every
+        # later command by one and ends in "end-of-file during read".
+        seq.append(str(index))
+        # Gaussian output contains SCP(180), SCP(90) and DCP(180); the
+        # reference workflow (sobereva.com/224 sec. 5.6) uses ROA SCP(180).
         seq.append("2")
     elif kind.key == "fluorescence":
         # From the S1-optimisation output, retain only the S1 oscillator
@@ -656,7 +720,7 @@ def _render_curve(curve, kind, output_path, transitions=None, title=""):
     leaving tall empty bands.  Styling stays flat: solid fills, light grid,
     dark-blue curve, amber transition sticks and a marked peak.
     """
-    global _LAST_RENDER_LIMITS
+    global _LAST_RENDER_LIMITS, _LAST_RENDER_XLIM
     try:
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -738,8 +802,14 @@ def _render_curve(curve, kind, output_path, transitions=None, title=""):
         pad = (hi - lo) * 0.08 or 1.0
         right.set_ylim(lo - pad, hi + pad)
 
-    # 横轴严格取 Multiwfn 导出的曲线范围（与 Multiwfn 原生图一致）
-    ax.set_xlim(min(xs), max(xs))
+    # 横轴范围与方向都跟随 Multiwfn 导出的曲线：振动谱是 4000 -> 0 cm^-1
+    # （左高右低，红外/拉曼惯例），电子谱是升序 nm。强制 min->max 会把
+    # 振动谱左右镜像，也会忽略用户在 Multiwfn 选项 3 里设定的反向范围。
+    if xs[0] != xs[-1]:
+        ax.set_xlim(xs[0], xs[-1])
+    else:
+        ax.set_xlim(min(xs), max(xs))
+    _LAST_RENDER_XLIM = tuple(ax.get_xlim())
     _LAST_RENDER_LIMITS = (min(xs), max(xs), len(transitions),
                            len(transitions) - len(
                                [p for p in transitions
@@ -798,11 +868,14 @@ def draw_multiwfn_spectrum(log_path, multiwfn_exe, work_dir, kind_key,
         except FileNotFoundError:
             pass
 
+    available_wavelengths = (
+        parse_roa_wavelengths(log_path) if kind.key == "roa" else [])
     sequence = multiwfn_plot_sequence(
         kind.key, fwhm=fwhm, frequency_scale=frequency_scale,
         x_range=x_range, ecd_representation=ecd_representation,
         roa_wavelengths=roa_wavelengths,
-        roa_wavelength_index=roa_wavelength_index, nstates=nstates)
+        roa_wavelength_index=roa_wavelength_index, nstates=nstates,
+        available_wavelengths=available_wavelengths)
     if on_log:
         on_log("Multiwfn 菜单：11 → %s → 2（导出展宽光谱数据）" %
                kind.multiwfn_menu)

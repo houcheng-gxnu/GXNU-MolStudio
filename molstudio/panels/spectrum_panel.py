@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import os
 
-from PyQt5.QtCore import QSize, Qt, QThread, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout,
@@ -222,10 +222,13 @@ class _ParamScroll(QScrollArea):
         self.setStyleSheet("QScrollArea{background:transparent;border:none;}")
 
     def sizeHint(self):
-        return QSize(760, 300)
+        return QSize(760, 420)
 
     def minimumSizeHint(self):
-        return QSize(320, 160)
+        # QVBoxLayout shrinks the stretch=0 item down to its minimum when the
+        # page is tight.  Keeping this too small leaves only one settings row
+        # visible (and makes the wheel hit the combo box instead of scrolling).
+        return QSize(320, 340)
 
 
 class SpectrumPlotView(QLabel):
@@ -960,8 +963,13 @@ class SpectrumPanel(QWidget):
         lay.addLayout(row)
 
         def show_scaled(scale_to_view):
-            pix = (source.scaled(scroll.viewport().size(),
-                                 Qt.KeepAspectRatio,
+            target = scroll.viewport().size()
+            # Before the dialog is mapped, viewport() is still a tiny
+            # placeholder (about 100x30).  Scaling the 1872x1053 PNG into
+            # that produced an essentially empty pixmap and a blank dialog.
+            if target.width() < 200 or target.height() < 200:
+                target = QSize(dlg.width() - 40, dlg.height() - 120)
+            pix = (source.scaled(target, Qt.KeepAspectRatio,
                                  Qt.SmoothTransformation)
                    if scale_to_view else source)
             view.setPixmap(pix)
@@ -970,7 +978,9 @@ class SpectrumPanel(QWidget):
         btn_fit.clicked.connect(lambda: show_scaled(True))
         btn_actual.clicked.connect(lambda: show_scaled(False))
         btn_close.clicked.connect(dlg.reject)
-        show_scaled(True)
+        # exec_() shows and lays out the dialog; fit on the first turn of its
+        # event loop, when viewport() finally carries the real geometry.
+        QTimer.singleShot(0, lambda: show_scaled(True))
         dlg.exec_()
 
     def _save_plot(self):
