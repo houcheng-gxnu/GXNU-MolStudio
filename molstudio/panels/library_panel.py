@@ -34,8 +34,6 @@ from molstudio.ui.ppt3d_options_widget import Ppt3dOptionsWidget
 
 _TEXT = {
     "zh": {
-        "title": "结构库 · 分子与晶体",
-        "subtitle": "一行四个页签：分子结构库 / 晶体结构库 / 导出设置 / 引文",
         "tabs": ("🧪 分子结构库", "💎 晶体结构库",
                  "⚙ 导出设置", "📖 引文"),
         "settings_hint": "四个页签共用这一组参数。切到「晶体结构库」并选中晶体后，"
@@ -88,8 +86,6 @@ _TEXT = {
         "empty": "没有找到匹配的结构",
     },
     "en": {
-        "title": "Structure library · molecules & crystals",
-        "subtitle": "Four sibling tabs: Molecules / Crystals / Export settings / Citation",
         "tabs": ("🧪 Molecules", "💎 Crystals",
                  "⚙ Export settings", "📖 Citation"),
         "settings_hint": "All four tabs share these options. The unit-cell frame, "
@@ -397,23 +393,17 @@ class LibraryPanel(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(8)
-        self.lbl_title = QLabel()
-        self.lbl_title.setStyleSheet(
-            "font-size:18px;font-weight:700;color:#0D47A1;")
-        root.addWidget(self.lbl_title)
-        self.lbl_subtitle = QLabel()
-        self.lbl_subtitle.setStyleSheet("color:#64748B;")
-        root.addWidget(self.lbl_subtitle)
+        # 不再放标题 / 副标题两行说明文字：页签自己已经说明了一切。
 
         # ── the single tab bar: four siblings, forced onto ONE row ──
+        # 不设 widget 级 QSS，直接继承 theme.LIGHT_QSS 的 QTabBar::tab
+        # （9pt 加粗 / padding 8px 28px / min-width 80px），这样四个页签的
+        # 字高、内边距、整体高度与「设置 / 引文」等其他功能页的页签一致。
+        # 之前写死 font-size:13px 在高 DPI 下比 9pt 明显偏小。
         self.sub_tabs = QTabWidget()
         self.sub_tabs.setDocumentMode(True)
         self.sub_tabs.setUsesScrollButtons(True)
         self.sub_tabs.tabBar().setElideMode(Qt.ElideNone)
-        self.sub_tabs.setStyleSheet(
-            "QTabBar::tab{min-width:150px;padding:7px 14px;"
-            "font-size:13px;}"
-            "QTabBar::tab:selected{font-weight:700;color:#0D47A1;}")
         root.addWidget(self.sub_tabs, 1)
 
         # ── tab 0: molecules ──
@@ -511,8 +501,6 @@ class LibraryPanel(QWidget):
 
     def set_language(self, lang):
         self.lang = "zh" if str(lang).lower().startswith("zh") else "en"
-        self.lbl_title.setText(self._t("title"))
-        self.lbl_subtitle.setText(self._t("subtitle"))
         for i, label in enumerate(self._t("tabs")):
             self.sub_tabs.setTabText(i, label)
         self.lbl_settings_hint.setText(self._t("settings_hint"))

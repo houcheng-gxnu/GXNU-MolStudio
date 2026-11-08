@@ -137,6 +137,11 @@ def test_library_page_has_four_tabs_on_one_row():
     assert tabs.tabBar().count() == 4
     assert tabs.tabBar().usesScrollButtons()
     assert panel.findChildren(QTabWidget) == [tabs]
+    # 标题 / 副标题两行说明已移除；页签不再自带小字体 QSS，
+    # 继承全局 QTabBar::tab 才能与其他功能页的页签等高、等宽、等字号。
+    assert not hasattr(panel, "lbl_title")
+    assert not hasattr(panel, "lbl_subtitle")
+    assert panel.sub_tabs.styleSheet() == ""
     assert panel.molecule_view.list_widget.count() > 50
     assert panel.crystal_view.list_widget.count() > 35
 
