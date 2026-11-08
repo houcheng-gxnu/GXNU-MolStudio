@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Left-nav 'Structure library' page: molecules + high-school crystals.
+"""Left-nav 'Structure library' page: four sibling tabs on ONE row.
 
-The molecule half reuses the existing :class:`MoleculeLibraryDialog` as an
-embedded widget (its accept()/close behaviour is bypassed on purpose).  The
-crystal half browses the bundled offline CIF set and shares one PowerPoint 3D
-export-settings widget with the toolbar export dialog.
+    [🧪 分子结构库] [💎 晶体结构库] [⚙ 导出设置] [📖 引文]
 
-All actions are handed to the main window through callbacks, so this panel
-never touches the canvas or writes files itself.
+There is no nested tab group and no cramped right-hand sidebar: the export
+settings and the citation each get a full page, so every control is readable
+without scrolling.  The molecule half reuses :class:`MoleculeLibraryDialog`
+as an embedded widget (its own header/buttons are hidden); the crystal half
+browses the bundled offline CIF set.  All actions are handed to the main
+window through callbacks, so this panel never touches the canvas or writes
+files itself.
 """
 from __future__ import annotations
 
@@ -16,9 +18,9 @@ import re
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PyQt5.QtWidgets import (
-    QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QPushButton, QSplitter, QTabWidget, QVBoxLayout, QWidget, QFrame,
-    QScrollArea,
+    QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QPushButton, QScrollArea, QSplitter, QTabWidget,
+    QTextBrowser, QVBoxLayout, QWidget,
 )
 
 from molstudio.core.crystal_library import (
@@ -33,17 +35,46 @@ from molstudio.ui.ppt3d_options_widget import Ppt3dOptionsWidget
 _TEXT = {
     "zh": {
         "title": "结构库 · 分子与晶体",
-        "subtitle": "内置离线结构：初中/高中分子 + 高中晶体（Avogadro2 / COD 真实 CIF）",
-        "mol_tab": "分子结构库",
-        "xtal_tab": "晶体结构库",
+        "subtitle": "一行四个页签：分子结构库 / 晶体结构库 / 导出设置 / 引文",
+        "tabs": ("🧪 分子结构库", "💎 晶体结构库",
+                 "⚙ 导出设置", "📖 引文"),
+        "settings_hint": "四个页签共用这一组参数。切到「晶体结构库」并选中晶体后，"
+                         "晶胞（晶体专用）中的边框、线宽、颜色与扩晶胞才会写进 .glb。",
+        "citation_hint": "当前选中结构",
+        "active": "当前页签：{name}",
+        "current": "当前选中：{name} · {source}",
+        "model_source": "MolStudio 教学简化模型（非实验结构）",
+        "molecule_source": "MolStudio 内置教学分子坐标",
+        "no_selection": "尚未选择结构",
+        "citation_html": (
+            "<h3>数据来源与致谢</h3>"
+            "<p>晶体 CIF 主要来自 <a href='https://github.com/openchemistry/crystals'>"
+            "Avogadro2 crystals 数据插件</a>（Geoffrey Hutchison 等，Open Chemistry，"
+            "public domain）。原始结构来自 "
+            "<a href='http://www.crystallography.net/'>Crystallography Open Database"
+            "（COD）</a>、American Mineralogist Crystal Structure Database（AMCSD）"
+            "与 International Zeolite Association（IZA）。每个 CIF 都保留了原始文件头"
+            "里的文献与数据库编号，在此向 COD、AMCSD 及原结构测定者致谢。</p>"
+            "<h3>教学模型说明</h3>"
+            "<p><code>po-simple-cubic.cif</code>（简单立方钋）、"
+            "<code>dry-ice.cif</code>（干冰）与 "
+            "<code>white-phosphorus.cif</code>（白磷 P₄）是 MolStudio 为教学补写的"
+            "<b>简化模型，不是实验结构</b>：干冰把 4 个 CO₂ 分子按面心立方排布并统一"
+            "取向（真实 Pa3 结构分子取向交错），白磷只放了一个 P₄ 四面体分子。"
+            "课堂上请说明这一点。</p>"
+            "<p>冰 Ih、α-石英、CaTiO₃ 等是实测结构，与教材里的理想化模型"
+            "（例如理想立方钙钛矿、P6₃/mmc 冰）可能略有差别；库里另收 "
+            "<code>SrTiO3-Tausonite.cif</code> 作为理想立方钙钛矿模型。</p>"
+            "<h3>分子结构</h3>"
+            "<p>分子结构库内的 XYZ 坐标为 MolStudio 内置教学模型，用于中学"
+            "分子空间构型演示，不作为实验测定坐标引用。</p>"
+        ),
         "search": "搜索名称、化学式、空间群或教学点…",
         "all": "全部分类",
         "all_levels": "全部层级",
         "visualize": "载入并可视化",
         "export": "导出 PowerPoint 3D",
         "crystal_tab": "打开晶体 tab 调整",
-        "settings": "导出设置",
-        "settings_tip": "分子页只影响网格与视角；切到晶体页后可设置晶胞边框、线宽、颜色与扩晶胞。",
         "no_preview": "暂无预览图",
         "source": "来源：{source}",
         "space_group": "空间群：{value}",
@@ -58,17 +89,51 @@ _TEXT = {
     },
     "en": {
         "title": "Structure library · molecules & crystals",
-        "subtitle": "Offline molecules plus high-school crystal CIFs (Avogadro2 / COD)",
-        "mol_tab": "Molecules",
-        "xtal_tab": "Crystals",
+        "subtitle": "Four sibling tabs: Molecules / Crystals / Export settings / Citation",
+        "tabs": ("🧪 Molecules", "💎 Crystals",
+                 "⚙ Export settings", "📖 Citation"),
+        "settings_hint": "All four tabs share these options. The unit-cell frame, "
+                         "width, colour and supercell are written to the .glb only "
+                         "when a crystal is selected in the Crystals tab.",
+        "citation_hint": "Selected structure",
+        "active": "Current tab: {name}",
+        "current": "Selected: {name} · {source}",
+        "model_source": "MolStudio teaching model (not experimental)",
+        "molecule_source": "MolStudio built-in teaching coordinates",
+        "no_selection": "No structure selected",
+        "citation_html": (
+            "<h3>Data sources & acknowledgements</h3>"
+            "<p>Crystal CIFs come mostly from the "
+            "<a href='https://github.com/openchemistry/crystals'>Avogadro2 "
+            "crystals data plugin</a> (Geoffrey Hutchison et al., Open Chemistry, "
+            "public domain). Original structures are from the "
+            "<a href='http://www.crystallography.net/'>Crystallography Open "
+            "Database (COD)</a>, the American Mineralogist Crystal Structure "
+            "Database (AMCSD) and the International Zeolite Association (IZA). "
+            "Every CIF keeps the citation and database ID from its original "
+            "header; we thank COD, AMCSD and the original structure authors.</p>"
+            "<h3>Teaching models</h3>"
+            "<p><code>po-simple-cubic.cif</code>, <code>dry-ice.cif</code> and "
+            "<code>white-phosphorus.cif</code> are simplified MolStudio teaching "
+            "models, <b>not experimental structures</b>. Dry ice places four CO2 "
+            "molecules on an fcc lattice with a single orientation (real Pa3 dry "
+            "ice alternates orientations); white phosphorus contains one P4 "
+            "tetrahedron. Please note this in class.</p>"
+            "<p>Ice Ih, alpha-quartz and CaTiO3 are measured structures and may "
+            "differ slightly from the idealised textbook cells; "
+            "<code>SrTiO3-Tausonite.cif</code> is included as an ideal cubic "
+            "perovskite model.</p>"
+            "<h3>Molecules</h3>"
+            "<p>The XYZ coordinates in the molecule library are built-in teaching "
+            "models for school geometry demonstrations, not experimental "
+            "coordinates.</p>"
+        ),
         "search": "Search name, formula, space group or topic…",
         "all": "All categories",
         "all_levels": "All levels",
         "visualize": "Load and visualize",
         "export": "Export PowerPoint 3D",
         "crystal_tab": "Open crystal tab",
-        "settings": "Export settings",
-        "settings_tip": "Molecule page: mesh and view only. Switch to the crystal page for the unit-cell frame, colour and supercell.",
         "no_preview": "No preview",
         "source": "Source: {source}",
         "space_group": "Space group: {value}",
@@ -85,6 +150,11 @@ _TEXT = {
 
 
 _CJK = re.compile(r"[\u4e00-\u9fff]")
+
+TAB_MOLECULES = 0
+TAB_CRYSTALS = 1
+TAB_SETTINGS = 2
+TAB_CITATION = 3
 
 
 def _placeholder_icon(text, width=240, height=170):
@@ -105,6 +175,7 @@ class CrystalLibraryView(QWidget):
     """Browser for the bundled CIF library (with Avogadro2 PNG previews)."""
 
     currentEntryChanged = pyqtSignal(object)
+    visualizeRequested = pyqtSignal()
 
     def __init__(self, parent=None, lang="zh"):
         super().__init__(parent)
@@ -123,7 +194,7 @@ class CrystalLibraryView(QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(4, 4, 4, 4)
         root.setSpacing(6)
 
         filters = QHBoxLayout()
@@ -188,15 +259,14 @@ class CrystalLibraryView(QWidget):
         scroll.setFrameShape(QScrollArea.NoFrame)
         holder = QWidget()
         holder_l = QVBoxLayout(holder)
+        holder_l.setContentsMargins(0, 0, 0, 0)
         holder_l.addWidget(detail, 1)
         scroll.setWidget(holder)
         body.addWidget(scroll)
         body.setStretchFactor(0, 3)
         body.setStretchFactor(1, 2)
-        body.setSizes([520, 330])
+        body.setSizes([620, 400])
         root.addWidget(body, 1)
-
-    visualizeRequested = pyqtSignal()
 
     def set_language(self, lang):
         self.lang = "zh" if str(lang).lower().startswith("zh") else "en"
@@ -303,7 +373,7 @@ class CrystalLibraryView(QWidget):
 
 
 class LibraryPanel(QWidget):
-    """Structure library page with a shared PowerPoint 3D settings panel."""
+    """Structure library: four sibling tabs on a single row, no nesting."""
 
     def __init__(self, parent=None, lang="zh", on_visualize_molecule=None,
                  on_export_molecule=None, on_visualize_crystal=None,
@@ -335,53 +405,84 @@ class LibraryPanel(QWidget):
         self.lbl_subtitle.setStyleSheet("color:#64748B;")
         root.addWidget(self.lbl_subtitle)
 
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
+        # ── the single tab bar: four siblings, forced onto ONE row ──
         self.sub_tabs = QTabWidget()
-        splitter.addWidget(self.sub_tabs)
+        self.sub_tabs.setDocumentMode(True)
+        self.sub_tabs.setUsesScrollButtons(True)
+        self.sub_tabs.tabBar().setElideMode(Qt.ElideNone)
+        self.sub_tabs.setStyleSheet(
+            "QTabBar::tab{min-width:150px;padding:7px 14px;"
+            "font-size:13px;}"
+            "QTabBar::tab:selected{font-weight:700;color:#0D47A1;}")
+        root.addWidget(self.sub_tabs, 1)
 
-        # ── molecules: reuse the dialog as an embedded widget ──
+        # ── tab 0: molecules ──
         self.molecule_view = MoleculeLibraryDialog(
             parent=self.sub_tabs, lang=self.lang,
             on_visualize=self._visualize_molecule)
-        self.molecule_view.setWindowFlags(Qt.Widget)
-        self.molecule_view.setMinimumSize(0, 0)
-        self.molecule_view.btn_visualize.hide()
-        self.molecule_view.btn_export_ppt.hide()
+        mv = self.molecule_view
+        mv.setWindowFlags(Qt.Widget)
+        mv.setMinimumSize(0, 0)
+        for widget in (mv.lbl_title, mv.lbl_subtitle, mv.lbl_ppt_tip,
+                       mv.btn_visualize, mv.btn_export_ppt):
+            widget.hide()
         try:
-            self.molecule_view.list_widget.itemDoubleClicked.disconnect()
+            mv.list_widget.itemDoubleClicked.disconnect()
         except TypeError:
             pass
-        self.molecule_view.list_widget.itemDoubleClicked.connect(
+        mv.list_widget.itemDoubleClicked.connect(
             lambda _item: self._visualize_molecule_current())
-        self.sub_tabs.addTab(self.molecule_view, "")
+        mv.list_widget.currentItemChanged.connect(
+            lambda *_args: self._refresh_current_source())
+        self.sub_tabs.addTab(mv, "")
 
-        # ── crystals ──
+        # ── tab 1: crystals ──
         self.crystal_view = CrystalLibraryView(self.sub_tabs, self.lang)
         self.crystal_view.visualizeRequested.connect(
             self._visualize_crystal_current)
+        self.crystal_view.currentEntryChanged.connect(
+            lambda _entry: self._refresh_current_source())
         self.sub_tabs.addTab(self.crystal_view, "")
 
-        right = QWidget()
-        right_l = QVBoxLayout(right)
-        right_l.setContentsMargins(4, 0, 0, 0)
-        right_l.setSpacing(6)
-        self.lbl_settings = QLabel()
-        self.lbl_settings.setStyleSheet("font-weight:700;color:#0F172A;")
-        right_l.addWidget(self.lbl_settings)
-        self.options_widget = Ppt3dOptionsWidget(right, self.lang)
-        right_l.addWidget(self.options_widget, 1)
-        self.lbl_settings_tip = QLabel()
-        self.lbl_settings_tip.setWordWrap(True)
-        self.lbl_settings_tip.setStyleSheet(
-            "color:#64748B;background:#F1F5F9;border-radius:6px;padding:6px;")
-        right_l.addWidget(self.lbl_settings_tip, 0)
-        splitter.addWidget(right)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
-        splitter.setSizes([900, 340])
-        root.addWidget(splitter, 1)
+        # ── tab 2: export settings (full page, no sidebar) ──
+        settings_page = QWidget()
+        set_l = QVBoxLayout(settings_page)
+        set_l.setContentsMargins(12, 12, 12, 12)
+        set_l.setSpacing(8)
+        self.lbl_settings_hint = QLabel()
+        self.lbl_settings_hint.setWordWrap(True)
+        self.lbl_settings_hint.setStyleSheet(
+            "color:#1E40AF;background:#EFF6FF;border:1px solid #BFDBFE;"
+            "border-radius:6px;padding:8px;")
+        set_l.addWidget(self.lbl_settings_hint, 0)
+        self.options_widget = Ppt3dOptionsWidget(settings_page, self.lang)
+        self.options_widget.set_crystal_mode(True)   # crystals always available
+        set_l.addWidget(self.options_widget, 1)
+        self.sub_tabs.addTab(settings_page, "")
 
+        # ── tab 3: citation (full page) ──
+        citation_page = QWidget()
+        cite_l = QVBoxLayout(citation_page)
+        cite_l.setContentsMargins(12, 12, 12, 12)
+        cite_l.setSpacing(8)
+        self.txt_citation = QTextBrowser()
+        self.txt_citation.setOpenExternalLinks(True)
+        self.txt_citation.setStyleSheet(
+            "QTextBrowser{background:#FFFFFF;border:1px solid #E2E8F0;"
+            "border-radius:8px;color:#334155;font-size:13px;padding:10px;}")
+        cite_l.addWidget(self.txt_citation, 1)
+        self.lbl_citation_hint = QLabel()
+        self.lbl_citation_hint.setStyleSheet(
+            "font-weight:700;color:#0F172A;")
+        cite_l.addWidget(self.lbl_citation_hint, 0)
+        self.lbl_current_source = QLabel()
+        self.lbl_current_source.setWordWrap(True)
+        self.lbl_current_source.setStyleSheet(
+            "color:#0F766E;background:#F0FDFA;border-radius:6px;padding:8px;")
+        cite_l.addWidget(self.lbl_current_source, 0)
+        self.sub_tabs.addTab(citation_page, "")
+
+        # ── shared action bar (enabled per tab) ──
         buttons = QHBoxLayout()
         self.btn_visualize = QPushButton()
         self.btn_visualize.setMinimumHeight(36)
@@ -396,10 +497,13 @@ class LibraryPanel(QWidget):
         self.btn_crystal_tab.clicked.connect(self._open_crystal_tab)
         buttons.addWidget(self.btn_crystal_tab)
         buttons.addStretch(1)
+        self.lbl_active = QLabel()
+        self.lbl_active.setStyleSheet("color:#64748B;")
+        buttons.addWidget(self.lbl_active)
         root.addLayout(buttons)
 
-        self.sub_tabs.currentChanged.connect(self._on_sub_tab_changed)
-        self._on_sub_tab_changed(self.sub_tabs.currentIndex())
+        self.sub_tabs.currentChanged.connect(self._on_tab_changed)
+        self._on_tab_changed(self.sub_tabs.currentIndex())
 
     def set_lang(self, lang):
         """Alias used by the main window's language refresh loop."""
@@ -409,10 +513,11 @@ class LibraryPanel(QWidget):
         self.lang = "zh" if str(lang).lower().startswith("zh") else "en"
         self.lbl_title.setText(self._t("title"))
         self.lbl_subtitle.setText(self._t("subtitle"))
-        self.sub_tabs.setTabText(0, self._t("mol_tab"))
-        self.sub_tabs.setTabText(1, self._t("xtal_tab"))
-        self.lbl_settings.setText(self._t("settings"))
-        self.lbl_settings_tip.setText(self._t("settings_tip"))
+        for i, label in enumerate(self._t("tabs")):
+            self.sub_tabs.setTabText(i, label)
+        self.lbl_settings_hint.setText(self._t("settings_hint"))
+        self.lbl_citation_hint.setText(self._t("citation_hint"))
+        self.txt_citation.setHtml(self._t("citation_html"))
         self.btn_visualize.setText(self._t("visualize"))
         self.btn_export.setText(self._t("export"))
         self.btn_crystal_tab.setText(self._t("crystal_tab"))
@@ -424,16 +529,42 @@ class LibraryPanel(QWidget):
         self.molecule_view._refresh_list()
         self.crystal_view.set_language(self.lang)
         self.crystal_view._refresh_list()
+        self._refresh_active_label()
+        self._refresh_current_source()
 
-    def _on_sub_tab_changed(self, index):
-        crystal = index == 1
-        self.options_widget.set_crystal_mode(crystal)
-        self.btn_crystal_tab.setEnabled(crystal)
-        self.crystal_view.currentEntryChanged.emit(
-            self.crystal_view.current_entry())
+    def _on_tab_changed(self, index):
+        browser = index in (TAB_MOLECULES, TAB_CRYSTALS)
+        self.btn_visualize.setEnabled(browser)
+        self.btn_export.setEnabled(browser)
+        self.btn_crystal_tab.setEnabled(index == TAB_CRYSTALS)
+        self._refresh_active_label()
+        self._refresh_current_source()
+
+    def _refresh_active_label(self):
+        index = self.sub_tabs.currentIndex()
+        self.lbl_active.setText(self._t("active", name=self._t("tabs")[index]))
 
     def is_crystal_page(self):
-        return self.sub_tabs.currentIndex() == 1
+        return self.sub_tabs.currentIndex() == TAB_CRYSTALS
+
+    def _refresh_current_source(self):
+        if self.is_crystal_page():
+            entry = self.crystal_view.current_entry()
+            if entry is None:
+                self.lbl_current_source.setText(self._t("no_selection"))
+                return
+            source = entry.source
+            if self.lang != "zh" and (not source or _CJK.search(source)):
+                source = self._t("model_source")
+        else:
+            entry = self.molecule_view._selected_entry()
+            if entry is None:
+                self.lbl_current_source.setText(self._t("no_selection"))
+                return
+            source = self._t("molecule_source")
+        self.lbl_current_source.setText(
+            self._t("current", name=entry.display_name(self.lang),
+                    source=source))
 
     def current_entry(self):
         return (self.crystal_view.current_entry() if self.is_crystal_page()
@@ -444,6 +575,13 @@ class LibraryPanel(QWidget):
 
     def set_options(self, options):
         self.options_widget.set_options(options or Ppt3dOptions())
+
+    def set_active(self, kind):
+        """Compatibility helper: jump to the molecule or crystal tab."""
+        self.sub_tabs.setCurrentIndex(
+            TAB_CRYSTALS if kind == "crystal" else TAB_MOLECULES)
+
+    # ── actions ──
 
     def _visualize_molecule(self, path, entry):
         if callable(self._on_visualize_molecule):
@@ -480,7 +618,7 @@ class LibraryPanel(QWidget):
             self._on_open_crystal_tab()
 
     def switch_to_crystals(self, text=""):
-        """Let the crystal tab jump straight to a searched structure."""
-        self.sub_tabs.setCurrentIndex(1)
+        """Jump straight to a searched crystal."""
         if text:
             self.crystal_view.edit_search.setText(text)
+        self.sub_tabs.setCurrentIndex(TAB_CRYSTALS)

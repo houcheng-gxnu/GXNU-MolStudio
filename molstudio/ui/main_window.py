@@ -1452,6 +1452,9 @@ class OrbitalVisApp(QMainWindow):
         self.citation_panel = CitationPanel(self.right_tabs)
         self.right_tabs.addTab(self.citation_panel, "")
         right_layout.addWidget(self.right_tabs, stretch=1)
+        # 结构库页自带一行四页签。这个联动直接挂在页面栈信号上，不依赖
+        # _setup_main_nav() 是否已在当前构建/初始化顺序里执行过。
+        self.tabs.currentChanged.connect(self._on_page_changed_right_tabs)
 
         # ── 运行日志（独立 tab，各分析面板的日志统一汇总到这里） ──
         self.log_text = QTextEdit()
@@ -2593,6 +2596,7 @@ class OrbitalVisApp(QMainWindow):
         self._sync_main_nav()
         self._refresh_right_tab_texts()
         self._refresh_citation_panel()
+        self._sync_right_tab_bar()
 
     # 纯数据/能量分析页面：不需要左侧 OpenGL 画布，隐藏后右栏占满
     _NO_CANVAS_KEYS = ("tab_esm", "tab_asm_irc", "tab_dos", "tab_di")
@@ -2614,6 +2618,35 @@ class OrbitalVisApp(QMainWindow):
         # 部分页面的控件在首次显示时才建立，语言切换发生在它们建立之前时
         # 会停在中文 —— 每次切页把补充对照表再套一遍兜底。
         self._retranslate_page(index)
+
+    def _on_page_changed_right_tabs(self, index):
+        """页面栈切页 → 同步右栏全局页签栏的显隐。"""
+        key = (self._tab_keys[index]
+               if 0 <= index < len(self._tab_keys) else "")
+        self._sync_right_tab_bar(key)
+
+    def _sync_right_tab_bar(self, key=None):
+        """结构库页只保留它自己的「一行四个平级页签」。
+
+        右栏的「设置 / 引文」是全局页签容器，所有功能面板都套在里面。结构库
+        页自身已有四个平级页签（分子结构库 / 晶体结构库 / 导出设置 / 引文），
+        若再叠一层全局页签栏，视觉上就是「两层 tab」，且两个「引文」重复。
+        因此切到结构库时隐藏全局页签栏并回到参数页；切回其他功能页时恢复
+        ——那些页面仍需要「引文」页签查看当前功能的引用文献。
+        """
+        tabs = getattr(self, "right_tabs", None)
+        if tabs is None:
+            return
+        if key is None:
+            idx = self.tabs.currentIndex()
+            key = (self._tab_keys[idx]
+                   if 0 <= idx < len(self._tab_keys) else "")
+        bar = tabs.tabBar()
+        if key == "tab_library":
+            tabs.setCurrentIndex(0)
+            bar.hide()
+        else:
+            bar.show()
 
     def _retranslate_page(self, index):
         """把当前语言套用到该页（及左侧画布）的控件文字上。"""

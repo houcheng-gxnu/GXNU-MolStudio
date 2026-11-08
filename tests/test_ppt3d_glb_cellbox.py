@@ -106,8 +106,7 @@ def test_library_export_passes_live_options():
     panel = LibraryPanel(
         lang="zh",
         on_export_crystal=lambda entry, opt: captured.append((entry, opt)))
-    panel.sub_tabs.setCurrentIndex(1)
-    panel.crystal_view.edit_search.setText("CaF2")
+    panel.switch_to_crystals("CaF2")
     panel.options_widget.chk_cell_box.setChecked(False)
     panel.options_widget.spin_reps[0].setValue(2)
     panel._export_current()
@@ -117,3 +116,78 @@ def test_library_export_passes_live_options():
     assert opt.show_cell_box is False
     assert opt.reps() == (2, 1, 1)
     assert opt.cell_box_spec([[0, 0, 0]] * 8) is None
+
+
+def test_library_page_has_four_tabs_on_one_row():
+    """Exactly one tab bar with four sibling tabs; no nested tab widget."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt5.QtWidgets import QApplication, QTabWidget
+    from molstudio.panels.library_panel import LibraryPanel
+
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    panel = LibraryPanel(lang="zh")
+    tab_widgets = panel.findChildren(QTabWidget)
+    assert len(tab_widgets) == 1, "nested tab widgets are back"
+    tabs = panel.sub_tabs
+    assert tabs.count() == 4
+    titles = [tabs.tabText(i) for i in range(4)]
+    assert titles == ["🧪 分子结构库", "💎 晶体结构库",
+                      "⚙ 导出设置", "📖 引文"]
+    assert tabs.tabBar().count() == 4
+    assert tabs.tabBar().usesScrollButtons()
+    assert panel.findChildren(QTabWidget) == [tabs]
+    assert panel.molecule_view.list_widget.count() > 50
+    assert panel.crystal_view.list_widget.count() > 35
+
+    # Export settings and citation each own a full page (no cramped sidebar).
+    assert panel.options_widget.grp_cell.isEnabled()
+    citation = panel.txt_citation.toPlainText()
+    assert "Avogadro2" in citation and "COD" in citation
+    assert "AMCSD" in citation and "教学模型说明" in citation
+    assert "SrTiO3" in citation
+
+    # Shared action bar follows the active tab.
+    tabs.setCurrentIndex(1)
+    assert panel.btn_export.isEnabled() and panel.btn_crystal_tab.isEnabled()
+    assert panel.is_crystal_page()
+    tabs.setCurrentIndex(2)
+    assert not panel.btn_export.isEnabled()
+    assert not panel.btn_crystal_tab.isEnabled()
+    tabs.setCurrentIndex(3)
+    assert not panel.btn_visualize.isEnabled()
+
+    panel.switch_to_crystals("NaCl")
+    assert panel.is_crystal_page()
+    assert "COD" in panel.lbl_current_source.text()
+
+    panel.set_language("en")
+    assert [panel.sub_tabs.tabText(i) for i in range(4)] == [
+        "🧪 Molecules", "💎 Crystals", "⚙ Export settings", "📖 Citation"]
+    assert "教学" not in panel.txt_citation.toPlainText()
+
+
+def test_library_page_has_only_one_visible_tab_bar():
+    """结构库页隐藏右栏全局「设置 / 引文」页签栏，其他功能页保持原样。"""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt5.QtWidgets import QApplication
+    from molstudio.ui.main_window import OrbitalVisApp
+
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    win = OrbitalVisApp()
+    try:
+        bar = win.right_tabs.tabBar()
+        assert win.library_panel.sub_tabs.count() == 4
+        win._switch_to_tab("tab_library")
+        assert bar.isHidden(), "外层全局页签栏仍显示，结构库成了两层 tab"
+        assert win.right_tabs.currentIndex() == 0
+
+        other = next(k for k in win._tab_keys if k != "tab_library")
+        win._switch_to_tab(other)
+        assert not bar.isHidden(), "切回其他功能页后全局页签栏未恢复"
+
+        win._switch_to_tab("tab_library")
+        assert bar.isHidden()
+    finally:
+        win.close()

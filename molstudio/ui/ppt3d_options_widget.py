@@ -89,7 +89,7 @@ class Ppt3dOptionsWidget(QWidget):
     def _build_ui(self):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(8)
+        outer.setSpacing(5)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -97,13 +97,13 @@ class Ppt3dOptionsWidget(QWidget):
         inner = QWidget()
         lay = QVBoxLayout(inner)
         lay.setContentsMargins(2, 2, 2, 2)
-        lay.setSpacing(8)
+        lay.setSpacing(5)
         scroll.setWidget(inner)
         outer.addWidget(scroll, 1)
 
         mesh = QGroupBox()
         mesh_l = QGridLayout(mesh)
-        mesh_l.setSpacing(6)
+        mesh_l.setSpacing(3)
         self.chk_high_detail = QCheckBox()
         self.chk_outline = QCheckBox()
         self.chk_ao = QCheckBox()
@@ -123,7 +123,7 @@ class Ppt3dOptionsWidget(QWidget):
 
         geom = QGroupBox()
         g_l = QGridLayout(geom)
-        g_l.setSpacing(6)
+        g_l.setSpacing(3)
         self.spin_atom_scale = QDoubleSpinBox()
         self.spin_bond_scale = QDoubleSpinBox()
         for spin in (self.spin_atom_scale, self.spin_bond_scale):
@@ -151,7 +151,7 @@ class Ppt3dOptionsWidget(QWidget):
 
         cell = QGroupBox()
         c_l = QGridLayout(cell)
-        c_l.setSpacing(6)
+        c_l.setSpacing(3)
         self.chk_cell_box = QCheckBox()
         self.spin_cell_width = QDoubleSpinBox()
         self.spin_cell_width.setRange(0.01, 0.5)
