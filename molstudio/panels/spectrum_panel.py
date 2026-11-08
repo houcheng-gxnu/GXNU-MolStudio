@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import traceback
 
 from PyQt5.QtCore import QSize, Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import QPixmap
@@ -68,6 +69,16 @@ TEXT = {
         "scale": "频率因子",
         "xrange": "横轴范围",
         "xrange_hint": "例如 200,3800,200",
+        "decompose": "逐跃迁分解（Multiwfn 选项 15）",
+        "decompose_tip": (
+            "把强度大于阈值的每个跃迁单独展宽成彩色曲线，黑线仍是完整总谱。"
+            "弱于阈值的跃迁不单独画，但仍然计入总谱，所以彩线之和不等于黑线。"),
+        "decompose_threshold": "强度阈值",
+        "decompose_status": (
+            "分解：{n} 条贡献曲线 · 态 {states} · Σ与总谱最大差 {res:.4g}"
+            "（{pct:.2f}%，来自弱跃迁）"),
+        "plot_hint_decompose": (
+            "黑线为完整总谱，彩线为各跃迁独立贡献 · 双击放大 · 可另存高清 PNG"),
         "output": "3  输出与运行",
         "outdir": "输出目录",
         "browse": "选择…",
@@ -150,6 +161,19 @@ TEXT = {
         "scale": "X scale",
         "xrange": "X range",
         "xrange_hint": "e.g. 200,3800,200",
+        "decompose": "Transition decomposition (Multiwfn option 15)",
+        "decompose_tip": (
+            "Broaden every transition stronger than the cutoff into its own "
+            "coloured curve. The black line is still the FULL total spectrum; "
+            "weaker transitions are not drawn separately but are included in "
+            "it, so the coloured curves do not sum to the black one."),
+        "decompose_threshold": "Strength cutoff",
+        "decompose_status": (
+            "Decomposition: {n} contribution curves · states {states} · "
+            "max |total - sum| = {res:.4g} ({pct:.2f}% of peak, weak states)"),
+        "plot_hint_decompose": (
+            "Black = full total spectrum, colours = individual transitions · "
+            "double-click to zoom · export a high-resolution PNG"),
         "output": "3  Output and run",
         "outdir": "Output directory",
         "browse": "Browse…",
@@ -337,7 +361,22 @@ class SpectrumWorker(QThread):
         except SpectrumCancelled as exc:
             self.failed.emit(str(exc))
         except Exception as exc:  # noqa: BLE001
+            detail = traceback.format_exc()
+            self.log.emit(detail)
+            self._write_error_log(detail)
             self.failed.emit(str(exc))
+
+    def _write_error_log(self, detail):
+        """Keep a traceback beside the run output for post-mortem diagnosis."""
+        try:
+            outdir = self.kwargs.get("output_dir") or ""
+            if not outdir:
+                return
+            with open(os.path.join(outdir, "_spectrum_error.log"), "w",
+                      encoding="utf-8", errors="replace") as fh:
+                fh.write(detail)
+        except OSError:
+            pass
 
 
 class SpectrumPanel(QWidget):
@@ -558,6 +597,28 @@ class SpectrumPanel(QWidget):
         adv.setColumnStretch(1, 1)
         adv.setColumnStretch(3, 1)
         form.addRow("", adv)
+
+        # Multiwfn option 15: export one broadened curve per strong
+        # transition.  The total spectrum is always column 2 of that export.
+        dec_row = QWidget()
+        dec_l = QHBoxLayout(dec_row)
+        dec_l.setContentsMargins(0, 0, 0, 0)
+        self.chk_decompose = QCheckBox()
+        self.chk_decompose.setToolTip(self._t("decompose_tip"))
+        self.chk_decompose.toggled.connect(self._update_controls)
+        self.lbl_decompose_threshold = QLabel()
+        self.spin_decompose = QDoubleSpinBox()
+        self.spin_decompose.setRange(0.0001, 10.0)
+        self.spin_decompose.setDecimals(4)
+        self.spin_decompose.setSingleStep(0.005)
+        self.spin_decompose.setValue(0.01)
+        self.spin_decompose.setMaximumWidth(110)
+        self.spin_decompose.setEnabled(False)
+        dec_l.addWidget(self.chk_decompose)
+        dec_l.addWidget(self.lbl_decompose_threshold)
+        dec_l.addWidget(self.spin_decompose)
+        dec_l.addStretch(1)
+        form.addRow("", dec_row)
         param_l.addWidget(self.grp_calc)
 
         self.grp_output = QGroupBox()
@@ -678,6 +739,9 @@ class SpectrumPanel(QWidget):
         self.lbl_scale.setText(t("scale"))
         self.lbl_xrange.setText(t("xrange"))
         self.edit_xrange.setPlaceholderText(t("xrange_hint"))
+        self.chk_decompose.setText(t("decompose"))
+        self.chk_decompose.setToolTip(t("decompose_tip"))
+        self.lbl_decompose_threshold.setText(t("decompose_threshold"))
         self.grp_output.setTitle(t("output"))
         self.lbl_outdir.setText(t("outdir"))
         self.btn_outdir.setText(t("browse"))
@@ -741,6 +805,7 @@ class SpectrumPanel(QWidget):
         self.spin_nproc.setEnabled(not reuse)
         self.edit_mem.setEnabled(not reuse)
         self.spin_nstates.setEnabled(not reuse and kind.electronic)
+        self.spin_decompose.setEnabled(self.chk_decompose.isChecked())
 
     @staticmethod
     def _parse_structure(path):
@@ -871,6 +936,9 @@ class SpectrumPanel(QWidget):
             "x_range": self.edit_xrange.text().strip(),
             "ecd_representation": self.cmb_ecd_rep.currentData(),
             "roa_wavelength_index": self.spin_roa_index.value(),
+            "decompose_threshold": (self.spin_decompose.value()
+                                    if self.chk_decompose.isChecked()
+                                    else None),
             "existing_log": (self._source_path if reuse else ""),
         }
         self._worker = SpectrumWorker(kwargs, self)
@@ -906,15 +974,25 @@ class SpectrumPanel(QWidget):
     def _on_completed(self, result):
         self._last_result = result
         path = result.get("plot_path", "")
+        decomp = result.get("decomposition")
         if path and self.plot_view.set_plot(path):
             self.btn_zoom.setEnabled(True)
             self.btn_save_plot.setEnabled(True)
-            self.lbl_plot_hint.setText(self._t("plot_hint"))
+            self.lbl_plot_hint.setText(
+                self._t("plot_hint_decompose") if decomp
+                else self._t("plot_hint"))
         self.progress.setValue(100)
         status_lines = [
             self._t("done"),
             self._t("outputs").format(dir=result.get("output_dir", "")),
         ]
+        if decomp:
+            peak = decomp.get("peak") or 0.0
+            residual = decomp.get("residual", 0.0)
+            states = ", ".join(str(s) for s in decomp.get("states", []))
+            status_lines.insert(1, self._t("decompose_status").format(
+                n=decomp.get("n_columns", 0), states=states, res=residual,
+                pct=(100.0 * residual / peak if peak else 0.0)))
         emission = result.get("emission")
         if emission:
             status_lines.insert(1, self._t("emission_line").format(

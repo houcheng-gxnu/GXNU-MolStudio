@@ -42,6 +42,28 @@ from molstudio.core.gaussian_run import run_gaussian
 _LAST_RENDER_LIMITS = None
 # 最近一次渲染实际设置的横轴 (left, right)，含方向。振动谱应为 (4000, 0)。
 _LAST_RENDER_XLIM = None
+# 最近一次渲染的逐跃迁分解信息：(贡献列总数, 进入图例的列数)。
+_LAST_RENDER_DECOMPOSITION = None
+# 最近一次渲染画出的总谱峰值。用于测试断言「黑线 = 导出第 2 列」，
+# 防止误用各贡献列之和替代总谱。
+_LAST_RENDER_TOTAL_PEAK = None
+
+# 逐跃迁贡献曲线的配色（与文章 224 第 2.1 节示意图一致）。
+_DECOMP_COLORS = (
+    "#E00000", "#0000E0", "#008080", "#E000E0", "#808000",
+    "#E07B00", "#7B2CBF", "#009E73", "#C2185B", "#455A64",
+)
+# 分解模式下右侧离散竖线轴的物理量名；非分解模式仍用通用标签。
+_TRANSITION_AXIS_LABELS = {
+    "uvvis": "Oscillator strength",
+    "fluorescence": "Oscillator strength",
+    "phosphorescence": "Oscillator strength",
+    "ecd": "Rotatory strength",
+    "vcd": "Rotatory strength",
+    "ir": "IR intensity (km/mol)",
+    "raman": "Raman activity",
+    "roa": "ROA intensity",
+}
 
 
 class SpectrumCancelled(RuntimeError):
@@ -536,10 +558,74 @@ def parse_spectrum_lines(path):
     return [point for point in bars if abs(point[1]) > 1e-14]
 
 
+def parse_spectrum_decomposition(path):
+    """Read Multiwfn's option-15 export as x / total / contribution columns.
+
+    Option 15 writes ``spectrum_curve.txt`` with column 1 = x, column 2 = the
+    *total* broadened spectrum, and columns 3..N = the individually broadened
+    contribution of one strong transition each.  Returns ``None`` when the
+    file only has the ordinary two columns (option 2).
+    """
+    rows = []
+    if not path or not os.path.isfile(path):
+        return None
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            fields = line.strip().replace("D", "E").replace("d", "e").split()
+            if len(fields) < 3:
+                continue
+            try:
+                rows.append([float(value) for value in fields])
+            except ValueError:
+                continue
+    if not rows:
+        return None
+    width = max(len(row) for row in rows)
+    if width < 3:
+        return None
+    rows = [row for row in rows if len(row) == width]
+    return {
+        "x": [row[0] for row in rows],
+        "total": [row[1] for row in rows],
+        "columns": [[row[col] for row in rows]
+                    for col in range(2, width)],
+    }
+
+
+def parse_transition_columns(text):
+    """Parse the ``Column# / Transition#`` table printed by option 15.
+
+    Returns the excited-state number for each contribution column, starting
+    at column 3.  An empty list means the table was absent (e.g. an older
+    Multiwfn build); callers should then label the columns by their index.
+    """
+    lines = (text or "").splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if re.search(r"Column#\s+Transition#", line):
+            start = index + 1
+            break
+    if start is None:
+        return []
+    states = []
+    for line in lines[start:]:
+        match = re.match(r"^\s*(\d+)\s+(\d+)\s*$", line)
+        if not match:
+            if states:
+                break
+            continue
+        column, state = int(match.group(1)), int(match.group(2))
+        if column != len(states) + 3:
+            break
+        states.append(state)
+    return states
+
+
 def multiwfn_plot_sequence(kind_key, fwhm=None, frequency_scale=1.0,
                            x_range="", ecd_representation="velocity",
                            roa_wavelengths="", roa_wavelength_index=1,
-                           nstates=20, available_wavelengths=None):
+                           nstates=20, available_wavelengths=None,
+                           decompose_threshold=None):
     """Return the stdin sequence for Multiwfn main function 11.
 
     A leading blank line is required by recent Multiwfn builds when the input
@@ -621,7 +707,24 @@ def multiwfn_plot_sequence(kind_key, fwhm=None, frequency_scale=1.0,
         seq.extend(["3", range_text])
     # Export curve and discrete-line data.  MolStudio renders the exported
     # curve so the preview remains deterministic even when Multiwfn is newer.
-    seq.append("2")
+    #
+    # Option 15 (sobereva.com/224 sec. 5.3) exports the SAME first two columns
+    # plus one extra column per transition whose |strength| exceeds the
+    # threshold: each extra column is that single transition broadened on its
+    # own.  It replaces option 2, which only writes two columns.
+    if decompose_threshold is not None:
+        try:
+            threshold = float(decompose_threshold)
+        except (TypeError, ValueError):
+            raise ValueError("跃迁分解阈值必须是数字")
+        # Multiwfn treats 0 as a different mode ("show the 10 largest
+        # contributions at an inputted X") and then asks for that X.  Sending
+        # 0 here would shift every later command by one and end in EOF.
+        if threshold <= 0:
+            raise ValueError("跃迁分解阈值必须大于 0")
+        seq.extend(["15", "%.10g" % threshold])
+    else:
+        seq.append("2")
     # Also ask Multiwfn itself to save its native plot.  Option 1 writes
     # dislin.png without opening the interactive image window.
     seq.append("1")
@@ -662,6 +765,32 @@ def _ascii_existing_path(path):
     return path
 
 
+def _spectrum_scratch_dir(work_dir):
+    """Create a short ASCII scratch directory to use as Multiwfn's cwd.
+
+    Multiwfn is launched with ``cwd=scratch``.  Some endpoint-protection
+    suites virtualise %TEMP% for GUI applications they do not trust yet;
+    CreateProcess then fails with WinError 5 although the folder itself is
+    writable.  Prefer a scratch folder next to the run output, then beside the
+    application executable, and fall back to the system TEMP last.
+    """
+    candidates = [work_dir]
+    if getattr(sys, "frozen", False):
+        candidates.append(
+            os.path.dirname(os.path.abspath(sys.executable)))
+    candidates.append(tempfile.gettempdir())
+    for parent in candidates:
+        if not parent or any(ord(ch) > 127 for ch in str(parent)):
+            continue
+        try:
+            os.makedirs(parent, exist_ok=True)
+            return _ascii_existing_path(
+                tempfile.mkdtemp(prefix="mw_", dir=parent))
+        except OSError:
+            continue
+    return _ascii_existing_path(tempfile.mkdtemp(prefix="molstudio_spectrum_"))
+
+
 def _run_multiwfn(exe, input_file, sequence, workdir, on_log=None,
                   cancel=None, timeout=600):
     """Run Multiwfn while streaming stdout and allowing cooperative cancel."""
@@ -669,12 +798,31 @@ def _run_multiwfn(exe, input_file, sequence, workdir, on_log=None,
     if sys.platform == "win32":
         creationflags = (subprocess.CREATE_NO_WINDOW |
                          subprocess.CREATE_NEW_PROCESS_GROUP)
-    proc = subprocess.Popen(
-        [exe, os.path.basename(input_file)], cwd=workdir,
+    popen_kwargs = dict(
         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, universal_newlines=True,
-        encoding="utf-8", errors="replace",
-        creationflags=creationflags)
+        encoding="utf-8", errors="replace")
+    command = [exe, os.path.basename(input_file)]
+    try:
+        proc = subprocess.Popen(command, cwd=workdir,
+                                creationflags=creationflags,
+                                **popen_kwargs)
+    except PermissionError as first_error:
+        # Endpoint-protection suites sometimes deny CreateProcess from a GUI
+        # process that they do not trust yet (WinError 5).  A plain
+        # CreateProcessW without the extra flags is often permitted, so retry
+        # once before giving up.
+        try:
+            proc = subprocess.Popen(command, cwd=workdir,
+                                    creationflags=0, **popen_kwargs)
+        except PermissionError:
+            raise SpectrumWorkflowError(
+                "无法启动 Multiwfn（%s）。\n工作目录：%s\n"
+                "系统拒绝了 MolStudio 创建子进程的请求，通常是安全软件"
+                "（如 360 主动防御）把新版本 MolStudio.exe 当作未知程序拦截。\n"
+                "请把 MolStudio.exe 与 Multiwfn.exe 加入安全软件白名单，"
+                "或暂时退出实时防护后重试。\n\n原始错误：%s" %
+                (exe, workdir, first_error)) from first_error
     output = []
 
     def reader():
@@ -713,14 +861,24 @@ def _run_multiwfn(exe, input_file, sequence, workdir, on_log=None,
     return "".join(output)
 
 
-def _render_curve(curve, kind, output_path, transitions=None, title=""):
+def _render_curve(curve, kind, output_path, transitions=None, title="",
+                  decomposition=None):
     """Render Multiwfn's exported curve with Matplotlib (Agg backend).
 
     The canvas is 16:9 so it fills the (now stretchable) preview area without
     leaving tall empty bands.  Styling stays flat: solid fills, light grid,
     dark-blue curve, amber transition sticks and a marked peak.
+
+    ``decomposition`` optionally carries ``{"x", "columns", "threshold"}``
+    from Multiwfn option 15: each entry in ``columns`` is one transition's
+    individually broadened curve.  The black Total line is ALWAYS the second
+    column of the export, never the sum of the drawn contributions -- weak
+    transitions below the threshold are deliberately omitted from the extra
+    columns but still contribute to the total.
     """
     global _LAST_RENDER_LIMITS, _LAST_RENDER_XLIM
+    global _LAST_RENDER_DECOMPOSITION
+    global _LAST_RENDER_TOTAL_PEAK
     try:
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -735,6 +893,7 @@ def _render_curve(curve, kind, output_path, transitions=None, title=""):
         max_abs = max((abs(value) for value in ys), default=0.0)
         if max_abs > 0:
             ys = [value / max_abs for value in ys]
+    _LAST_RENDER_TOTAL_PEAK = max((abs(v) for v in ys), default=0.0)
     transitions = list(transitions or [])
     x_lo, x_hi = min(xs), max(xs)
     # 虚频（负波数）或横轴范围外的跃迁会把坐标轴撑大，必须过滤掉。
@@ -760,10 +919,54 @@ def _render_curve(curve, kind, output_path, transitions=None, title=""):
     ax.grid(True, which="major", color="#E2E8F0", linewidth=0.9,
             linestyle="-", alpha=0.9)
 
-    ax.plot(xs, ys, color="#1565C0", linewidth=2.4,
-            solid_capstyle="round", label="Broadened spectrum", zorder=3)
-    ax.fill_between(xs, ys, 0, color="#90CAF9", alpha=0.28,
-                    linewidth=0, zorder=2)
+    decomp = decomposition or {}
+    parts = decomp.get("columns") or []
+    part_x = decomp.get("x") or xs
+    _LAST_RENDER_DECOMPOSITION = (
+        (len(parts), min(len(parts), len(_DECOMP_COLORS))) if parts else None)
+
+    if parts:
+        # Rank by peak height so a very small threshold (dozens of columns)
+        # still produces a readable legend: the strongest contributors get
+        # named colours, the rest are thin neutral lines without labels.
+        ranked = sorted(
+            range(len(parts)),
+            key=lambda i: max((abs(v) for v in parts[i]["y"]), default=0.0),
+            reverse=True)
+        # Colour by the ORIGINAL column order (ascending excited-state number)
+        # so the palette matches sobereva.com/224 sec. 2.1: S0->S2 red,
+        # S0->S3 blue, S0->S5 teal, S0->S11 magenta, S0->S13 olive.  When a
+        # very small threshold produces more columns than colours, keep the
+        # strongest ones named and draw the rest as thin neutral lines.
+        if len(parts) <= len(_DECOMP_COLORS):
+            named = set(range(len(parts)))
+            color_of = {idx: _DECOMP_COLORS[idx] for idx in named}
+        else:
+            strongest = ranked[:len(_DECOMP_COLORS)]
+            named = set(strongest)
+            color_of = {idx: _DECOMP_COLORS[rank]
+                        for rank, idx in enumerate(strongest)}
+        # Iterating in column order also keeps the legend in state order.
+        for idx, part in enumerate(parts):
+            state = part.get("state")
+            if idx in named:
+                label = (r"S0$\rightarrow$S%d" % state
+                         if isinstance(state, int) else str(state))
+                ax.plot(part_x, part["y"], color=color_of[idx],
+                        linewidth=1.7, label=label, zorder=2)
+            else:
+                ax.plot(part_x, part["y"], color="#B8C4CE", linewidth=0.8,
+                        alpha=0.75, zorder=1)
+        # Total is the SECOND column of the option-15 export.  Never replace
+        # it with the sum of the drawn contributions: weak transitions below
+        # the cutoff are omitted from the extra columns but still contribute.
+        ax.plot(xs, ys, color="#111111", linewidth=2.6,
+                solid_capstyle="round", label="Total", zorder=4)
+    else:
+        ax.plot(xs, ys, color="#1565C0", linewidth=2.4,
+                solid_capstyle="round", label="Broadened spectrum", zorder=3)
+        ax.fill_between(xs, ys, 0, color="#90CAF9", alpha=0.28,
+                        linewidth=0, zorder=2)
     ax.axhline(0, color="#64748B", linewidth=0.9, alpha=0.7, zorder=2)
 
     x_unit = "nm" if kind.x_unit == "nm" else "cm$^{-1}$"
@@ -773,7 +976,7 @@ def _render_curve(curve, kind, output_path, transitions=None, title=""):
         if abs(py) > 1e-12:
             ax.scatter([px], [py], s=46, color="#C62828",
                        edgecolors="white", linewidths=1.2, zorder=5)
-            ax.annotate("peak  %.0f %s" % (px, x_unit),
+            ax.annotate("peak  %.2f %s" % (px, x_unit),
                         xy=(px, py), xytext=(0, 15),
                         textcoords="offset points", ha="center",
                         va="bottom", fontsize=10.5, color="#0F172A",
@@ -787,12 +990,20 @@ def _render_curve(curve, kind, output_path, transitions=None, title=""):
         tx = [point[0] for point in kept_all]
         ty = [point[1] for point in kept_all]
         right = ax.twinx()
-        right.vlines(tx, 0, ty, color="#F59E0B", linewidth=1.2,
-                     alpha=0.8, label="Discrete transitions", zorder=1)
+        # In decomposition mode the coloured contribution curves dominate,
+        # so the sticks and their axis stay neutral instead of amber.
+        stick_color = "#9AA7B2" if parts else "#F59E0B"
+        axis_color = "#475569" if parts else "#B45309"
+        right.vlines(tx, 0, ty, color=stick_color,
+                     linewidth=0.9 if parts else 1.2,
+                     alpha=0.7 if parts else 0.8,
+                     label="Discrete transitions", zorder=1)
         right.axhline(0, color="#94A3B8", linewidth=0.5, alpha=0.6)
-        right.set_ylabel("Transition intensity", color="#B45309",
-                         fontsize=12, labelpad=10)
-        right.tick_params(axis="y", colors="#B45309", labelsize=10)
+        right.set_ylabel(
+            (_TRANSITION_AXIS_LABELS.get(kind.key, "Transition intensity")
+             if parts else "Transition intensity"),
+            color=axis_color, fontsize=12, labelpad=10)
+        right.tick_params(axis="y", colors=axis_color, labelsize=10)
         right.spines["top"].set_visible(False)
         right.spines["left"].set_visible(False)
         for side in ("right", "bottom"):
@@ -819,9 +1030,13 @@ def _render_curve(curve, kind, output_path, transitions=None, title=""):
                   fontsize=13, color="#0F172A", labelpad=10)
     ax.set_ylabel(kind.y_unit, fontsize=13, color="#0F172A", labelpad=10)
     heading = title or ("%s spectrum" % kind.name)
+    if parts and not title:
+        heading += " - transition decomposition"
     # DejaVu Sans (the Agg default) has no CJK glyphs; a Chinese spectrum
     # name would render as tofu boxes, so fall back to the ASCII kind key.
-    if any(ord(ch) > 127 for ch in heading):
+    # Only CJK triggers this -- punctuation such as the middle dot (U+00B7)
+    # is present in DejaVu Sans and must NOT discard the whole heading.
+    if any("\u4e00" <= ch <= "\u9fff" for ch in heading):
         heading = "%s spectrum" % kind.key.upper()
     ax.set_title(heading, fontsize=16, fontweight="bold",
                  color="#0F172A", pad=16)
@@ -832,8 +1047,11 @@ def _render_curve(curve, kind, output_path, transitions=None, title=""):
         handles += h2
         labels += l2
     if handles:
-        legend = ax.legend(handles, labels, loc="upper right",
-                           fontsize=10.5, frameon=True, fancybox=True)
+        legend = ax.legend(
+            handles, labels, loc="upper right",
+            fontsize=9.5 if parts else 10.5,
+            ncol=2 if parts and len(handles) > 5 else 1,
+            frameon=True, fancybox=True)
         legend.get_frame().set_facecolor("white")
         legend.get_frame().set_edgecolor("#E2E8F0")
         legend.get_frame().set_linewidth(0.9)
@@ -848,8 +1066,14 @@ def draw_multiwfn_spectrum(log_path, multiwfn_exe, work_dir, kind_key,
                            fwhm=None, frequency_scale=1.0, x_range="",
                            ecd_representation="velocity",
                            roa_wavelengths="", roa_wavelength_index=1,
-                           nstates=20, on_log=None, cancel=None, timeout=600):
-    """Ask Multiwfn to broaden/export a spectrum and render its curve."""
+                           nstates=20, decompose_threshold=None,
+                           on_log=None, cancel=None, timeout=600):
+    """Ask Multiwfn to broaden/export a spectrum and render its curve.
+
+    ``decompose_threshold`` switches the export to Multiwfn option 15, which
+    additionally writes one curve per strong transition.  The total spectrum
+    remains column 2 of the export.
+    """
     kind = get_spectrum_kind(kind_key)
     log_path = os.path.abspath(log_path)
     work_dir = os.path.abspath(work_dir or os.path.dirname(log_path))
@@ -875,15 +1099,19 @@ def draw_multiwfn_spectrum(log_path, multiwfn_exe, work_dir, kind_key,
         x_range=x_range, ecd_representation=ecd_representation,
         roa_wavelengths=roa_wavelengths,
         roa_wavelength_index=roa_wavelength_index, nstates=nstates,
-        available_wavelengths=available_wavelengths)
+        available_wavelengths=available_wavelengths,
+        decompose_threshold=decompose_threshold)
     if on_log:
-        on_log("Multiwfn 菜单：11 → %s → 2（导出展宽光谱数据）" %
-               kind.multiwfn_menu)
+        if decompose_threshold is not None:
+            on_log("Multiwfn 菜单：11 → %s → 15（阈值 %s，导出逐跃迁贡献）" %
+                   (kind.multiwfn_menu, decompose_threshold))
+        else:
+            on_log("Multiwfn 菜单：11 → %s → 2（导出展宽光谱数据）" %
+                   kind.multiwfn_menu)
     # Recent Multiwfn builds still have trouble with non-ASCII file names.
-    # Run from a short ASCII temp directory and copy the numerical/text
+    # Run from a short ASCII scratch directory and copy the numerical/text
     # results back, while keeping the user-visible plot and logs in outdir.
-    temp_root = _ascii_existing_path(tempfile.mkdtemp(
-        prefix="molstudio_spectrum_"))
+    temp_root = _spectrum_scratch_dir(work_dir)
     local_name = ("input.txt" if kind.workflow == "phosphorescence"
                   else "input.log")
     local_log = os.path.join(temp_root, local_name)
@@ -924,8 +1152,48 @@ def draw_multiwfn_spectrum(log_path, multiwfn_exe, work_dir, kind_key,
                   if kind.workflow == "phosphorescence"
                   else ("Fluorescence" if kind.workflow == "fluorescence"
                         else ""))
+    decomposition = None
+    decomposition_info = None
+    if decompose_threshold is not None:
+        raw = parse_spectrum_decomposition(curve_path)
+        if raw is None:
+            raise SpectrumWorkflowError(
+                "Multiwfn 未输出逐跃迁贡献列（选项 15 不可用，或所有跃迁"
+                "强度都低于阈值）。请调低阈值，或关闭逐跃迁分解。")
+        states = parse_transition_columns(text)
+        columns = []
+        for idx, values in enumerate(raw["columns"]):
+            state = (states[idx] if idx < len(states)
+                     else "Column %d" % (idx + 3))
+            columns.append({"state": state, "y": values})
+        decomposition = {"x": raw["x"], "columns": columns,
+                         "threshold": float(decompose_threshold)}
+        # Numerical note: the sum of the *exported* contribution columns is
+        # NOT the total spectrum.  Transitions weaker than the cutoff are
+        # left out of the extra columns but still broaden into column 2.
+        summed = [sum(col["y"][i] for col in columns)
+                  for i in range(len(raw["total"]))]
+        residual = max((abs(a - b) for a, b in
+                        zip(raw["total"], summed)), default=0.0)
+        peak = max((abs(v) for v in raw["total"]), default=0.0)
+        decomposition_info = {
+            "threshold": float(decompose_threshold),
+            "n_columns": len(columns),
+            "states": [col["state"] for col in columns],
+            "residual": residual,
+            "peak": peak,
+            "curve_path": curve_path,
+        }
+        if on_log:
+            on_log("逐跃迁分解：%d 条贡献曲线，态编号 %s" %
+                   (len(columns),
+                    ", ".join(str(col["state"]) for col in columns)))
+            on_log("  max |总谱 − Σ贡献| = %.6g（峰值的 %.3f%%），"
+                   "来自低于阈值的弱跃迁；黑线仍取导出文件第 2 列。" %
+                   (residual, 100.0 * residual / peak if peak else 0.0))
     _render_curve(
-        curve, kind, plot_path, transitions=transitions, title=plot_title)
+        curve, kind, plot_path, transitions=transitions, title=plot_title,
+        decomposition=decomposition)
     return {
         "kind": kind.key,
         "curve": curve,
@@ -933,6 +1201,7 @@ def draw_multiwfn_spectrum(log_path, multiwfn_exe, work_dir, kind_key,
         "curve_path": curve_path,
         "line_path": line_path if os.path.isfile(line_path) else "",
         "plot_path": plot_path,
+        "decomposition": decomposition_info,
         "multiwfn_plot_path": (native_plot
                                if os.path.isfile(native_plot) else ""),
         "multiwfn_log": mw_log,
@@ -1070,6 +1339,7 @@ def run_spectrum_pipeline(atoms, source_name, output_dir, kind_key, theory,
                           wavelengths="", fwhm=None, frequency_scale=1.0,
                           x_range="", ecd_representation="velocity",
                           roa_wavelength_index=1, existing_log="",
+                          decompose_threshold=None,
                           on_stage=None, on_log=None, cancel=None,
                           timeout=1800):
     """Run Gaussian (optional) and Multiwfn as one spectrum workflow.
@@ -1093,7 +1363,8 @@ def run_spectrum_pipeline(atoms, source_name, output_dir, kind_key, theory,
         kind.key, fwhm=fwhm, frequency_scale=frequency_scale,
         x_range=x_range, ecd_representation=ecd_representation,
         roa_wavelengths=wavelengths,
-        roa_wavelength_index=roa_wavelength_index, nstates=nstates)
+        roa_wavelength_index=roa_wavelength_index, nstates=nstates,
+        decompose_threshold=decompose_threshold)
     final_log = os.path.abspath(existing_log) if existing_log else ""
     jobs = []
     emission_info = None
@@ -1178,7 +1449,8 @@ def run_spectrum_pipeline(atoms, source_name, output_dir, kind_key, theory,
         ecd_representation=ecd_representation,
         roa_wavelengths=wavelengths,
         roa_wavelength_index=roa_wavelength_index,
-        nstates=nstates, on_log=emit_log, cancel=cancel, timeout=timeout)
+        nstates=nstates, decompose_threshold=decompose_threshold,
+        on_log=emit_log, cancel=cancel, timeout=timeout)
     emit_stage(100, "%s 光谱完成" % kind.name)
     drawn.update({
         "log_path": final_log,
@@ -1205,6 +1477,8 @@ __all__ = [
     "prepare_spectrum_jobs",
     "parse_spectrum_curve",
     "parse_spectrum_lines",
+    "parse_spectrum_decomposition",
+    "parse_transition_columns",
     "multiwfn_plot_sequence",
     "draw_multiwfn_spectrum",
     "run_spectrum_pipeline",
