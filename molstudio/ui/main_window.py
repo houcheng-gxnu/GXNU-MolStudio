@@ -4427,8 +4427,12 @@ class OrbitalVisApp(QMainWindow):
         return path
 
     def _ppt3d_finish(self, path, symbols, coords, options, title,
-                      canvas=True, cell_box=None):
-        """按用户选项组装 kwargs 并写出 GLB；返回 (surfaces, legend)。"""
+                      canvas=True, cell_box=None, bonds=None):
+        """按用户选项组装 kwargs 并写出 GLB；返回 (surfaces, legend)。
+
+        ``bonds`` 为显式键表（1-based）——晶体结构库用它绕开共价半径自动
+        判据，PowerPoint 里的 3D 模型才会和画布显示同一套第一配位壳层键。
+        """
         from molstudio.core.molecule_export import (
             ATOM_RADII, DEFAULT_ATOM_RADIUS, export_glb,
             surface_layers_from_canvas,
@@ -4450,6 +4454,8 @@ class OrbitalVisApp(QMainWindow):
             surfaces = []
         base["surfaces"] = surfaces
         kwargs = options.apply_to(base, symbols)
+        if bonds is not None:
+            kwargs["bonds"] = bonds
         if cell_box:
             kwargs["cell_box"] = cell_box
         export_glb(path, symbols, coords, title=title, **kwargs)
@@ -4494,6 +4500,7 @@ class OrbitalVisApp(QMainWindow):
                            "来源：分子结构库")
 
     def _library_export_crystal(self, entry, options):
+        from molstudio.core.bonding import crystal_bond_pairs
         from molstudio.core.crystal_library import crystal_geometry
         try:
             symbols, coords, corners, _crystal = crystal_geometry(
@@ -4503,6 +4510,10 @@ class OrbitalVisApp(QMainWindow):
         except Exception as exc:                              # noqa: BLE001
             QMessageBox.warning(self, "PPT 3D", "晶体展开失败：%s" % exc)
             return
+        # 显式给出第一配位壳层键表：导出器默认的共价半径判据会把 NaCl 的
+        # Na-Na 次近邻也连成键，PPT 里的 3D 晶胞会与画布不一致。
+        bonds = [(i + 1, j + 1)
+                 for i, j in crystal_bond_pairs(coords)]
         path = self._ppt3d_save_path(entry.id)
         if not path:
             return
@@ -4511,7 +4522,7 @@ class OrbitalVisApp(QMainWindow):
             surfaces, legend = self._ppt3d_finish(
                 path, symbols, coords, options,
                 entry.display_name(self._lang), canvas=False,
-                cell_box=cell_box)
+                cell_box=cell_box, bonds=bonds)
         except Exception as exc:                              # noqa: BLE001
             QMessageBox.warning(self, "PPT 3D", "导出失败：%s" % exc)
             return
@@ -4555,10 +4566,15 @@ class OrbitalVisApp(QMainWindow):
                 cell_box = options.cell_box_spec(corners)
             except Exception:                                 # noqa: BLE001
                 cell_box = None
+        bonds = None
+        if crystal:
+            from molstudio.core.bonding import crystal_bond_pairs
+            bonds = [(i + 1, j + 1)
+                     for i, j in crystal_bond_pairs(coords)]
         try:
             surfaces, legend = self._ppt3d_finish(
                 path, symbols, coords, options, stem,
-                canvas=True, cell_box=cell_box)
+                canvas=True, cell_box=cell_box, bonds=bonds)
         except Exception as exc:                              # noqa: BLE001
             QMessageBox.warning(
                 self, "PPT 3D",

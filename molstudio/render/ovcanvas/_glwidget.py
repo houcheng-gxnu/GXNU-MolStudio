@@ -89,6 +89,9 @@ except ImportError:
 from PyQt5.QtWidgets import QOpenGLWidget
 
 from molstudio.ui.file_dialogs import open_file, save_file
+from molstudio.core.bonding import (
+    CRYSTAL_MAX_BOND_ANG, first_shell_pairs,
+)
 
 # ── Cube file + marching cubes ──
 from molstudio.core.marching_cubes import (
@@ -3915,6 +3918,10 @@ class CubGLWidget(QOpenGLWidget):
         # Bond radius factor — dual-threshold for solid / dashed / no-bond
         self._bond_rf_tight = 1.0   # ≤ this → solid bond
         self._bond_rf_loose = 1.3   # ≤ this → dashed bond; > this → no bond
+        # 周期性晶体：共价半径和判据会把很远的原子也连成键（NaCl 的
+        # Na-Na 3.99 A）。晶体页载入时开启逐原子最近邻壳层判据；分子
+        # 载入时自动关闭，保持原有分子成键完全不变。
+        self._crystal_bonding = False
         self._dash_weight = 0.4     # fill ratio for dashed bonds (0..1)
         self._dot_size_scale = 1.0      # 虚线大小倍率（点阵：点半径；短段：段粗细）
         self._dot_spacing_scale = 1.0   # 虚线间距倍率 (>1 更稀疏)
@@ -7453,7 +7460,12 @@ class CubGLWidget(QOpenGLWidget):
         for z in set(int(x) for x in anums):
             if 0 <= z < len(_COV_RADII_BOHR):
                 max_cov = max(max_cov, _COV_RADII_BOHR[z])
-        cap = (max(BOND_MAX_DIST_ANG, BOND_MAX_DIST_H_ANG) / BOHR_TO_ANGSTROM)
+        abs_cap = max(BOND_MAX_DIST_ANG, BOND_MAX_DIST_H_ANG)
+        if self._crystal_bonding:
+            # 晶体判据的硬上限是 4.5 A；分箱半径必须覆盖它，否则某些
+            # 最近邻会被预筛掉，逐原子 d_i 会失真。
+            abs_cap = max(abs_cap, CRYSTAL_MAX_BOND_ANG)
+        cap = abs_cap / BOHR_TO_ANGSTROM
         cutoff = max(2.0 * max_cov * self._bond_rf_loose, cap, 1e-6)
         keys = np.floor(coords / cutoff).astype(np.int64)
         buckets = {}
@@ -7868,11 +7880,25 @@ class CubGLWidget(QOpenGLWidget):
                 else:
                     emit_solid(pa_in + sh, pb_in + sh, cp, cq, sr, sub_a, sub_b)
 
-        # 只遍历"可能成键"的对（空间分箱预筛，见 _bond_candidate_pairs）：
-        # 判据本身一个字没改，只是不再对全部两两组合算距离。
+        # 只遍历"可能成键"的对（空间分箱预筛，见 _bond_candidate_pairs）。
+        # 距离只算一次，预筛、晶体第一配位壳层和键几何三者共用。
         _bond_cand = {}
+        _bond_items = []
+        _bond_dist = {}
         for _i, _j in self._bond_candidate_pairs(coords, anums):
+            _r = float(np.linalg.norm(coords[_j] - coords[_i]))
+            if _r <= 1e-4:
+                continue
             _bond_cand.setdefault(_i, []).append(_j)
+            _bond_items.append((_i, _j, _r))
+            _bond_dist[(_i, _j)] = _r
+        # 晶体模式：与 GLB 导出共用 molstudio.core.bonding 的同一套数值规则。
+        # 画布坐标是 Bohr，故硬上限同步换算成 Bohr，保证两处结果逐键一致。
+        _crystal_bonds = (
+            first_shell_pairs(
+                _bond_items, n,
+                max_dist=CRYSTAL_MAX_BOND_ANG / BOHR_TO_ANGSTROM)
+            if self._crystal_bonding else None)
         for i in range(n):
             for j in _bond_cand.get(i, ()):
                 # 隐藏氢原子：任一端 H 被隐藏 → 该键不画
@@ -7880,8 +7906,8 @@ class CubGLWidget(QOpenGLWidget):
                         and self._hydrogen_visible(j + 1, anums[j])):
                     continue
                 p = coords[i]; q = coords[j]
-                rij = float(np.linalg.norm(q - p))
-                if rij < 1e-4:
+                rij = _bond_dist.get((i, j))
+                if rij is None or rij < 1e-4:
                     continue
                 zi = anums[i]; zj = anums[j]
                 # Use the Bohr-valued covalent radii (_COV_RADII_BOHR) so the
@@ -7905,23 +7931,30 @@ class CubGLWidget(QOpenGLWidget):
                     # Auto-detection: any contact within the thresholds is drawn
                     # as a SOLID bond. No automatic dashed bonds.
                     is_dashed = False
-                    # Hydrogen handling: H–H never bonds (e.g. the three H on a
-                    # methyl group stay separate), and any bond involving H uses
-                    # a tighter absolute cap because H only bonds to its nearest
-                    # heavy atom (C–H ≈ 1.09 Å).
-                    has_H = (zi == 1 or zj == 1)
-                    if has_H and zi == 1 and zj == 1:
-                        continue           # H–H: never a bond
-                    if has_H:
-                        cap = BOND_MAX_DIST_H_ANG / BOHR_TO_ANGSTROM
+                    if _crystal_bonds is not None:
+                        # 周期性晶体：只画每个原子的第一配位壳层。共价半径
+                        # 和判据对 Na/Cs/Ca 这类大半径金属会把次近邻（NaCl
+                        # 的 Na-Na 3.99 A）也连成键，晶体里必须改用最近邻。
+                        if (i, j) not in _crystal_bonds:
+                            continue
                     else:
-                        cap = BOND_MAX_DIST_ANG / BOHR_TO_ANGSTROM
-                    if (rij <= bf_tight * cov_sum
-                            or rij <= bf_loose * cov_sum
-                            or rij <= cap):
-                        pass               # solid bond
-                    else:
-                        continue           # no bond
+                        # Hydrogen handling: H–H never bonds (e.g. the three H
+                        # on a methyl group stay separate), and any bond
+                        # involving H uses a tighter absolute cap because H
+                        # only bonds to its nearest heavy atom (C–H ≈ 1.09 A).
+                        has_H = (zi == 1 or zj == 1)
+                        if has_H and zi == 1 and zj == 1:
+                            continue           # H–H: never a bond
+                        if has_H:
+                            cap = BOND_MAX_DIST_H_ANG / BOHR_TO_ANGSTROM
+                        else:
+                            cap = BOND_MAX_DIST_ANG / BOHR_TO_ANGSTROM
+                        if (rij <= bf_tight * cov_sum
+                                or rij <= bf_loose * cov_sum
+                                or rij <= cap):
+                            pass               # solid bond
+                        else:
+                            continue           # no bond
 
                 # Determine bond colour per the molecule style
                 if self._bond_color is not None:
@@ -8404,8 +8437,11 @@ class CubGLWidget(QOpenGLWidget):
 
     # ── Ball-and-stick scale controls ──
 
-    def set_molecule(self, atoms, bonds=None):
+    def set_molecule(self, atoms, bonds=None, crystal_bonding=False):
         """载入 fchk/xyz 时设置独立分子数据（坐标单位 Angstrom，与 MolCanvas 一致）。
+
+        ``crystal_bonding=True`` 切到周期性晶体的「第一配位壳层」成键判据；
+        默认 False，所有分子/轨道/IRC 路径的成键行为完全不变。
 
         内部转换为 Bohr 存储到 self._molecule；之后即使尚未加载轨道 cube，
         画布也会显示分子球棍模型，满足「先显示分子，双击轨道再看」的需求。
@@ -8419,6 +8455,8 @@ class CubGLWidget(QOpenGLWidget):
         # 载入新分子即丢弃上一场景的 AIM 覆盖层（避免跨 tab 残留）
         self._aim_cps = []
         self._aim_path_pts = []
+        # 每次载入显式声明成键模式，避免从晶体页切回分子时残留晶体判据。
+        self._crystal_bonding = bool(crystal_bonding)
         if not atoms:
             self._molecule = None
             self._mol_sig = None
@@ -9525,6 +9563,22 @@ class CubGLWidget(QOpenGLWidget):
         self._bond_rf_loose = max(0.5, min(3.0, float(value)))
         if self._bond_rf_loose < self._bond_rf_tight:
             self._bond_rf_loose = self._bond_rf_tight + 0.05
+        if self._molecule is not None or self._cube is not None:
+            self._gen_atoms()
+            self._needs_upload = True
+            self.update()
+
+    def set_crystal_bonding(self, enabled):
+        """Toggle periodic-crystal (first coordination shell) bond perception.
+
+        Used by the crystal tab when the loaded structure is a real periodic
+        crystal rather than a MOL2 molecule.  Rebuilds the ball-and-stick mesh
+        so switching modes takes effect immediately.
+        """
+        value = bool(enabled)
+        if value == self._crystal_bonding:
+            return
+        self._crystal_bonding = value
         if self._molecule is not None or self._cube is not None:
             self._gen_atoms()
             self._needs_upload = True

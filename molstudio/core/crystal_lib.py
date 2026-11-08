@@ -606,15 +606,19 @@ def _planar_faces(verts):
 
 
 def coordination_polyhedra(atoms, center_z, rf=1.3, max_dist=3.5,
-                           min_nbrs=3, max_nbrs=16, limit=MAX_POLYHEDRA):
+                           min_nbrs=3, max_nbrs=16, limit=MAX_POLYHEDRA,
+                           bond_pairs=None):
     """找 `center_z` 元素原子的配位多面体（配位原子的凸包）。
 
     atoms:    `Crystal.supercell()` 的返回值 [(idx, 元素符号, 原子序数, (x,y,z) Å)]，
               要传**渲染用的那一份**（已按扩胞/边界补齐生成），质心与配位才与
               屏幕上看到的结构一致；否则晶胞边界上的多面体会缺角。
     rf:       配位判据系数：距离上限 = rf × (共价半径_c + 共价半径_n)。
-              默认 1.3 —— 与画布"虚线键"阈值一致（Cordero 2008 共价半径）。
+              默认 1.3 —— 旧版与画布"虚线键"阈值一致；若给出 bond_pairs
+              则忽略本项与 max_dist，直接以画布/导出共用的第一配位壳层键表为准。
     max_dist: 绝对上限（Å），防止两个重原子半径和过大时误配。
+    bond_pairs: 可选的 0-based ``[(i, j)]`` 键表（画布显示的同一套晶体键），
+              让多面体顶点与屏幕上的键严格一致。
     min/max_nbrs: 配位数范围；小于 3 不成面，大于 max_nbrs 视为异常（如中心选错）。
     limit:    最多返回多少个（按原子序号顺序）。
 
@@ -647,13 +651,24 @@ def coordination_polyhedra(atoms, center_z, rf=1.3, max_dist=3.5,
     rc = _r(zc)
     rn = np.asarray([_r(z) for z in anum], dtype=np.float64)
     cut = np.minimum(rf * (rc + rn), float(max_dist))   # 与中心元素无关，只算一次
+    nbr_map = None
+    if bond_pairs is not None:
+        nbr_map = {}
+        for a, b in bond_pairs:
+            a, b = int(a), int(b)
+            nbr_map.setdefault(a, []).append(b)
+            nbr_map.setdefault(b, []).append(a)
     out = []
     for i in centers:
         if len(out) >= int(limit):
             break
-        d = np.linalg.norm(pos - pos[i], axis=1)
-        sel = np.where((d > 1e-6) & (d <= cut))[0]
-        nbrs = [int(j) for j in sel if anum[j] != zc]
+        if nbr_map is not None:
+            nbrs = [int(j) for j in nbr_map.get(int(i), ())
+                    if anum[j] != zc]
+        else:
+            d = np.linalg.norm(pos - pos[i], axis=1)
+            sel = np.where((d > 1e-6) & (d <= cut))[0]
+            nbrs = [int(j) for j in sel if anum[j] != zc]
         if not (min_nbrs <= len(nbrs) <= max_nbrs):
             continue
         verts = pos[nbrs]

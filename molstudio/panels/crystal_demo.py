@@ -204,7 +204,9 @@ class CrystalDemoWindow(QMainWindow):
             return
         self._applied_reps = reps
         self._atoms = atoms
-        self.canvas.glw.set_molecule(atoms)
+        self.canvas.glw.set_molecule(
+            atoms,
+            crystal_bonding=not getattr(self.crystal, "is_molecule", False))
         self.fit_view()
         cell = self.crystal.cell
         cell_txt = ("" if not cell else
@@ -229,7 +231,10 @@ class CrystalDemoWindow(QMainWindow):
             try:
                 fn()
             finally:
-                glw.set_molecule(atoms)
+                glw.set_molecule(
+                    atoms,
+                    crystal_bonding=not getattr(
+                        self.crystal, "is_molecule", False))
         else:
             fn()
 

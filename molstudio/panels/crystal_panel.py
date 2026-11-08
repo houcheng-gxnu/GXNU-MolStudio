@@ -52,12 +52,12 @@ _LANG_EXTRA = {
     "以哪种元素为中心画配位多面体（列的是当前结构里有的元素）":
         "Element used as the center of the coordination polyhedron (only elements "
         "present in the current structure are listed)",
-    "把中心原子的配位原子连成半透明多面体（配位判据与画布成键阈值一致：\n"
-    "1.3 × 共价半径和，Cordero 2008）。\n"
+    "把中心原子的配位原子连成半透明多面体（顶点与画布显示的键一致：\n"
+    "逐原子第一配位壳层）。\n"
     "提示：勾上「边界原子补齐」后晶胞边界上的多面体才是完整的。":
         "Connect the coordinating atoms of the center into a translucent polyhedron "
-        "(same criterion as the canvas bonding threshold:\n"
-        "1.3 × sum of covalent radii, Cordero 2008).\n"
+        "(vertices match the bonds drawn on the canvas:\n"
+        "the per-atom first coordination shell).\n"
         "Note: tick 「Complete boundary atoms」 to make polyhedra on the cell boundary complete.",
     "不透明度:": "Opacity:",
     "未载入结构。可载入 .cif / POSCAR / CONTCAR / .vasp":
@@ -175,8 +175,8 @@ class CrystalPanel(QWidget):
         row3.addWidget(self.cb_poly)
         self.chk_poly = QCheckBox("显示")
         self.chk_poly.setToolTip(
-            "把中心原子的配位原子连成半透明多面体（配位判据与画布成键阈值一致：\n"
-            "1.3 × 共价半径和，Cordero 2008）。\n"
+            "把中心原子的配位原子连成半透明多面体（顶点与画布显示的键一致：\n"
+            "逐原子第一配位壳层）。\n"
             "提示：勾上「边界原子补齐」后晶胞边界上的多面体才是完整的。")
         self.chk_poly.toggled.connect(self._apply_polyhedra)
         row3.addWidget(self.chk_poly)
@@ -262,7 +262,10 @@ class CrystalPanel(QWidget):
         self._applied_reps = reps
         self._atoms = atoms
         self._set_cell_only_enabled(not self.crystal.is_molecule)
-        self.glw.set_molecule(atoms)
+        # 周期性晶体改用「逐原子第一配位壳层」成键，避免大共价半径金属
+        # 把次近邻（NaCl 的 Na-Na 3.99 A）也连成键；MOL2 分子保持原判据。
+        self.glw.set_molecule(
+            atoms, crystal_bonding=not self.crystal.is_molecule)
         self.fit_view()
         cell = self.crystal.cell
         if self.crystal.is_molecule:
@@ -361,7 +364,12 @@ class CrystalPanel(QWidget):
             glw.clear_polyhedra()
             return
         try:
-            polys = coordination_polyhedra(self._atoms, int(z))
+            # 多面体顶点与画布上实际画出的键保持一致（第一配位壳层）。
+            from molstudio.core.bonding import crystal_bond_pairs
+            pairs = (None if self.crystal.is_molecule else
+                     crystal_bond_pairs([a[3] for a in self._atoms]))
+            polys = coordination_polyhedra(
+                self._atoms, int(z), bond_pairs=pairs)
         except Exception as e:
             self._log("配位多面体计算失败：%s" % e)
             glw.clear_polyhedra()
