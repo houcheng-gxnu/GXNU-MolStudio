@@ -1,0 +1,35 @@
+# MolStudio teaching model: dry ice, four CO2 molecules on an fcc lattice.
+# Simplified: all molecules share one body-diagonal orientation; real dry ice
+# (Pa3) uses alternating orientations.  Not an experimental COD structure.
+data_molstudio_dry_ice
+_chemical_formula_sum 'C O2'
+_chemical_name_common 'Dry ice (fcc teaching model)'
+_symmetry_space_group_name_H-M 'P 1'
+_space_group_IT_number 1
+_cell_length_a 5.62
+_cell_length_b 5.62
+_cell_length_c 5.62
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90
+loop_
+_space_group_symop_operation_xyz
+'x,y,z'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+C1 C 0.000 0.000 0.000
+O1 O 0.119 0.119 0.119
+O2 O -0.119 -0.119 -0.119
+C2 C 0.500 0.500 0.000
+O3 O 0.619 0.619 0.119
+O4 O 0.381 0.381 -0.119
+C3 C 0.500 0.000 0.500
+O5 O 0.619 0.119 0.619
+O6 O 0.381 -0.119 0.381
+C4 C 0.000 0.500 0.500
+O7 O 0.119 0.619 0.619
+O8 O -0.119 0.381 0.381

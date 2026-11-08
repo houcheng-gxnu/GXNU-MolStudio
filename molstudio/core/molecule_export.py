@@ -336,6 +336,12 @@ class _Part:
             self.indices.extend((a, a + 1, b, a + 1, b + 1, b))
 
 
+def _cell_box_edges():
+    """12 edges of the unit-cell parallelepiped (8 corners, binary i/j/k)."""
+    return [(p, q) for p in range(8) for q in range(p + 1, 8)
+            if bin(p ^ q).count("1") == 1]
+
+
 def _normalise_bonds(bonds, atom_count: int) -> list[tuple[int, int]]:
     if bonds is None:
         return []
@@ -480,7 +486,8 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
                 unlit=False, texture_colours=False, native_pbr=False,
                 high_detail=False, bake_ao=True, ao_rays=8,
                 atom_outline=False, outline_ratio=0.045,
-                outline_color=(0.0, 0.0, 0.0), surfaces=None):
+                outline_color=(0.0, 0.0, 0.0), surfaces=None,
+                cell_box=None):
     n = len(symbols)
     visible = np.ones(n, dtype=bool)
     if visible_atoms is not None:
@@ -644,6 +651,30 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
                     p0 + delta, p1 + delta, radius,
                     sides=(32 if high_detail else 12))
 
+    # Unit-cell frame as REAL 3D geometry.  The on-screen frame in the
+    # crystal tab is only a QPainter overlay, so it would otherwise disappear
+    # from the exported .glb.  Keep it a separate primitive: PowerPoint must
+    # not blend its colour into the molecule's PBR material.
+    if cell_box:
+        try:
+            corners = _orient_points(
+                np.asarray(cell_box.get("corners"), dtype=float))
+            radius = max(0.01, min(0.5, float(cell_box.get("radius", 0.055))))
+            colour = _colour_rgba(cell_box.get("color", "#46505F"))
+            if corners.ndim == 2 and corners.shape[0] >= 8:
+                box_part = _Part()
+                for i, j in (cell_box.get("edges") or _cell_box_edges()):
+                    i, j = int(i), int(j)
+                    if 0 <= i < len(corners) and 0 <= j < len(corners):
+                        box_part.add_cylinder(corners[i], corners[j],
+                                              radius, sides=8)
+                if box_part.indices:
+                    parts["__cellbox__"] = box_part
+                    material_specs["__cellbox__"] = (
+                        colour, 0.85, "Unit cell")
+        except (TypeError, ValueError, AttributeError):
+            pass
+
     # Build one primitive per colour/material group.
     parts = {key: part for key, part in parts.items() if part.indices}
     if outline_part.indices:
@@ -657,8 +688,9 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
         colours = []
         indices = []
         offset = 0
+        cell_spec = material_specs.get("__cellbox__")
         for key, part in list(parts.items()):
-            if key == "__outline__":
+            if key in ("__outline__", "__cellbox__"):
                 continue
             vertex_count = len(part.positions) // 3
             rgba = material_specs[key][0]
@@ -677,8 +709,9 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
             offset += vertex_count
         merged = _Part(positions=positions, normals=normals, indices=indices)
         native_parts = {"__native__": merged}
-        if "__outline__" in parts:
-            native_parts["__outline__"] = parts["__outline__"]
+        for extra in ("__outline__", "__cellbox__"):
+            if extra in parts:
+                native_parts[extra] = parts[extra]
         parts = native_parts
         native_colours["__native__"] = colours
         material_specs = {
@@ -691,6 +724,8 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
                 outline_rgba * (len(parts["__outline__"].positions) // 3))
         else:
             material_specs.pop("__outline__", None)
+        if cell_spec is not None:
+            material_specs["__cellbox__"] = cell_spec
 
     # Surfaces deliberately remain separate primitives from the molecule:
     # their alpha/material must not make the opaque atoms and bonds translucent.
@@ -824,7 +859,7 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
         if key in native_colours:
             attributes["COLOR_0"] = append_array(
                 native_colours[key], 5126, "VEC3", 34962)
-        elif unlit:
+        elif unlit and key != "__cellbox__":
             if (texture_colours
                     and str(material_specs[key][2]).startswith("Atom ")):
                 # Sphere texture already contains the highlight and rim.
@@ -878,6 +913,7 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
                 "contact_ao": bool(native_pbr and bake_ao),
                 "ao_rays": int(ao_rays if native_pbr and bake_ao else 0),
                 "atom_outline": bool("__outline__" in parts),
+                "cell_box": bool("__cellbox__" in parts),
                 "surface_layers": surface_metadata,
                 "source": "MolStudio",
                 "powerpoint": "Insert > 3D Models > This Device",
@@ -977,7 +1013,8 @@ def export_glb(path, symbols: Iterable[str], coords, *, bonds=None,
                texture_colours=False, native_pbr=False, high_detail=False,
                bake_ao=True, ao_rays=8, atom_outline=False,
                outline_ratio=0.045, outline_color=(0.0, 0.0, 0.0),
-               surfaces=None, title: str = "Molecule") -> Path:
+               surfaces=None, cell_box=None,
+               title: str = "Molecule") -> Path:
     """Write a molecule and optional isosurfaces as a PowerPoint GLB.
 
     The returned file can be inserted in Microsoft 365 PowerPoint through
@@ -1007,7 +1044,8 @@ def export_glb(path, symbols: Iterable[str], coords, *, bonds=None,
         texture_colours=texture_colours, native_pbr=native_pbr,
         high_detail=high_detail, bake_ao=bake_ao, ao_rays=ao_rays,
         atom_outline=atom_outline, outline_ratio=outline_ratio,
-        outline_color=outline_color, surfaces=surfaces)
+        outline_color=outline_color, surfaces=surfaces,
+        cell_box=cell_box)
     json_bytes = json.dumps(gltf, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     json_bytes += b" " * ((4 - len(json_bytes) % 4) % 4)
     binary += b"\0" * ((4 - len(binary) % 4) % 4)

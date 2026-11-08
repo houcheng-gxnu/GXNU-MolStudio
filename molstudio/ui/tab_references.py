@@ -657,6 +657,25 @@ TABS = {
         "note_en": "CIF / POSCAR parsing and unit-cell drawing are original to this "
                    "project and have no dedicated methodology citation.",
     },
+    "tab_library": {
+        "zh": "结构库", "en": "Library",
+        "refs": [],
+        "note_zh": "分子坐标由 RDKit ETKDGv3 + MMFF94/UFF 生成；晶体 CIF 取自 "
+                   "Avogadro2 自带的 crystals 数据插件（Geoffrey Hutchison 等，"
+                   "Open Chemistry，public domain），原始结构来自 Crystallography "
+                   "Open Database（COD）、American Mineralogist Crystal Structure "
+                   "Database（AMCSD）及 IZA，每个 CIF 均保留原始文献引用头。"
+                   "简单立方钋与干冰两个条目是 MolStudio 补写的教学模型，"
+                   "不是实验结构。",
+        "note_en": "Molecule coordinates were generated with RDKit ETKDGv3 and "
+                   "MMFF94/UFF. Crystal CIFs come from the Avogadro2 'crystals' "
+                   "data plugin (Geoffrey Hutchison et al., Open Chemistry, "
+                   "public domain), with original structures from the "
+                   "Crystallography Open Database (COD), AMCSD and IZA; each "
+                   "CIF keeps its original citation header. Simple-cubic "
+                   "polonium and dry ice are MolStudio teaching models, not "
+                   "experimental structures.",
+    },
     "tab_esm": {
         "zh": "能量跨度", "en": "ESM",
         "refs": [

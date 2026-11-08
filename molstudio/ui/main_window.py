@@ -187,6 +187,13 @@ try:
 except Exception:
     _HAS_CRYSTAL_PANEL = False
 
+# ── 结构库（分子 + 晶体，左侧独立 tab；与晶体 tab 联动） ──
+try:
+    from molstudio.panels.library_panel import LibraryPanel
+    _HAS_LIBRARY_PANEL = True
+except Exception:
+    _HAS_LIBRARY_PANEL = False
+
 # ── Energetic Span Model 跨循环催化能量分析（整合自 energy_span_model.py） ──
 try:
     from molstudio.panels.energy_span_panel import EnergySpanPanel
@@ -251,6 +258,7 @@ _NAV_EMOJI = {
     "tab_asm_irc":     "📈",   # ASM 沿 IRC 扫描
     "tab_cub_stack":   "🗂️",   # CUB 叠加
     "tab_crystal":     "💎",   # 晶体
+    "tab_library":     "📚",   # 结构库（分子 + 晶体）
     "tab_esm":         "📊",   # 能量跨度
     "tab_ircsplit":    "✂️",   # IRC 拆分
     "tab_log":         "📋",   # 日志
@@ -1368,6 +1376,25 @@ class OrbitalVisApp(QMainWindow):
                              self.cub_stack_panel is not None))
         except Exception:
             pass
+
+        # ── 结构库 tab：分子 + 晶体共用一个页面，导出设置与晶体 tab 联动 ──
+        self.library_panel = None
+        if _HAS_LIBRARY_PANEL:
+            try:
+                self.library_panel = LibraryPanel(
+                    parent=self,
+                    lang=getattr(self, "_lang", "zh"),
+                    on_visualize_molecule=self._library_visualize_molecule,
+                    on_export_molecule=self._library_export_molecule,
+                    on_visualize_crystal=self._library_visualize_crystal,
+                    on_export_crystal=self._library_export_crystal,
+                    on_open_crystal_tab=self._library_open_crystal_tab)
+                self._add_tab(self.library_panel, "tab_library")
+            except Exception as e:                        # noqa: BLE001
+                self.library_panel = None
+                self._append_log("[结构库] 结构库面板初始化失败：%s" % e)
+        else:
+            self._append_log("[结构库] 结构库面板不可用（library_panel 导入失败）")
 
         # ── Energetic Span Model tab ──
         self.esm_panel = None
@@ -2503,7 +2530,7 @@ class OrbitalVisApp(QMainWindow):
                       "ircsplit_panel", "cub_stack_panel", "crystal_panel",
                       "crystal_bar", "surfproj_panel", "steric_panel",
                       "xtb_panel", "aicd_panel", "spectrum_panel",
-                      "dos_panel", "edd_panel"):
+                      "dos_panel", "edd_panel", "library_panel"):
             _panel = getattr(self, _name, None)
             if _panel is not None and hasattr(_panel, "set_lang"):
                 try:
@@ -4292,8 +4319,19 @@ class OrbitalVisApp(QMainWindow):
 
     # ── Browse Methods ──
 
+    def _switch_to_tab(self, key):
+        """按 i18n key 切到左侧导航里的功能页（导航高亮同步）。"""
+        keys = getattr(self, "_tab_keys", [])
+        if key in keys:
+            self.tabs.setCurrentIndex(keys.index(key))
+            self._sync_main_nav()
+
     def _open_molecule_library(self):
-        """Open the bundled teaching library and load the chosen XYZ."""
+        """顶部「结构库」按钮：切到左侧独立的结构库 tab。"""
+        if getattr(self, "library_panel", None) is not None:
+            self._switch_to_tab("tab_library")
+            return
+        # 兼容兜底：结构库面板没加载起来时，仍可用原来的对话框
         try:
             from molstudio.ui.molecule_library_dialog import MoleculeLibraryDialog
         except Exception as exc:                              # noqa: BLE001
@@ -4301,44 +4339,159 @@ class OrbitalVisApp(QMainWindow):
                 self, "分子结构库" if self._lang == "zh" else "Molecule library",
                 str(exc))
             return
-
-        def _load_library_molecule(path, entry):
-            self.var_path.setText(path)
-            self._load_molecule(path)
-            style = str(getattr(entry, "style", "") or "")
-            if style and self.cub_canvas is not None:
-                try:
-                    self.cub_canvas.set_mol_style_name(style)
-                except Exception:                             # noqa: BLE001
-                    pass
-            self._append_log(
-                "[结构库] %s  %s" % (
-                    entry.display_name(self._lang), path))
-
-        def _export_library_ppt(target, entry):
-            from molstudio.core.molecule_export import export_glb
-            from molstudio.core.molecule_library import molecule_path
-            source = str(molecule_path(entry))
-            _load_library_molecule(source, entry)
-            got = self._get_canvas_structure()
-            if not got:
-                raise ValueError("无法从画布读取所选分子")
-            symbols, coords = got
-            export_glb(
-                target, symbols, coords, title=entry.display_name(self._lang),
-                **self._ppt3d_canvas_options(symbols))
-
         dialog = MoleculeLibraryDialog(
-            parent=self, lang=self._lang, on_visualize=_load_library_molecule,
-            on_export_ppt=_export_library_ppt)
+            parent=self, lang=self._lang,
+            on_visualize=self._library_visualize_molecule)
         dialog.exec_()
 
+    # ── 结构库 tab 的回调 ────────────────────────────────────────────
+    def _library_visualize_molecule(self, path, entry):
+        """把内置 XYZ 送到主画布，并套用它登记的显示样式。"""
+        self.var_path.setText(path)
+        self._load_molecule(path)
+        style = str(getattr(entry, "style", "") or "")
+        if style and self.cub_canvas is not None:
+            try:
+                self.cub_canvas.set_mol_style_name(style)
+            except Exception:                                 # noqa: BLE001
+                pass
+        self._append_log("[结构库] %s  %s" %
+                         (entry.display_name(self._lang), path))
+
+    def _library_visualize_crystal(self, entry, options):
+        """载入晶体 CIF、套用导出选项里的超胞/边框设置，再跳到晶体 tab。"""
+        from molstudio.core.crystal_library import crystal_path
+        panel = getattr(self, "crystal_panel", None)
+        if panel is None:
+            QMessageBox.information(
+                self, "晶体", "晶体 tab 当前不可用，无法载入晶体结构。")
+            return
+        cif = str(crystal_path(entry))
+        if not panel.load(cif):
+            QMessageBox.warning(self, "晶体", "晶体载入失败：%s" % cif)
+            return
+        panel.chk_boundary.setChecked(bool(options.fill_boundary))
+        panel._set_reps(*options.reps(), rebuild=True)
+        panel.chk_box.setChecked(bool(options.show_cell_box))
+        self._switch_to_tab("tab_crystal")
+        self._append_log(
+            "[结构库] 晶体 %s → 晶体 tab（%d×%d×%d，晶胞框=%s）" %
+            (entry.display_name(self._lang), *options.reps(),
+             "开" if options.show_cell_box else "关"))
+
+    def _library_open_crystal_tab(self):
+        self._switch_to_tab("tab_crystal")
+
+    def _ppt3d_save_path(self, stem, start_dir=None):
+        path, _selected = save_file(
+            self, "导出 PowerPoint 3D 模型" if self._lang == "zh"
+            else "Export PowerPoint 3D model",
+            os.path.join(start_dir or os.path.expanduser("~/Desktop"),
+                         stem + "_ppt3d.glb"),
+            "PowerPoint 3D 模型 (*.glb);;GLB (*.glb)")
+        if path and not path.lower().endswith(".glb"):
+            path += ".glb"
+        return path
+
+    def _ppt3d_finish(self, path, symbols, coords, options, title,
+                      canvas=True, cell_box=None):
+        """按用户选项组装 kwargs 并写出 GLB；返回 (surfaces, legend)。"""
+        from molstudio.core.molecule_export import (
+            ATOM_RADII, DEFAULT_ATOM_RADIUS, export_glb,
+            surface_layers_from_canvas,
+        )
+        glw = getattr(getattr(self, "cub_canvas", None), "glw", None)
+        if canvas:
+            base = self._ppt3d_canvas_options(symbols)
+            surfaces = (surface_layers_from_canvas(glw)
+                        if options.include_surfaces else [])
+        else:
+            # 晶体几何不经过画布，显式给出半径，让「原子/键比例」也能生效
+            base = {
+                "atom_radii": [ATOM_RADII.get(str(s).capitalize(),
+                                              DEFAULT_ATOM_RADIUS)
+                               for s in symbols],
+                "bond_radius": 0.105,
+                "surfaces": [],
+            }
+            surfaces = []
+        base["surfaces"] = surfaces
+        kwargs = options.apply_to(base, symbols)
+        if cell_box:
+            kwargs["cell_box"] = cell_box
+        export_glb(path, symbols, coords, title=title, **kwargs)
+        legend = None
+        if canvas and surfaces:
+            legend = self._write_ppt3d_esp_legend(path, glw, surfaces)
+        return surfaces, legend
+
+    def _ppt3d_report(self, path, options, surfaces, legend, cell_box,
+                      source=""):
+        note = "晶胞边框：%s" % ("已包含" if cell_box else "未包含")
+        legend_note = ("\n静电势色标图：\n%s" % legend) if legend else ""
+        self._append_log(
+            "[PPT 3D] 已导出：%s（%s，等值面 %d 层%s）" %
+            (path, note, len(surfaces), source))
+        QMessageBox.information(
+            self, "PPT 3D",
+            "已导出：\n%s\n\n%s%s；含 %d 个等值面/叠加层。%s\n\n"
+            "PowerPoint 365：插入 → 3D 模型 → 此设备，选择该 .glb 文件。"
+            "插入后可拖动旋转，也能用「转盘」动画或「平滑」切换让它转起来。"
+            % (path, note, source, len(surfaces), legend_note))
+
+    def _library_export_molecule(self, entry, options):
+        from molstudio.core.molecule_library import molecule_path
+        self._library_visualize_molecule(str(molecule_path(entry)), entry)
+        got = self._get_canvas_structure()
+        if not got:
+            QMessageBox.warning(self, "PPT 3D", "无法从画布读取所选分子。")
+            return
+        symbols, coords = got
+        path = self._ppt3d_save_path(entry.id)
+        if not path:
+            return
+        try:
+            surfaces, legend = self._ppt3d_finish(
+                path, symbols, coords, options,
+                entry.display_name(self._lang), canvas=True)
+        except Exception as exc:                              # noqa: BLE001
+            QMessageBox.warning(self, "PPT 3D", "导出失败：%s" % exc)
+            return
+        self._ppt3d_report(path, options, surfaces, legend, None,
+                           "来源：分子结构库")
+
+    def _library_export_crystal(self, entry, options):
+        from molstudio.core.crystal_library import crystal_geometry
+        try:
+            symbols, coords, corners, _crystal = crystal_geometry(
+                entry, supercell=options.reps(),
+                fill_boundary=options.fill_boundary,
+                with_cell_box=options.show_cell_box)
+        except Exception as exc:                              # noqa: BLE001
+            QMessageBox.warning(self, "PPT 3D", "晶体展开失败：%s" % exc)
+            return
+        path = self._ppt3d_save_path(entry.id)
+        if not path:
+            return
+        cell_box = options.cell_box_spec(corners)
+        try:
+            surfaces, legend = self._ppt3d_finish(
+                path, symbols, coords, options,
+                entry.display_name(self._lang), canvas=False,
+                cell_box=cell_box)
+        except Exception as exc:                              # noqa: BLE001
+            QMessageBox.warning(self, "PPT 3D", "导出失败：%s" % exc)
+            return
+        self._ppt3d_report(
+            path, options, surfaces, legend, cell_box,
+            "来源：晶体结构库 %d×%d×%d" % options.reps())
+
     def _export_current_ppt3d(self):
-        """Export the current canvas molecule as PowerPoint-compatible GLB."""
+        """工具栏 PPT 3D：先确认导出参数（含晶胞边框），再写出 GLB。"""
         got = self._get_canvas_structure()
         if not got:
             QMessageBox.information(
-                self, "PPT 3D" if self._lang == "zh" else "PPT 3D",
+                self, "PPT 3D",
                 "请先在画布中载入一个分子结构。"
                 if self._lang == "zh" else
                 "Load a molecular structure onto the canvas first.")
@@ -4347,53 +4500,40 @@ class OrbitalVisApp(QMainWindow):
         current = self.var_path.text().strip()
         stem = (os.path.splitext(os.path.basename(current))[0]
                 if current else "molecule")
-        start_dir = (os.path.dirname(current) if current and os.path.isfile(current)
+        start_dir = (os.path.dirname(current)
+                     if current and os.path.isfile(current)
                      else os.path.expanduser("~/Desktop"))
-        default = os.path.join(start_dir or os.getcwd(), stem + "_ppt3d.glb")
-        path, _selected = save_file(
-            self, "导出 PowerPoint 3D 模型" if self._lang == "zh"
-            else "Export PowerPoint 3D model",
-            default, "PowerPoint 3D 模型 (*.glb);;GLB (*.glb)")
+        panel = getattr(self, "crystal_panel", None)
+        crystal = bool(panel is not None and panel.crystal is not None
+                       and not panel.crystal.is_molecule)
+        from molstudio.ui.ppt3d_options_widget import Ppt3dExportDialog
+        options = Ppt3dExportDialog.get_options(
+            self, self._lang, None, crystal)
+        if options is None:
+            return
+        path = self._ppt3d_save_path(stem, start_dir)
         if not path:
             return
-        if not path.lower().endswith(".glb"):
-            path += ".glb"
+        cell_box = None
+        if crystal and options.show_cell_box:
+            try:
+                corners = [[float(v) for v in c]
+                           for c in panel.crystal.cell_corners()]
+                cell_box = options.cell_box_spec(corners)
+            except Exception:                                 # noqa: BLE001
+                cell_box = None
         try:
-            from molstudio.core.molecule_export import (
-                export_glb, surface_layers_from_canvas,
-            )
-            options = self._ppt3d_canvas_options(symbols)
-            glw = getattr(getattr(self, "cub_canvas", None), "glw", None)
-            surfaces = surface_layers_from_canvas(glw)
-            options["surfaces"] = surfaces
-            export_glb(path, symbols, coords, title=stem, **options)
-            legend_path = self._write_ppt3d_esp_legend(path, glw, surfaces)
+            surfaces, legend = self._ppt3d_finish(
+                path, symbols, coords, options, stem,
+                canvas=True, cell_box=cell_box)
         except Exception as exc:                              # noqa: BLE001
             QMessageBox.warning(
-                self, "PPT 3D" if self._lang == "zh" else "PPT 3D",
+                self, "PPT 3D",
                 ("导出失败：%s" if self._lang == "zh" else
                  "Export failed: %s") % exc)
             return
-        surface_count = len(surfaces)
-        self._append_log(
-            "[PPT 3D] 已导出：%s（含 %d 个等值面/叠加层）"
-            % (path, surface_count))
-        legend_note = (
-            ("\n静电势色标图：\n%s" % legend_path) if legend_path else "")
-        if self._lang != "zh" and legend_path:
-            legend_note = "\nESP colour-scale image:\n%s" % legend_path
-        QMessageBox.information(
-            self, "PPT 3D" if self._lang == "zh" else "PPT 3D",
-            ("已导出：\n%s\n\n包含 %d 个当前显示的等值面/叠加层。"
-             "PowerPoint 365：插入 → 3D 模型 → 此设备，选择该 .glb 文件。"
-             "模型已使用当前画布配色与视角；插入后可拖动旋转，并可用 "
-             "3D 模型动画。%s"
-             if self._lang == "zh" else
-             "Exported:\n%s\n\nIncluded %d visible isosurface/overlay layer(s). "
-             "PowerPoint 365: Insert → 3D Models → This Device, then select "
-             "the .glb file. The current canvas palette, visibility, and view "
-             "are preserved. Drag to rotate and add a 3D model animation as "
-             "needed.%s") % (path, surface_count, legend_note))
+        self._ppt3d_report(path, options, surfaces, legend, cell_box,
+                           "来源：当前画布")
 
     @staticmethod
     def _write_ppt3d_esp_legend(glb_path, glw, surfaces):

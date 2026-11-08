@@ -215,6 +215,7 @@ TR = {
     "tab_asm_irc": {"zh": "ASM 扫描", "en": "ASM"},
     "tab_cub_stack": {"zh": "CUB 叠加", "en": "CUB Stack"},
     "tab_crystal": {"zh": "晶体", "en": "Crystal"},
+    "tab_library": {"zh": "结构库", "en": "Library"},
     "tab_esm": {"zh": "能量跨度", "en": "ESM"},
     "tab_ircsplit": {"zh": "IRC 拆分", "en": "IRC Split"},
     "tab_viz": {"zh": "可视化", "en": "View"},

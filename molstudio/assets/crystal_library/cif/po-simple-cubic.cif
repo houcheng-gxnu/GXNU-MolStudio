@@ -1,0 +1,23 @@
+# MolStudio teaching model: simple-cubic polonium.
+# This is NOT an experimental COD structure; it is a minimal teaching cell.
+data_molstudio_po
+_chemical_formula_sum 'Po'
+_chemical_name_common 'Polonium (simple cubic teaching model)'
+_symmetry_space_group_name_H-M 'P m -3 m'
+_space_group_IT_number 221
+_cell_length_a 3.345
+_cell_length_b 3.345
+_cell_length_c 3.345
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90
+loop_
+_space_group_symop_operation_xyz
+'x,y,z'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+Po Po 0.0 0.0 0.0
