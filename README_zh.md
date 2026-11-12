@@ -1,11 +1,11 @@
 <h1 align="center">GXNU MolStudio</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0-blue.svg" alt="Version 1.0">
-  <img src="https://img.shields.io/badge/python-3.8+-green.svg" alt="Python 3.8+">
-  <img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="GPLv3 License">
-  <a href="https://doi.org/10.5281/zenodo.22821586"><img src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22821586-blue.svg" alt="DOI"></a>
-  <a href="https://doi.org/10.26434/chemrxiv.15009253/v2"><img src="https://img.shields.io/badge/ChemRxiv-预印本-informational.svg" alt="ChemRxiv 预印本"></a>
+  <img src=".github/assets/badges/version-1.0.svg" height="20" alt="Version 1.0">
+  <img src=".github/assets/badges/python-3.8-plus.svg" height="20" alt="Python 3.8+">
+  <img src=".github/assets/badges/license-gplv3.svg" height="20" alt="GPLv3 License">
+  <a href="https://doi.org/10.5281/zenodo.22821586"><img src=".github/assets/badges/zenodo-doi.svg" height="20" alt="DOI: 10.5281/zenodo.22821586"></a>
+  <a href="https://doi.org/10.26434/chemrxiv.15009253/v2"><img src=".github/assets/badges/chemrxiv-preprint-zh.svg" height="20" alt="ChemRxiv 预印本"></a>
 </p>
 
 <p align="center">
@@ -340,7 +340,7 @@ Hou, C. GXNU MolStudio: An Integrated Open-Source Platform for Molecular Visuali
 
 **软件存档（本次发布）：**
 
-[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22821586-blue.svg)](https://doi.org/10.5281/zenodo.22821586)
+[![DOI](.github/assets/badges/zenodo-doi.svg)](https://doi.org/10.5281/zenodo.22821586)
 
 ```bibtex
 @software{GXNUMolStudio2026,
