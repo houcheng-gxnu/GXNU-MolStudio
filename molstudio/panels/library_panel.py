@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Left-nav 'Structure library' page: four sibling tabs on ONE row.
+"""Left-nav 'Structure library' page: five sibling tabs on ONE row.
 
-    [🧪 分子结构库] [💎 晶体结构库] [⚙ 导出设置] [📖 引文]
+    [🧪 分子结构库] [💎 晶体结构库] [⚛ 电子结构库] [⚙ 导出设置] [📖 引文]
 
 There is no nested tab group and no cramped right-hand sidebar: the export
 settings and the citation each get a full page, so every control is readable
 without scrolling.  The molecule half reuses :class:`MoleculeLibraryDialog`
 as an embedded widget (its own header/buttons are hidden); the crystal half
-browses the bundled offline CIF set.  All actions are handed to the main
-window through callbacks, so this panel never touches the canvas or writes
-files itself.
+browses the bundled offline CIF set; the electronic half lists analytic
+atomic / hybrid orbitals.  All actions are handed to the main window through
+callbacks, so this panel never touches the canvas or writes files itself.
 """
 from __future__ import annotations
 
@@ -29,20 +29,25 @@ from molstudio.core.crystal_library import (
 )
 from molstudio.core.molecule_library import molecule_path
 from molstudio.core.ppt3d_options import Ppt3dOptions
+from molstudio.ui.electronic_library_view import ElectronicLibraryView
 from molstudio.ui.molecule_library_dialog import MoleculeLibraryDialog
 from molstudio.ui.ppt3d_options_widget import Ppt3dOptionsWidget
 
 _TEXT = {
     "zh": {
-        "tabs": ("🧪 分子结构库", "💎 晶体结构库",
-                 "⚙ 导出设置", "📖 引文"),
-        "settings_hint": "四个页签共用这一组参数。切到「晶体结构库」并选中晶体后，"
-                         "晶胞（晶体专用）中的边框、线宽、颜色与扩晶胞才会写进 .glb。",
+        # 五个页签必须挤在 764px 宽的右栏里。页签名**不带 emoji、不带
+        # 「XX结构库」全称**：实测带 emoji 时第 5 个「引文」被挤进滚动箭头；
+        # 去掉 emoji 与两个「库」字后总宽约 380px，还剩一半余量。
+        "tabs": ("分子库", "晶体库", "电子结构", "导出设置", "引文"),
+        "settings_hint": "分子 / 晶体两个页签共用这一组参数。切到「晶体结构库」并选中晶体后，"
+                         "晶胞（晶体专用）中的边框、线宽、颜色与扩晶胞才会写进 .glb。"
+                         "「电子结构库」生成的是解析波函数等值面，不走 .glb 结构导出。",
         "citation_hint": "当前选中结构",
         "active": "当前页签：{name}",
         "current": "当前选中：{name} · {source}",
         "model_source": "MolStudio 教学简化模型（非实验结构）",
         "molecule_source": "MolStudio 内置教学分子坐标",
+        "visualize_orbital": "生成并显示等值面",
         "no_selection": "尚未选择结构",
         "citation_html": (
             "<h3>数据来源与致谢</h3>"
@@ -66,6 +71,14 @@ _TEXT = {
             "<h3>分子结构</h3>"
             "<p>分子结构库内的 XYZ 坐标为 MolStudio 内置教学模型，用于中学"
             "分子空间构型演示，不作为实验测定坐标引用。</p>"
+            "<h3>电子结构库</h3>"
+            "<p>原子轨道与杂化轨道不是实验数据，而是<b>解析波函数</b>："
+            "角向部分为归一化的实球谐（连带 Legendre 多项式），径向部分为"
+            "类氢 R<sub>nl</sub>(r)（含广义 Laguerre 多项式，因此 2s / 3s 有"
+            "真实的径向节点）；杂化轨道用共用 ζ = 0.5 的无节点 Slater 型径向"
+            "做 s / p 的正交归一线性组合。全部在原子单位下求值，"
+            "∫|ψ|²d³r = 1，写入 Gaussian cube 前仅按峰值做线性缩放，"
+            "形状与节点位置不变。教学中请勿把它当作自洽场计算得到的分子轨道。</p>"
         ),
         "search": "搜索名称、化学式、空间群或教学点…",
         "all": "全部分类",
@@ -86,16 +99,17 @@ _TEXT = {
         "empty": "没有找到匹配的结构",
     },
     "en": {
-        "tabs": ("🧪 Molecules", "💎 Crystals",
-                 "⚙ Export settings", "📖 Citation"),
-        "settings_hint": "All four tabs share these options. The unit-cell frame, "
-                         "width, colour and supercell are written to the .glb only "
-                         "when a crystal is selected in the Crystals tab.",
+        "tabs": ("Molecules", "Crystals", "Orbitals", "Export", "Citation"),
+        "settings_hint": "Molecules and Crystals share these options. The unit-cell "
+                         "frame, width, colour and supercell are written to the .glb "
+                         "only when a crystal is selected. The Orbitals tab renders "
+                         "analytic wavefunctions on the canvas, not a .glb export.",
         "citation_hint": "Selected structure",
         "active": "Current tab: {name}",
         "current": "Selected: {name} · {source}",
         "model_source": "MolStudio teaching model (not experimental)",
         "molecule_source": "MolStudio built-in teaching coordinates",
+        "visualize_orbital": "Generate and show isosurface",
         "no_selection": "No structure selected",
         "citation_html": (
             "<h3>Data sources & acknowledgements</h3>"
@@ -123,6 +137,17 @@ _TEXT = {
             "<p>The XYZ coordinates in the molecule library are built-in teaching "
             "models for school geometry demonstrations, not experimental "
             "coordinates.</p>"
+            "<h3>Electronic-structure library</h3>"
+            "<p>Atomic and hybrid orbitals are <b>analytic wavefunctions</b>, not "
+            "measured data. The angular part uses normalised real spherical "
+            "harmonics (associated Legendre polynomials); the radial part uses "
+            "hydrogenic R_nl(r) with generalised Laguerre polynomials, so 2s / 3s "
+            "carry real radial nodes. Hybrids are orthonormal linear combinations "
+            "of s / p built from a shared nodeless Slater radial (zeta = 0.5). "
+            "Everything is evaluated in atomic units with integral |psi|^2 = 1; "
+            "the field is only linearly rescaled by its peak before writing a "
+            "Gaussian cube, so shapes and node positions are unchanged. These are "
+            "not self-consistent-field molecular orbitals.</p>"
         ),
         "search": "Search name, formula, space group or topic…",
         "all": "All categories",
@@ -149,8 +174,9 @@ _CJK = re.compile(r"[\u4e00-\u9fff]")
 
 TAB_MOLECULES = 0
 TAB_CRYSTALS = 1
-TAB_SETTINGS = 2
-TAB_CITATION = 3
+TAB_ORBITALS = 2
+TAB_SETTINGS = 3
+TAB_CITATION = 4
 
 
 def _placeholder_icon(text, width=240, height=170):
@@ -369,11 +395,16 @@ class CrystalLibraryView(QWidget):
 
 
 class LibraryPanel(QWidget):
-    """Structure library: four sibling tabs on a single row, no nesting."""
+    """Structure library: five sibling tabs on a single row, no nesting."""
+
+    #: 「导出设置」里的扩晶胞 / 边界补齐被改动 → 主窗口同步到晶体 tab 的画布
+    #: 参数是改动项："reps"（扩晶胞）、"fill"（边界原子补齐）
+    crystalOptionsChanged = pyqtSignal(str)
 
     def __init__(self, parent=None, lang="zh", on_visualize_molecule=None,
                  on_export_molecule=None, on_visualize_crystal=None,
-                 on_export_crystal=None, on_open_crystal_tab=None):
+                 on_export_crystal=None, on_open_crystal_tab=None,
+                 on_visualize_orbital=None):
         super().__init__(parent)
         self.lang = "zh" if str(lang).lower().startswith("zh") else "en"
         self._on_visualize_molecule = on_visualize_molecule
@@ -381,6 +412,7 @@ class LibraryPanel(QWidget):
         self._on_visualize_crystal = on_visualize_crystal
         self._on_export_crystal = on_export_crystal
         self._on_open_crystal_tab = on_open_crystal_tab
+        self._on_visualize_orbital = on_visualize_orbital
         self._build_ui()
         self.set_language(self.lang)
 
@@ -395,9 +427,9 @@ class LibraryPanel(QWidget):
         root.setSpacing(8)
         # 不再放标题 / 副标题两行说明文字：页签自己已经说明了一切。
 
-        # ── the single tab bar: four siblings, forced onto ONE row ──
+        # ── the single tab bar: five siblings, forced onto ONE row ──
         # 不设 widget 级 QSS，直接继承 theme.LIGHT_QSS 的 QTabBar::tab
-        # （9pt 加粗 / padding 8px 28px / min-width 80px），这样四个页签的
+        # （9pt 加粗 / padding 8px 28px / min-width 80px），这样五个页签的
         # 字高、内边距、整体高度与「设置 / 引文」等其他功能页的页签一致。
         # 之前写死 font-size:13px 在高 DPI 下比 9pt 明显偏小。
         self.sub_tabs = QTabWidget()
@@ -434,7 +466,15 @@ class LibraryPanel(QWidget):
             lambda _entry: self._refresh_current_source())
         self.sub_tabs.addTab(self.crystal_view, "")
 
-        # ── tab 2: export settings (full page, no sidebar) ──
+        # ── tab 2: electronic structure library (atomic / hybrid orbitals) ──
+        self.orbital_view = ElectronicLibraryView(self.sub_tabs, self.lang)
+        self.orbital_view.visualizeRequested.connect(
+            self._visualize_orbital_current)
+        self.orbital_view.currentEntryChanged.connect(
+            lambda _spec: self._refresh_current_source())
+        self.sub_tabs.addTab(self.orbital_view, "")
+
+        # ── tab 3: export settings (full page, no sidebar) ──
         settings_page = QWidget()
         set_l = QVBoxLayout(settings_page)
         set_l.setContentsMargins(12, 12, 12, 12)
@@ -447,10 +487,17 @@ class LibraryPanel(QWidget):
         set_l.addWidget(self.lbl_settings_hint, 0)
         self.options_widget = Ppt3dOptionsWidget(settings_page, self.lang)
         self.options_widget.set_crystal_mode(True)   # crystals always available
+        # 扩晶胞 / 边界补齐与「晶体」tab 是同一个结构的两套控件：这里一动，
+        # 主窗口就把晶体 tab 的画布一起重建，导出的 .glb 才不会还是旧超胞。
+        for _spin in self.options_widget.spin_reps:
+            _spin.valueChanged.connect(
+                lambda *_args: self.crystalOptionsChanged.emit("reps"))
+        self.options_widget.chk_boundary.toggled.connect(
+            lambda *_args: self.crystalOptionsChanged.emit("fill"))
         set_l.addWidget(self.options_widget, 1)
         self.sub_tabs.addTab(settings_page, "")
 
-        # ── tab 3: citation (full page) ──
+        # ── tab 4: citation (full page) ──
         citation_page = QWidget()
         cite_l = QVBoxLayout(citation_page)
         cite_l.setContentsMargins(12, 12, 12, 12)
@@ -517,16 +564,31 @@ class LibraryPanel(QWidget):
         self.molecule_view._refresh_list()
         self.crystal_view.set_language(self.lang)
         self.crystal_view._refresh_list()
+        self.orbital_view.set_language(self.lang)
+        self._sync_visualize_button()
         self._refresh_active_label()
         self._refresh_current_source()
 
+    def _sync_visualize_button(self):
+        """轨道页的按钮文案改成「生成并显示等值面」，其它页保持原样。"""
+        text = (self._t("visualize_orbital")
+                if self.sub_tabs.currentIndex() == TAB_ORBITALS
+                else self._t("visualize"))
+        self.btn_visualize.setText(text)
+
     def _on_tab_changed(self, index):
-        browser = index in (TAB_MOLECULES, TAB_CRYSTALS)
+        browser = index in (TAB_MOLECULES, TAB_CRYSTALS, TAB_ORBITALS)
         self.btn_visualize.setEnabled(browser)
-        self.btn_export.setEnabled(browser)
+        # 轨道是解析波函数等值面，不是 XYZ / CIF 结构；.glb 导出链路要求
+        # 结构实体，轨道页先禁用（后续可单独接 cube → glb）。
+        self.btn_export.setEnabled(index in (TAB_MOLECULES, TAB_CRYSTALS))
         self.btn_crystal_tab.setEnabled(index == TAB_CRYSTALS)
+        self._sync_visualize_button()
         self._refresh_active_label()
         self._refresh_current_source()
+
+    def is_orbital_page(self):
+        return self.sub_tabs.currentIndex() == TAB_ORBITALS
 
     def _refresh_active_label(self):
         index = self.sub_tabs.currentIndex()
@@ -536,11 +598,19 @@ class LibraryPanel(QWidget):
         return self.sub_tabs.currentIndex() == TAB_CRYSTALS
 
     def _refresh_current_source(self):
-        if self.is_crystal_page():
+        if self.is_orbital_page():
+            spec = self.orbital_view.current_spec()
+            if spec is None:
+                self.lbl_current_source.setText(self._t("no_selection"))
+                return
+            name = spec.display_name(self.lang)
+            source = self.orbital_view.current_source()
+        elif self.is_crystal_page():
             entry = self.crystal_view.current_entry()
             if entry is None:
                 self.lbl_current_source.setText(self._t("no_selection"))
                 return
+            name = entry.display_name(self.lang)
             source = entry.source
             if self.lang != "zh" and (not source or _CJK.search(source)):
                 source = self._t("model_source")
@@ -549,12 +619,15 @@ class LibraryPanel(QWidget):
             if entry is None:
                 self.lbl_current_source.setText(self._t("no_selection"))
                 return
+            name = entry.display_name(self.lang)
             source = self._t("molecule_source")
         self.lbl_current_source.setText(
-            self._t("current", name=entry.display_name(self.lang),
-                    source=source))
+            self._t("current", name=name, source=source))
 
     def current_entry(self):
+        """导出用的结构实体；轨道页没有可导出的结构，返回 None。"""
+        if self.is_orbital_page():
+            return None
         return (self.crystal_view.current_entry() if self.is_crystal_page()
                 else self.molecule_view._selected_entry())
 
@@ -585,8 +658,16 @@ class LibraryPanel(QWidget):
         if entry is not None and callable(self._on_visualize_crystal):
             self._on_visualize_crystal(entry, self.options())
 
+    def _visualize_orbital_current(self):
+        spec = self.orbital_view.current_spec()
+        if spec is not None and callable(self._on_visualize_orbital):
+            self._on_visualize_orbital(spec, self.orbital_view.iso(),
+                                       self.orbital_view.quality())
+
     def _visualize_current(self):
-        if self.is_crystal_page():
+        if self.is_orbital_page():
+            self._visualize_orbital_current()
+        elif self.is_crystal_page():
             self._visualize_crystal_current()
         else:
             self._visualize_molecule_current()

@@ -1,11 +1,11 @@
 <h1 align="center">GXNU MolStudio</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0-blue.svg" alt="Version 1.0">
-  <img src="https://img.shields.io/badge/python-3.8+-green.svg" alt="Python 3.8+">
-  <img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="GPLv3 License">
-  <a href="https://doi.org/10.5281/zenodo.22821586"><img src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22821586-blue.svg" alt="DOI"></a>
-  <a href="https://doi.org/10.26434/chemrxiv.15009253/v2"><img src="https://img.shields.io/badge/ChemRxiv-预印本-informational.svg" alt="ChemRxiv 预印本"></a>
+  <img src=".github/assets/badges/version-1.0.svg" height="20" alt="Version 1.0">
+  <img src=".github/assets/badges/python-3.8-plus.svg" height="20" alt="Python 3.8+">
+  <img src=".github/assets/badges/license-gplv3.svg" height="20" alt="GPLv3 License">
+  <a href="https://doi.org/10.5281/zenodo.22821586"><img src=".github/assets/badges/zenodo-doi.svg" height="20" alt="DOI: 10.5281/zenodo.22821586"></a>
+  <a href="https://doi.org/10.26434/chemrxiv.15009253/v2"><img src=".github/assets/badges/chemrxiv-preprint-zh.svg" height="20" alt="ChemRxiv 预印本"></a>
 </p>
 
 <p align="center">
@@ -114,13 +114,32 @@ GXNU MolStudio 是一个面向计算化学的**可视化与工作流整合平台
   也可直接复用，只重绘谱图。普通 Gaussian TDDFT 不含旋轨耦合，因此磷光峰位
   可用于分析，谱带强度明确标为归一化结果。
 - **轨道浏览器** — 轨道能量、占据数、HOMO/LUMO 标注，双击自动生成 cube
+- **轨道定域化（LMO）** — 调用 Multiwfn 主功能 19，对当前 `.fchk` 做 Pipek–Mezey
+  （Mulliken / Löwdin / Becke 布居）或 Foster–Boys 定域化；结果表列出每个 LMO 的能量、
+  占据、单/双/多中心指认、Hirshfeld 成分与中心位置，双击 LMO 即可在画布上看等值面。
+  支持 LMO 能量（由 MO 反解 Fock 矩阵或从文件读取）、LMO 中心/偶极、开壳层 α/β 分开
+  定域化；输出 `<stem>_LMO.fch`、`_LMOcen.txt`、`_LMOdip.txt` 与完整日志，并可一键把
+  LMO 波函数送回「轨道」页用原有轨道表继续浏览。
+- **默认界面（参考稿布局）** — 顶栏工具条（打开 / 截图 / 保存图片 / 测量 / 重置
+  视角 / 语言 / 设置）+ 左侧分组功能栏 + 中间 3D 视图画布 + 右侧「属性信息」独立
+  页签（与设置 / 引文并列，含获取并查看计算结果按钮与分子/能量属性卡片）+ 底部
+  「运行日志 / 计算输出 / 错误信息」三页签 + 状态栏（版本 / 状态 / CPU / 内存）；
+  画布下方「工具 ▾」可展开渲染风格 / 显示设置 / 测量与分析 / 文件导出四张工具卡片
+- **ORCA 本机计算（左侧「常用」页）** — 左侧「常用 → ORCA 计算」，参数在右侧
+  设置区；读取主窗口画布/ gjf 结构，生成 ORCA 输入（Opt / Freq / OptTS+Freq /
+  IRC / TD-DFT / CPCM / SMD / D3BJ）、本机运行、解析能量/HOMO/LUMO/频率，
+  自动转 `.fchk`（经 Molden + Multiwfn），现有轨道 / ESP / IGMH / AIM 页可直接读
 - **ESP 静电势** — 等值面 + 极值点标注 + 色标条
 - **NBO 分析** — 键级、占据、二阶微扰能（E2）轨道对
 - **电荷分析** — Mulliken / 拟合电荷、键级可视化
 - **IRC 分析** — 沿反应路径追踪 Mayer 键级与原子电荷变化，共享画布实时显示对应结构
-- **Distortion–Interaction（DI）分析** — 左图右表布局：左侧整高显示原有
-  “能量阶梯 + 分解柱状图”双图；绘图区下方左侧载入五个 Gaussian log，
-  右侧集中显示计算按钮、能量/形变能/相互作用能结果表和导出操作
+- **Distortion–Interaction（DI）分析** — 右侧「本机一键计算…」打开独立弹窗：
+  载入过渡态 log 后在内嵌结构画布上 **Shift+左键拖框**即可把复合物拆成两个片段
+  （点原子可单独切换归属，也可按成键连通性自动识别）；按 TS log 的 route 参数
+  一键生成「2 个片段在 TS 几何下的单点 + 2 个片段结构优化」共 4 个 Gaussian 输入，
+  调用本机 g16 顺序跑完，关闭弹窗后自动载入 5 个 log，计算
+  ΔE_strain / ΔE_int / ΔE‡ 并出双图（能量阶梯 + 分解柱状图）。也保留手动载入
+  5 个已有 log 的方式；结果表、PNG/HTML 导出与配置持久化不变。
 - **Energetic Span Model（ESM）** — 催化循环分析：识别 TDI/TDTS，计算能量跨度 δE 与 TOF，绘制台阶式能量剖面
 - **AIM 拓扑** — 基于 `.wfn` / `.wfx` / fchk 输入的 QTAIM 键临界点（BCP）与键径分析
 - **电荷与 Mayer 键级** — 电荷布居与 Mayer 键级组合面板
@@ -153,6 +172,15 @@ GXNU MolStudio 是一个面向计算化学的**可视化与工作流整合平台
   状态/片段波函数。Multiwfn 执行
   `ρ(parent) − Σρ(fragment)` 并导出 cube，正、负密度区域在左侧画布中分别
   调色显示，支持等值面、透明度和 VMD 场景同步。
+
+- **轨道权重福井函数（OW-Fukui）** — 按 sobereva.com/533 的方法，调用 Multiwfn
+  主功能 22 为前线轨道（准）简并体系（C60、18 碳环等）生成轨道权重 f_w+ /
+  f_w− / f_w0 与轨道权重双描述符 Δf_w，预测亲核/亲电反应位点。Δ 参数
+  （默认 0.1 Hartree，JCC 2017 推荐值）可调；四个函数可在左侧画布看等值面，
+  并导出 `<stem>_OW_f+.cub`、`<stem>_OW_f-.cub`、`<stem>_OW_f0.cub`、
+  `<stem>_OW_DD.cub` 与完整日志；Hirshfeld 简缩 OW 值列成表格（可导出 CSV），
+  同时给出权重最大的十个占据/空轨道。仅适用于含空轨道的闭壳层单行列式波函数，
+  不建议使用弥散函数。
 
 - **AICD 感应电流** — 读 Gaussian `nmr=csgt iop(10/93=1|2)` 的张量转储，
   直接出经典 AICD 效果图（黄色各向异性等值面 + 绿杆红尖头电流箭头 + 外磁场
@@ -213,19 +241,29 @@ pip install -r requirements.txt      # 或：pip install -e . （以包方式安
 python main.py
 ```
 
-界面有四套可换的布局（功能完全一致，只是外观/布局不同）：
+界面有七套可换的布局（功能完全一致，只是外观/布局不同；
+**2026-11-12 起默认是「经典蓝色主题 + 分级侧栏」**）：
 
 | `--ui` | 布局 | 源文件 |
 |---|---|---|
-| （默认）/ `classic` | 经典三栏 | `main_window.py` |
+| （默认）/ `classic_nav` | **经典蓝色主题 + 分级侧栏**：蓝色分节徽章、设置/引文页签等经典版元素全部保留，只把左侧 27 项平铺换成 6 组可折叠分组 | `main_window_classic_nav.py` |
+| `classic` | 纯经典三栏（左侧平铺导航，行为与以前完全一致） | `main_window.py` |
+| `focus` | **Focus 灰色卡片主题（保留备用）**：圆角卡片分层、展开分组侧栏、字号行距统一 | `main_window_focus.py` |
+| `studio` | Studio 完整界面：分组侧栏 + 单行顶栏 + 画布优先 | `main_window_studio.py` |
 | `clean` | Clean Light 卡片 | `main_window_clean.py` |
 | `clean2` | Bridge 卡片 | `main_window_clean2.py` |
 | `canvas` | **画布优先**：58px 图标 rail、右侧抽屉可收起、一键样式收进下拉 | `main_window_canvas_first.py` |
 
 ```bash
-python main.py --ui canvas            # 也可用环境变量：MOLSTUDIO_UI=canvas python main.py
-python main_window_canvas_first.py    # 直接运行，效果相同
+python main.py                        # 默认：经典蓝 + 分级侧栏
+python main.py --ui classic           # 纯经典版
+python main.py --ui focus             # 灰色的 Focus 卡片主题（仍可用）
+python main.py --ui studio            # 完整界面；也可用环境变量 MOLSTUDIO_UI=studio
 ```
+
+默认界面里 `Ctrl+K` 搜功能、`Ctrl+B` 把侧栏收成 56px rail；Focus 里另有
+`Ctrl+I` 参数抽屉、`Ctrl+Shift+F` 即时切换完整界面。详见
+`docs/CLASSIC_NAV_UI.md` 与 `docs/FOCUS_UI.md`。
 
 ### 命令行模式（批处理）
 
@@ -340,7 +378,7 @@ Hou, C. GXNU MolStudio: An Integrated Open-Source Platform for Molecular Visuali
 
 **软件存档（本次发布）：**
 
-[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22821586-blue.svg)](https://doi.org/10.5281/zenodo.22821586)
+[![DOI](.github/assets/badges/zenodo-doi.svg)](https://doi.org/10.5281/zenodo.22821586)
 
 ```bibtex
 @software{GXNUMolStudio2026,

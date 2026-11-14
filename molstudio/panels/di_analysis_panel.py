@@ -6,8 +6,14 @@ di_analysis_panel.py — Distortion-Interaction 能量分解分析面板（GXNU 
   1. 5 个 Gaussian .log（frag1_opt / frag2_opt / frag1_def / frag2_def / ts）
      自动提取 SCF 能量，支持 ZPE / Gibbs 修正
   2. 计算 ΔE_strain、ΔE_int、ΔE#，表格红绿着色显示（Hartree + kcal/mol）
-  3. 自适应工作区：左上双图、左下 log 输入，右侧计算/结果/导出
+  3. 自适应工作区：左上双图、左下 5 个 log 输入，右侧计算/结果/导出
   4. 导出 PNG / HTML 报告 / 配置持久化
+
+本机一键计算弹窗（2026-11 新增，见 di_local_dialog.py）：
+  页面右侧「本机一键计算…」打开弹窗 → 载入过渡态复合物的 .log / .fchk →
+  弹窗内嵌画布上 Shift+左键拖框把原子分到两个片段 → 按 TS log 里的 route 参数
+  生成 4 个输入文件（片段 1/2 在 TS 几何下的单点 + 片段 1/2 的结构优化）→
+  调本机 g16 一次跑完 → 关闭弹窗后自动载入 5 个 log 计算并出图。
 
 能量公式：
   ΔE_strain = (E_def1 − E_opt1) + (E_def2 − E_opt2)
@@ -26,7 +32,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QCheckBox, QMessageBox, QGroupBox, QFileDialog, QGridLayout,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QSplitter, QScrollArea, QFrame, QSizePolicy,
+    QSplitter, QScrollArea, QFrame, QSizePolicy, QDialog,
 )
 from PyQt5.QtCore import QSize, Qt, QTimer
 from PyQt5.QtGui import QColor, QFont
@@ -204,9 +210,9 @@ _LANG_EXTRA = {
     "Distortion–Interaction 能量分解":
         "Distortion–Interaction energy decomposition",
     "1  载入 Gaussian log": "1  Load Gaussian logs",
-    "2  计算": "2  Calculate",
-    "3  结果表格": "3  Results table",
-    "4  导出": "4  Export",
+    "5  计算": "5  Calculate",
+    "6  结果表格": "6  Results table",
+    "7  导出": "7  Export",
     "导出柱状图 PNG": "Export bar chart PNG",
     "[!] ZPE / Gibbs 需要 Freq 计算步骤":
         "[!] ZPE / Gibbs corrections require a Freq step",
@@ -240,7 +246,69 @@ _LANG_EXTRA = {
     "项目": "Item",
     "能量 (Hartree)": "Energy (Hartree)",
     "能量 (kcal/mol)": "Energy (kcal/mol)",
+    # ── 本机一键工作流（2026-11）──
+    "结构与分片段": "Structure & fragments",
+    "尚未载入过渡态": "No TS loaded yet",
+    "片段 1": "Fragment 1",
+    "片段 2": "Fragment 2",
+    "框选/点选的原子归入片段 1":
+        "Box-selected / clicked atoms go to Fragment 1",
+    "框选/点选的原子归入片段 2":
+        "Box-selected / clicked atoms go to Fragment 2",
+    "自动识别": "Auto-detect",
+    "按成键连通性自动分成两个片段":
+        "Split into two fragments from bond connectivity",
+    "清空": "Clear",
+    "清空两个片段的原子归属": "Clear both fragment assignments",
+    "1  载入过渡态复合物（.log / .fchk）":
+        "1  Load the transition-state complex (.log / .fchk)",
+    "选择过渡态复合物的 Gaussian .log（推荐，可读取方法/基组）或 .fchk":
+        "Select the TS Gaussian .log (recommended: provides method/basis) or .fchk",
+    "载入": "Load",
+    "载入后结构显示在左侧画布；方法/基组等参数从 TS log 的 route 读取，四个片段任务沿用同一套参数。":
+        "The structure is shown on the canvas. Method/basis and other keywords "
+        "are taken from the TS log route and reused by all four fragment jobs.",
+    "2  分片段（画布 Shift+左键拖框选中原子）":
+        "2  Fragments (Shift+left-drag on the canvas)",
+    "片段 1 原子:": "Fragment 1 atoms:",
+    "片段 2 原子:": "Fragment 2 atoms:",
+    "如 1-7,14-16": "e.g. 1-7,14-16",
+    "如 8-13": "e.g. 8-13",
+    "电荷": "Charge",
+    "多重度": "Mult.",
+    "左键点原子可单独切换归属；框选默认并入当前激活片段（片段 1 / 片段 2 按钮）。":
+        "Click atoms to toggle membership; Shift+box always goes to the "
+        "currently active fragment (Fragment 1 / Fragment 2 buttons).",
+    "3  本机计算（2 个单点 + 2 个优化）":
+        "3  Local calculation (2 single points + 2 optimizations)",
+    "输出目录:": "Output folder:",
+    "选择 4 个 gjf/log 的输出目录": "Folder for the four gjf/log files",
+    "内存 %mem:": "Memory %mem:",
+    "核数 %nprocshared:": "Cores %nprocshared:",
+    "仅生成输入文件": "Generate inputs only",
+    ">> 一键生成并运行（4 个 gjf）":
+        ">> Generate and run all 4 gjf",
+    "停止": "Stop",
+    "四个输入文件：片段 1/2 在 TS 几何下的单点（def）+ 片段 1/2 的结构优化（opt），方法与基组等参数与 TS 一致。":
+        "Four inputs: Fragment 1/2 single points at the TS geometry (def) plus "
+        "Fragment 1/2 optimizations (opt); method/basis follow the TS route.",
+    "就绪": "Ready",
+    "手动载入 5 个 log（已有结果时）":
+        "Load 5 logs manually (existing results)",
+    "4  手动载入 Gaussian log": "4  Load Gaussian logs manually",
+    "[!] 片段本机任务只做单点/优化，没有 Freq，ZPE/Gibbs 修正不可用":
+        "[!] Local fragment jobs are single points / optimizations without Freq, "
+        "so ZPE/Gibbs corrections are unavailable",
     "说明": "Description",
+    "本机一键计算…（分片段 + 生成输入 + 运行）":
+        "Local workflow… (fragments + inputs + run)",
+    "没有现成 log？点右侧「本机一键计算…」：载入过渡态、Shift 框选分片段后自动生成 4 个输入并运行，跑完自动回到本页出图。":
+        "No logs yet? Use “Local workflow…” on the right: load the TS, "
+        "Shift-drag to assign fragments, then generate four inputs and run "
+        "them; the results are loaded back here automatically.",
+    "2  计算": "2  Calculate",
+    "3  结果表格": "3  Results table",
+    "4  导出": "4  Export",
 }
 
 
@@ -255,15 +323,24 @@ class DiAnalysisPanel(QWidget):
     def minimumSizeHint(self):
         return QSize(700, 1)
 
-    def __init__(self, glw=None, log_func=None, parent=None):
+    def __init__(self, glw=None, log_func=None, parent=None, get_g16=None):
         super().__init__(parent)
         self.lang = "zh"
         self.glw = glw
         self._log = log_func or (lambda m: None)
+        self._get_g16 = get_g16 if callable(get_g16) else (lambda: "")
         self._last_results = None
         self._figure = None
         self._canvas = None
         self._file_edits = {}
+        self._loading_settings = False
+        # 本机一键计算弹窗的持久化配置（TS 路径/输出目录/片段归属等）
+        self._local_config = {
+            "ts_log": "", "out_dir": "", "mem": "8GB", "nproc": "8",
+            "frag1": "", "frag2": "",
+            "frag1_charge": "0", "frag1_mult": "1",
+            "frag2_charge": "0", "frag2_mult": "1",
+        }
 
         self._build_ui()
         self._load_settings()
@@ -287,11 +364,11 @@ class DiAnalysisPanel(QWidget):
         """Set useful proportions once, then let users drag both splitters."""
         total_w = self._splitter.width()
         if total_w > 0:
-            left_w = int(total_w * 0.70)
+            left_w = int(total_w * 0.66)
             self._splitter.setSizes([left_w, total_w - left_w])
         total_h = self._left_splitter.height()
         if total_h > 0:
-            top_h = int(total_h * 0.62)
+            top_h = int(total_h * 0.60)
             self._left_splitter.setSizes([top_h, total_h - top_h])
 
     def _build_ui_legacy(self):
@@ -621,7 +698,7 @@ class DiAnalysisPanel(QWidget):
         self._init_table_rows()
         self._draw_empty_plot()
 
-    def _build_ui(self):
+    def _build_ui_legacy3(self):
         """Responsive DI workspace: plots and logs left, actions/results right."""
         outer = QHBoxLayout(self)
         outer.setContentsMargins(8, 8, 8, 8)
@@ -805,6 +882,270 @@ class DiAnalysisPanel(QWidget):
         self._init_table_rows()
         self._draw_empty_plot()
 
+    # ── UI ──
+    @staticmethod
+    def _make_card(object_name):
+        card = QFrame()
+        card.setObjectName(object_name)
+        card.setStyleSheet(
+            "QFrame#%s{background:#FFFFFF;border:1px solid #D5DEE9;"
+            "border-radius:10px;}" % object_name)
+        return card
+
+    def _build_ui(self):
+        """DI 工作区：左上双图、左下 5 个 log 输入，右侧计算/结果/导出。
+
+        本机「载入 TS → 分片段 → 生成输入 → 一键运行」的整条流程收进
+        :class:`molstudio.panels.di_local_dialog.DiLocalDialog` 弹窗，
+        页面只留一个入口按钮，绘图与结果区不再被流程控件挤占。
+        """
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(8, 8, 8, 8)
+        outer.setSpacing(0)
+
+        self._splitter = QSplitter(Qt.Horizontal)
+        self._splitter.setChildrenCollapsible(False)
+        self._splitter.setHandleWidth(8)
+
+        left_splitter = QSplitter(Qt.Vertical)
+        left_splitter.setChildrenCollapsible(False)
+        left_splitter.setHandleWidth(8)
+        self._left_splitter = left_splitter
+
+        # ── 左上：能量分解图 ──
+        chart_card = self._make_card("DiChartCard")
+        chart_card.setMinimumHeight(120)
+        chart_l = QVBoxLayout(chart_card)
+        chart_l.setContentsMargins(8, 7, 8, 7)
+        chart_l.setSpacing(3)
+        self.lbl_chart_title = QLabel("Distortion–Interaction 能量分解")
+        self.lbl_chart_title.setStyleSheet(
+            "font-size:14px;font-weight:700;color:#0D47A1;padding:1px 2px;")
+        chart_l.addWidget(self.lbl_chart_title)
+        self.fig_holder = QWidget()
+        self.fig_holder.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._canvas_layout = QVBoxLayout(self.fig_holder)
+        self._canvas_layout.setContentsMargins(0, 0, 0, 0)
+        chart_l.addWidget(self.fig_holder, 1)
+        left_splitter.addWidget(chart_card)
+
+        # ── 左下：5 个 Gaussian log 输入 + 本机流程入口提示 ──
+        input_scroll = QScrollArea()
+        input_scroll.setWidgetResizable(True)
+        input_scroll.setFrameShape(QFrame.NoFrame)
+        input_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        input_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        input_scroll.setMinimumWidth(320)
+        input_scroll.setMinimumHeight(90)
+        self.log_scroll = input_scroll
+        input_content = QWidget()
+        input_l = QVBoxLayout(input_content)
+        input_l.setContentsMargins(1, 1, 1, 1)
+        input_l.setSpacing(8)
+
+        grp_inputs = QGroupBox("1  载入 Gaussian log")
+        inputs_l = QGridLayout(grp_inputs)
+        inputs_l.setContentsMargins(9, 10, 9, 8)
+        inputs_l.setHorizontalSpacing(6)
+        inputs_l.setVerticalSpacing(4)
+        for i, (key, label) in enumerate(FILE_ROWS):
+            inputs_l.addWidget(QLabel(label + ":"), i, 0)
+            edit = QLineEdit()
+            edit.setPlaceholderText("选择 Gaussian .log 文件")
+            edit.textChanged.connect(
+                lambda _text, k=key: self._on_path_changed(k))
+            self._file_edits[key] = edit
+            inputs_l.addWidget(edit, i, 1, 1, 2)
+            btn_browse = QPushButton("浏览")
+            btn_browse.clicked.connect(
+                lambda _checked, k=key: self._browse_file(k))
+            inputs_l.addWidget(btn_browse, i, 3)
+
+        row_btn = QHBoxLayout()
+        btn_batch = QPushButton("批量选择（按顺序）")
+        btn_batch.clicked.connect(self._batch_select)
+        row_btn.addWidget(btn_batch)
+        btn_match = QPushButton("从文件夹自动匹配")
+        btn_match.clicked.connect(self._auto_match)
+        row_btn.addWidget(btn_match)
+        row_btn.addStretch(1)
+        inputs_l.addLayout(row_btn, len(FILE_ROWS), 0, 1, 4)
+        hint = QLabel("命名含关键词：opt1 / opt2 / frag1_def / frag2_def / ts")
+        hint.setStyleSheet("color:#64748B;font-size:9pt;")
+        inputs_l.addWidget(hint, len(FILE_ROWS) + 1, 0, 1, 4)
+
+        row_corr = QHBoxLayout()
+        self.chk_zpe = QCheckBox("零点能修正 (E0 = E_elec + ZPE)")
+        self.chk_zpe.toggled.connect(self._on_corr_changed)
+        row_corr.addWidget(self.chk_zpe)
+        self.chk_gibbs = QCheckBox("Gibbs 自由能修正（含热修正 + 熵）")
+        self.chk_gibbs.toggled.connect(self._on_corr_changed)
+        row_corr.addWidget(self.chk_gibbs)
+        row_corr.addStretch(1)
+        inputs_l.addLayout(row_corr, len(FILE_ROWS) + 2, 0, 1, 4)
+        corr_hint = QLabel("[!] ZPE / Gibbs 需要 Freq 计算步骤")
+        corr_hint.setStyleSheet("color:#64748B;font-size:9pt;")
+        inputs_l.addWidget(corr_hint, len(FILE_ROWS) + 3, 0, 1, 4)
+        input_l.addWidget(grp_inputs)
+
+        hint_local = QLabel(
+            "没有现成 log？点右侧「本机一键计算…」：载入过渡态、Shift 框选"
+            "分片段后自动生成 4 个输入并运行，跑完自动回到本页出图。")
+        hint_local.setWordWrap(True)
+        hint_local.setStyleSheet(
+            "background:#EFF6FF;color:#1565C0;border:1px solid #BFDBFE;"
+            "border-radius:6px;padding:6px 8px;font-size:9pt;")
+        input_l.addWidget(hint_local)
+        input_l.addStretch(1)
+
+        input_scroll.setWidget(input_content)
+        left_splitter.addWidget(input_scroll)
+        left_splitter.setStretchFactor(0, 1)
+        left_splitter.setStretchFactor(1, 1)
+
+        # ── 右列：本机流程入口 / 计算 / 结果表格 / 导出 ──
+        result_scroll = QScrollArea()
+        result_scroll.setWidgetResizable(True)
+        result_scroll.setFrameShape(QFrame.NoFrame)
+        result_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        result_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        result_scroll.setMinimumWidth(380)
+        result_scroll.setMinimumHeight(90)
+        self.right_scroll = result_scroll
+        result_content = QWidget()
+        result_l = QVBoxLayout(result_content)
+        result_l.setContentsMargins(1, 1, 1, 1)
+        result_l.setSpacing(8)
+
+        grp_actions = QGroupBox("2  计算")
+        actions_l = QVBoxLayout(grp_actions)
+        actions_l.setContentsMargins(9, 9, 9, 8)
+        actions_l.setSpacing(6)
+        self.btn_open_local = QPushButton(
+            "本机一键计算…（分片段 + 生成输入 + 运行）")
+        self.btn_open_local.setObjectName("PrimaryBtn")
+        self.btn_open_local.setMinimumHeight(38)
+        self.btn_open_local.clicked.connect(self._open_local_dialog)
+        self.btn_calculate = QPushButton(">> 计算能量分解")
+        self.btn_calculate.setObjectName("PrimaryBtn")
+        self.btn_calculate.setMinimumHeight(38)
+        self.btn_calculate.clicked.connect(self._calculate)
+        self.btn_clear = QPushButton("清空结果")
+        self.btn_clear.clicked.connect(self._clear_results)
+        actions_l.addWidget(self.btn_open_local)
+        actions_l.addWidget(self.btn_calculate)
+        actions_l.addWidget(self.btn_clear)
+        result_l.addWidget(grp_actions)
+
+        grp_results = QGroupBox("3  结果表格")
+        results_l = QVBoxLayout(grp_results)
+        results_l.setContentsMargins(8, 10, 8, 8)
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels([
+            "项目", "能量 (Hartree)", "能量 (kcal/mol)", "说明"])
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(24)
+        hdr = self.table.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.Stretch)
+        # 右栏较窄：说明列隐藏，说明文字放进单元格 tooltip（HTML 报告里仍完整保留）
+        self.table.setColumnHidden(3, True)
+        self.table.setMinimumHeight(90)
+        results_l.addWidget(self.table, 1)
+        result_l.addWidget(grp_results, 1)
+
+        grp_export = QGroupBox("4  导出")
+        export_l = QVBoxLayout(grp_export)
+        export_l.setContentsMargins(9, 9, 9, 8)
+        export_l.setSpacing(6)
+        self.btn_export_png = QPushButton("导出柱状图 PNG")
+        self.btn_export_png.clicked.connect(self._export_png)
+        self.btn_export_png.setEnabled(False)
+        self.btn_export = QPushButton("导出 HTML 报告")
+        self.btn_export.clicked.connect(self._export_html)
+        self.btn_export.setEnabled(False)
+        export_l.addWidget(self.btn_export_png)
+        export_l.addWidget(self.btn_export)
+        result_l.addWidget(grp_export)
+
+        formula = QLabel(
+            "ΔE_strain = (E_def1 − E_opt1) + (E_def2 − E_opt2)\n"
+            "ΔE_int = E_TS − E_def1 − E_def2\n"
+            "ΔE‡ = ΔE_strain + ΔE_int")
+        formula.setWordWrap(True)
+        formula.setStyleSheet(
+            "background:#EFF6FF;color:#1565C0;border:1px solid #BFDBFE;"
+            "border-radius:7px;padding:7px 9px;"
+            "font-family:Consolas,monospace;font-size:9pt;")
+        result_l.addWidget(formula)
+        result_scroll.setWidget(result_content)
+
+        self._splitter.addWidget(left_splitter)
+        self._splitter.addWidget(result_scroll)
+        self._splitter.setStretchFactor(0, 1)
+        self._splitter.setStretchFactor(1, 1)
+        outer.addWidget(self._splitter, 1)
+        self._sizes_initialized = False
+        self._init_table_rows()
+        self._draw_empty_plot()
+
+    # ── 本机一键计算弹窗 ──
+    def _open_local_dialog(self):
+        """打开本机流程弹窗；完成后自动载入 5 个 log 并计算、出图。"""
+        from molstudio.panels.di_local_dialog import DiLocalDialog
+
+        try:
+            dialog = DiLocalDialog(
+                parent=self,
+                get_g16=self._get_g16,
+                log_func=self._log,
+                initial=self._local_dialog_defaults(),
+                lang=self.lang,
+            )
+            accepted = dialog.exec_() == QDialog.Accepted
+            self._local_config = dialog.config()
+            self._save_settings()
+            logs = dialog.log_data() if accepted else None
+            dialog.deleteLater()
+        except Exception as exc:                        # noqa: BLE001
+            QMessageBox.critical(
+                self, "本机一键计算", "无法打开本机计算窗口：\n%s" % exc)
+            return
+        if logs:
+            self._apply_local_logs(logs)
+
+    def _local_dialog_defaults(self):
+        cfg = dict(self._local_config)
+        # 面板上手动载入的 5 个 log 里若有 ts，作为弹窗的默认 TS 路径
+        ts = (cfg.get("ts_log") or "").strip()
+        if not ts:
+            ts = self._file_edits["ts"].text().strip()
+            if ts:
+                cfg["ts_log"] = ts
+        return cfg
+
+    def _apply_local_logs(self, logs):
+        """把弹窗跑完的 5 个 log 填进手动输入行并立即计算、出图。"""
+        if logs.get("ts"):
+            self._file_edits["ts"].setText(logs["ts"])
+            self._file_edits["ts"].setCursorPosition(0)
+        for key in ("frag1_def", "frag2_def", "frag1_opt", "frag2_opt"):
+            if logs.get(key):
+                self._file_edits[key].setText(logs[key])
+                self._file_edits[key].setCursorPosition(0)
+        # 片段任务只做单点/优化，没有 Freq：ZPE/Gibbs 修正不适用，自动关掉
+        for chk in (self.chk_zpe, self.chk_gibbs):
+            chk.blockSignals(True)
+            chk.setChecked(False)
+            chk.blockSignals(False)
+        self._log("DI: 本机计算完成，自动载入 5 个 log 并计算能量分解")
+        self._calculate()
+
     # ── 结果表格 ──
     def _init_table_rows(self):
         self.table.setRowCount(0)
@@ -830,15 +1171,15 @@ class DiAnalysisPanel(QWidget):
                 item.setForeground(QColor("#CBD5E1"))
                 item.setFont(QFont("Consolas", 8))
             elif tag == "result":
-                f = QFont("Consolas", 9)
+                f = QFont("Consolas", 8)
                 f.setBold(True)
                 item.setFont(f)
             else:
-                item.setFont(QFont("Consolas", 9))
+                item.setFont(QFont("Consolas", 8))
             self.table.setItem(r, 0, item)
             for c in (1, 2):
                 it = QTableWidgetItem("—")
-                it.setFont(QFont("Consolas", 9))
+                it.setFont(QFont("Consolas", 8))
                 self.table.setItem(r, c, it)
             it3 = QTableWidgetItem("")
             self.table.setItem(r, 3, it3)
@@ -850,6 +1191,12 @@ class DiAnalysisPanel(QWidget):
         self.table.item(r, 1).setText("%.8f" % h_val)
         self.table.item(r, 2).setText("%.1f" % (h_val * HARTREE_TO_KCAL))
         self.table.item(r, 3).setText(note)
+        # 说明列在右栏布局里隐藏，说明文字改为 tooltip
+        if note:
+            for c in (0, 1, 2):
+                item = self.table.item(r, c)
+                if item is not None:
+                    item.setToolTip(note)
         color = QColor("#1E293B")
         if tag == "positive":
             color = QColor("#DC2626")
@@ -870,6 +1217,8 @@ class DiAnalysisPanel(QWidget):
 
     # ── 文件选择 ──
     def _on_path_changed(self, key):
+        if getattr(self, "_loading_settings", False):
+            return
         self._save_settings()
 
     def _browse_file(self, key):
@@ -1074,7 +1423,7 @@ class DiAnalysisPanel(QWidget):
         fig = Figure(figsize=self._figsize(), dpi=100, facecolor="white")
         gs = fig.add_gridspec(
             1, 2, width_ratios=[5, 3],
-            left=0.07, right=0.97, top=0.90, bottom=0.12, wspace=0.28)
+            left=0.085, right=0.97, top=0.86, bottom=0.12, wspace=0.30)
         self._draw_di_arrows(fig.add_subplot(gs[0, 0]), R)
         self._draw_decomposition(fig.add_subplot(gs[0, 1]), R)
         self._set_canvas(fig)
@@ -1082,10 +1431,10 @@ class DiAnalysisPanel(QWidget):
     def _draw_empty_plot(self):
         fig = Figure(figsize=self._figsize(), dpi=100, facecolor="white")
         ax = fig.add_subplot(111)
-        message = ("Load five Gaussian logs and calculate to show the "
-                   "DI energy-decomposition figure"
+        message = ("Load the TS log, split atoms into fragments and run the "
+                   "local workflow to show the DI energy-decomposition figure"
                    if self.lang == "en"
-                   else "载入 5 个 log 并计算后显示 DI 能量分解图")
+                   else "载入过渡态 log、分片段并完成本机计算后显示 DI 能量分解图")
         ax.text(0.5, 0.5, message,
                 ha="center", va="center", fontsize=12, color="#94A3B8")
         ax.set_xticks([])
@@ -1427,6 +1776,7 @@ class DiAnalysisPanel(QWidget):
         return config_file("di_panel_settings.ini")
 
     def _load_settings(self):
+        self._loading_settings = True
         cfg = configparser.ConfigParser()
         try:
             if os.path.exists(self._settings_path()):
@@ -1440,13 +1790,23 @@ class DiAnalysisPanel(QWidget):
                         cfg["di"].getboolean("zpe", False))
                     self.chk_gibbs.setChecked(
                         cfg["di"].getboolean("gibbs", False))
+                    for key in list(self._local_config):
+                        value = cfg["di"].get(key, "")
+                        if value:
+                            self._local_config[key] = value
         except Exception:
             pass
+        finally:
+            self._loading_settings = False
 
     def _save_settings(self):
+        if getattr(self, "_loading_settings", False):
+            return
         cfg = configparser.ConfigParser()
         sec = {"zpe": "1" if self.chk_zpe.isChecked() else "0",
                "gibbs": "1" if self.chk_gibbs.isChecked() else "0"}
+        for key, value in self._local_config.items():
+            sec[key] = str(value or "")
         for k in FILE_KEYS:
             sec[k] = self._file_edits[k].text().strip()
         cfg["di"] = sec
@@ -1457,7 +1817,7 @@ class DiAnalysisPanel(QWidget):
             pass
 
     def shutdown(self):
-        """关闭时清理（本面板无后台线程）。"""
+        """关闭时保存配置（本机计算在弹窗线程里，弹窗关闭时已收尾）。"""
         self._save_settings()
 
     # ── i18n ──

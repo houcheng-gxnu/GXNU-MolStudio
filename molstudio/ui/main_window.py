@@ -130,6 +130,13 @@ try:
 except Exception:
     _HAS_XTB_PANEL = False
 
+# ── ORCA 本机计算（外部 ORCA：SP / Opt / Freq / TS / IRC / TD-DFT） ──
+try:
+    from molstudio.panels.orca_panel import OrcaPanel
+    _HAS_ORCA_PANEL = True
+except Exception:
+    _HAS_ORCA_PANEL = False
+
 # ── AICD 感应电流密度各向异性（Gaussian nmr=csgt iop(10/93)，Herges 组方法） ──
 try:
     from molstudio.panels.aicd_panel import AicdPanel
@@ -208,6 +215,20 @@ try:
 except Exception:
     _HAS_IRCS_PANEL = False
 
+# ── 轨道定域化（Multiwfn 主功能 19 → LMO，sobereva.com/380） ──
+try:
+    from molstudio.panels.lmo_panel import LMOPanel
+    _HAS_LMO_PANEL = True
+except Exception:
+    _HAS_LMO_PANEL = False
+
+# ── 轨道权重福井函数 / 双描述符（Multiwfn 主功能 22 → OW-Fukui，sobereva.com/533） ──
+try:
+    from molstudio.panels.ow_fukui_panel import OWFukuiPanel
+    _HAS_OWF_PANEL = True
+except Exception:
+    _HAS_OWF_PANEL = False
+
 # ── 拆分后的模块 ──
 import molstudio.core.i18n as i18n
 from molstudio.ui.theme import LIGHT_QSS
@@ -232,6 +253,48 @@ _CANVAS_STRETCH = 4
 _RIGHT_STRETCH = 5
 _DEFAULT_SPLIT_SIZES = [_NAV_WIDTH, 560, 680]
 
+# ── 画布下方「运行日志」区 ──
+# 样式写死在 dock 自己身上（不依赖各界面主题的全局 QSS），四种界面看起来一致；
+# 标题条 26px，正文默认 144px。
+_LOG_DOCK_QSS = """
+QFrame#LogDock {
+    background: #FFFFFF;
+    border: 1px solid #E6E6E6;
+    border-radius: 8px;
+}
+QWidget#LogDockHead {
+    background: transparent;
+    border: none;
+}
+QLabel#LogDockTitle {
+    color: #6B7280;
+    font-size: 9pt;
+    font-weight: 500;
+    background: transparent;
+}
+QToolButton#LogDockBtn {
+    border: none;
+    background: transparent;
+    color: #6B7280;
+    font-size: 9pt;
+    padding: 1px 6px;
+}
+QToolButton#LogDockBtn:hover {
+    background: #F2F3F4;
+    border-radius: 6px;
+    color: #374151;
+}
+QTextEdit#RunLog {
+    border: none;
+    background: transparent;
+    padding: 0px 8px 6px 10px;
+    font-family: "Consolas", "JetBrains Mono", "Microsoft YaHei UI";
+    font-size: 12px;
+    color: #374151;
+    selection-background-color: #D6E4F5;
+}
+"""
+
 # ── 左侧导航条 emoji ──
 # tab key → 图标表情，显示在各功能名之前（仅影响左侧导航条，不改 i18n 文案，
 # 以免 Clean / Canvas 等新界面里「矢量图标 + emoji」出现双图标）。
@@ -239,6 +302,8 @@ _DEFAULT_SPLIT_SIZES = [_NAV_WIDTH, 560, 680]
 _NAV_EMOJI = {
     "tab_viz":         "🎨",   # 可视化（画面/渲染）
     "tab_setup":       "🌀",   # 轨道（MO）
+    "tab_lmo":         "⚛️",   # 轨道定域化（LMO，Multiwfn 主功能 19）
+    "tab_ow_fukui":    "🔥",   # 轨道权重福井函数/双描述符（Multiwfn 主功能 22）
     "tab_charge_bond": "🔗",   # 电荷键级
     "tab_nbo":         "🧬",   # NBO 自然键轨道
     "tab_esp":         "🌈",   # ESP 静电势表面
@@ -253,6 +318,7 @@ _NAV_EMOJI = {
     "tab_spectrum":    "🌈",   # Gaussian → Multiwfn 分子光谱
     "tab_dos":         "📈",   # TDOS / PDOS / OPDOS
     "tab_xtb":         "⚡",   # xTB 半经验计算
+    "tab_orca":        "🧪",   # ORCA 本机计算
     "tab_irc":         "🧭",   # IRC 反应路径
     "tab_di":          "🧩",   # DI 能量分解
     "tab_asm_irc":     "📈",   # ASM 沿 IRC 扫描
@@ -1006,6 +1072,32 @@ class OrbitalVisApp(QMainWindow):
         tab_setup_layout.addWidget(self.orbital_tabs, 1)
         self._add_tab(tab_setup, "tab_setup")
 
+        # ── 轨道定域化 tab（Multiwfn 主功能 19 → LMO，sobereva.com/380） ──
+        # 独立一页而不是塞进「轨道」页：定域化是一次 Multiwfn 计算（像 NBO /
+        # AIM / MPP 那样有自己的参数、进度和指认表），结果也是**派生波函数**
+        # （new.fch），不适合悄悄替换掉「轨道」页正在浏览的当前波函数。
+        # 定域化完成后可双击 LMO 在画布上看等值面，或一键把 LMO 波函数送到
+        # 「轨道」页继续用原有的轨道表浏览 / 批量出图。
+        self.lmo_panel = None
+        if _HAS_LMO_PANEL:
+            try:
+                self.lmo_panel = LMOPanel(
+                    glw=(self.cub_canvas.glw
+                         if self.cub_canvas is not None else None),
+                    get_fchk=lambda: getattr(self, "_current_fchk", "") or "",
+                    get_multiwfn=lambda: self.paths.get("multiwfn", "") or "",
+                    get_grid_quality=self._orbit_grid_quality,
+                    on_show_cubes=lambda paths: self._push_cubes_to_canvas(
+                        paths, auto_load=True),
+                    on_open_wavefunction=self._open_lmo_wavefunction,
+                    log_func=self._append_log,
+                    parent=self,
+                )
+                self._add_tab(self.lmo_panel, "tab_lmo")
+            except Exception as e:
+                self.lmo_panel = None
+                self._append_log("[LMO] 轨道定域化面板初始化失败：%s" % e)
+
         # ── 光谱工作流：分子导入 → Gaussian → Multiwfn 一键出图 ──
         self.spectrum_panel = None
         if _HAS_SPECTRUM_PANEL:
@@ -1189,6 +1281,29 @@ class OrbitalVisApp(QMainWindow):
                 self.edd_panel = None
                 self._append_log("[EDD] 电子密度差面板初始化失败：%s" % exc)
 
+        # ── 轨道权重福井函数 / 双描述符 tab（Multiwfn 主功能 22，sobereva.com/533）──
+        # 与 EDD / LMO 同类：一次 Multiwfn 计算（选项 4/5/6/7），产物是四个 cube
+        # （OW_f+/OW_f-/OW_f0/OW_DD）、轨道权重表与 Hirshfeld 简缩值表，故独立成一页。
+        # 计算完成后自动把 Δf_w 的等值面送到左侧画布（等值面量级比 MO 小两个数量级，
+        # 由面板按 cube 数据推算默认 iso，不套用轨道页的 0.05）。
+        self.ow_fukui_panel = None
+        if _HAS_OWF_PANEL:
+            glw = self.cub_canvas.glw if self.cub_canvas is not None else None
+            try:
+                self.ow_fukui_panel = OWFukuiPanel(
+                    glw=glw,
+                    get_fchk=lambda: getattr(self, "_current_fchk", "") or "",
+                    get_multiwfn=_get_mw,
+                    get_grid_quality=self._orbit_grid_quality,
+                    on_show_cube=self._show_owf_cube,
+                    log_func=self._append_log,
+                    parent=self,
+                )
+                self._add_tab(self.ow_fukui_panel, "tab_ow_fukui")
+            except Exception as exc:
+                self.ow_fukui_panel = None
+                self._append_log("[OW-Fukui] 轨道权重福井函数面板初始化失败：%s" % exc)
+
         # ── MPP 分子平面性参数分析 tab ──
         self.mpp_panel = None
         if _HAS_MPP_PANEL:
@@ -1261,6 +1376,21 @@ class OrbitalVisApp(QMainWindow):
                 self.xtb_panel = None
                 self._append_log("[xtb] xTB 计算面板初始化失败：%s" % e)
 
+        # ── ORCA 本机计算 tab（左侧「常用」下；结构取主窗口画布/gjf） ──
+        self.orca_panel = None
+        if _HAS_ORCA_PANEL:
+            try:
+                self.orca_panel = OrcaPanel(
+                    get_structure=self._get_canvas_structure,
+                    on_open_structure=self._load_molecule,
+                    log_func=self._append_log,
+                    parent=self,
+                )
+                self._add_tab(self.orca_panel, "tab_orca")
+            except Exception as e:
+                self.orca_panel = None
+                self._append_log("[orca] ORCA 计算面板初始化失败：%s" % e)
+
         # ── AICD 感应电流密度各向异性 tab（Gaussian 张量转储 → 效果图） ──
         self.aicd_panel = None
         if _HAS_AICD_PANEL:
@@ -1300,6 +1430,7 @@ class OrbitalVisApp(QMainWindow):
             try:
                 self.di_panel = DiAnalysisPanel(
                     log_func=self._append_log,
+                    get_g16=lambda: self.paths.get("gaussian", "") or "",
                     parent=self,
                 )
                 self._add_tab(self.di_panel, "tab_di")
@@ -1342,6 +1473,9 @@ class OrbitalVisApp(QMainWindow):
                     log_func=self._append_log,
                     parent=self,
                 )
+                # 晶体 tab 里扩晶胞 / 边界补齐变了 → 结构库「导出设置」同步显示
+                self.crystal_panel.structureChanged.connect(
+                    self._mirror_crystal_state_to_library_options)
                 # 晶体信息条：导出图片 + 晶胞参数 + 原子表（可展开）
                 self.crystal_bar = CrystalInfoBar(
                     canvas_panel=self.cub_canvas,
@@ -1377,7 +1511,7 @@ class OrbitalVisApp(QMainWindow):
         except Exception:
             pass
 
-        # ── 结构库 tab：分子 + 晶体共用一个页面，导出设置与晶体 tab 联动 ──
+        # ── 结构库 tab：分子 / 晶体 / 电子结构共用一个页面，导出设置与晶体 tab 联动 ──
         self.library_panel = None
         if _HAS_LIBRARY_PANEL:
             try:
@@ -1388,8 +1522,12 @@ class OrbitalVisApp(QMainWindow):
                     on_export_molecule=self._library_export_molecule,
                     on_visualize_crystal=self._library_visualize_crystal,
                     on_export_crystal=self._library_export_crystal,
-                    on_open_crystal_tab=self._library_open_crystal_tab)
+                    on_open_crystal_tab=self._library_open_crystal_tab,
+                    on_visualize_orbital=self._library_visualize_orbital)
                 self._add_tab(self.library_panel, "tab_library")
+                # 结构库「导出设置」里的扩晶胞 / 边界补齐 → 晶体 tab 的画布
+                self.library_panel.crystalOptionsChanged.connect(
+                    self._on_library_crystal_options_changed)
             except Exception as e:                        # noqa: BLE001
                 self.library_panel = None
                 self._append_log("[结构库] 结构库面板初始化失败：%s" % e)
@@ -1434,6 +1572,7 @@ class OrbitalVisApp(QMainWindow):
         # 参数设置区用白色圆角卡片整体包裹
         right_card = QFrame()
         right_card.setObjectName("RightCard")
+        self.right_card = right_card
         rc_l = QVBoxLayout(right_card)
         rc_l.setContentsMargins(0, 0, 0, 0)
         rc_l.addWidget(scroll_right)
@@ -1456,21 +1595,17 @@ class OrbitalVisApp(QMainWindow):
         # _setup_main_nav() 是否已在当前构建/初始化顺序里执行过。
         self.tabs.currentChanged.connect(self._on_page_changed_right_tabs)
 
-        # ── 运行日志（独立 tab，各分析面板的日志统一汇总到这里） ──
+        # ── 运行日志（画布正下方的可折叠控制台，各面板日志统一汇总到这里） ──
+        # 2026-11-12：不再是右侧一个页签 —— 看日志要切页、还会把参数面板顶掉；
+        # 画布底部的设置卡片压成 42px 工具条后正好空出 ~260px，日志放这里既不
+        # 抢画布高度，也不占右栏页签位。
         self.log_text = QTextEdit()
+        self.log_text.setObjectName("RunLog")
         self.log_text.setReadOnly(True)
         self.log_text.setUndoRedoEnabled(False)
         self.log_text.setLineWrapMode(QTextEdit.WidgetWidth)
-        self.log_text.setStyleSheet("""
-            QTextEdit{
-                border:none;
-                background:transparent;
-                padding:8px;
-                font-family:"Consolas","JetBrains Mono","Microsoft YaHei UI";
-                font-size:16px;
-            }
-        """)
-        self._add_tab(self.log_text, "tab_log")
+        self.log_text.setFrameShape(QFrame.NoFrame)
+        self._setup_log_dock()
 
         main_splitter.addWidget(left_widget)
         main_splitter.addWidget(right_widget)
@@ -2339,6 +2474,15 @@ class OrbitalVisApp(QMainWindow):
 
     def closeEvent(self, event):
         """关闭程序时，快速清理资源。"""
+        # 0) 关闭无 parent 的 VMD 控制台窗口，避免孤儿窗口。
+        #    注：本方法曾有两个同名定义（后一个只有这一行 VMD 清理并调
+        #    super()），后定义会**整体覆盖**前面所有面板/线程的 shutdown，
+        #    导致关窗时后台 Multiwfn 线程不停（2026-11 轨道定域化联调时发现）。
+        #    现在合并到这一个定义里，所有清理按顺序执行。
+        try:
+            self._close_vmd_console()
+        except Exception:
+            pass
         # 1) 用短超时尝试优雅关闭 VMD（不阻塞）
         try:
             sock = getattr(self._vmd_session, '_sock', None)
@@ -2446,6 +2590,16 @@ class OrbitalVisApp(QMainWindow):
                 self.dos_panel.shutdown()
             except Exception:
                 pass
+        if getattr(self, "lmo_panel", None) is not None:
+            try:
+                self.lmo_panel.shutdown()
+            except Exception:
+                pass
+        if getattr(self, "ow_fukui_panel", None) is not None:
+            try:
+                self.ow_fukui_panel.shutdown()
+            except Exception:
+                pass
         if getattr(self, "steric_panel", None) is not None:
             try:
                 self.steric_panel.shutdown()
@@ -2533,7 +2687,8 @@ class OrbitalVisApp(QMainWindow):
                       "ircsplit_panel", "cub_stack_panel", "crystal_panel",
                       "crystal_bar", "surfproj_panel", "steric_panel",
                       "xtb_panel", "aicd_panel", "spectrum_panel",
-                      "dos_panel", "edd_panel", "library_panel"):
+                      "dos_panel", "edd_panel", "library_panel",
+                      "lmo_panel", "ow_fukui_panel", "orca_panel"):
             _panel = getattr(self, _name, None)
             if _panel is not None and hasattr(_panel, "set_lang"):
                 try:
@@ -2618,12 +2773,42 @@ class OrbitalVisApp(QMainWindow):
         # 部分页面的控件在首次显示时才建立，语言切换发生在它们建立之前时
         # 会停在中文 —— 每次切页把补充对照表再套一遍兜底。
         self._retranslate_page(index)
+        # 轨道定域化页：进入页面时刷新「当前波函数 / 输出目录」，因为它跟随
+        # 主窗口当前打开的 fchk，而面板不一定在每次输入变化时都被通知。
+        if key == "tab_lmo" and getattr(self, "lmo_panel", None) is not None:
+            try:
+                self.lmo_panel.set_source_from_main()
+            except Exception:
+                pass
+        # 轨道权重福井函数页同样跟随主窗口当前波函数，进页时刷新一次输入信息
+        if (key == "tab_ow_fukui"
+                and getattr(self, "ow_fukui_panel", None) is not None):
+            try:
+                self.ow_fukui_panel.set_source_from_main()
+            except Exception:
+                pass
+        # ORCA 页：进入时把画布当前结构同步到「输入预览」；主窗口载入 gjf 后
+        # 画布就是当前结构，所以不需要重复选文件。
+        if key == "tab_orca" and getattr(self, "orca_panel", None) is not None:
+            try:
+                self.orca_panel.sync_from_canvas()
+            except Exception:
+                pass
 
     def _on_page_changed_right_tabs(self, index):
         """页面栈切页 → 同步右栏全局页签栏的显隐。"""
         key = (self._tab_keys[index]
                if 0 <= index < len(self._tab_keys) else "")
         self._sync_right_tab_bar(key)
+        # 结构库页也会把晶体显示在左侧画布上（载入晶体后不再自动跳到晶体
+        # tab），所以这个页面上也要画晶胞框；离开这两页就收起。
+        panel = getattr(self, "crystal_panel", None)
+        if panel is not None:
+            try:
+                panel.set_overlay_page_active(
+                    key in ("tab_crystal", "tab_library"))
+            except Exception:                                   # noqa: BLE001
+                pass
 
     def _sync_right_tab_bar(self, key=None):
         """结构库页只保留它自己的「一行四个平级页签」。
@@ -2633,6 +2818,10 @@ class OrbitalVisApp(QMainWindow):
         若再叠一层全局页签栏，视觉上就是「两层 tab」，且两个「引文」重复。
         因此切到结构库时隐藏全局页签栏并回到参数页；切回其他功能页时恢复
         ——那些页面仍需要「引文」页签查看当前功能的引用文献。
+
+        页签栏隐藏后，右侧白卡（RightCard）的顶边正好落在结构库四个页签的
+        上方，看起来像一条孤立的横线，所以结构库页同时把这张卡的顶边去掉
+        （QSS 属性选择器 flatTop，见 theme.LIGHT_QSS / CLEAN_QSS）。
         """
         tabs = getattr(self, "right_tabs", None)
         if tabs is None:
@@ -2647,6 +2836,21 @@ class OrbitalVisApp(QMainWindow):
             bar.hide()
         else:
             bar.show()
+        self._set_right_card_flat_top(key == "tab_library")
+
+    def _set_right_card_flat_top(self, flat):
+        """右侧白卡是否去掉顶边（结构库页：页签栏隐藏，顶边成了孤立横线）。"""
+        card = getattr(self, "right_card", None)
+        if card is None:
+            return
+        flat = bool(flat)
+        if bool(card.property("flatTop")) == flat:
+            return
+        card.setProperty("flatTop", flat)
+        style = card.style()
+        style.unpolish(card)
+        style.polish(card)
+        card.update()
 
     def _retranslate_page(self, index):
         """把当前语言套用到该页（及左侧画布）的控件文字上。"""
@@ -2730,6 +2934,16 @@ class OrbitalVisApp(QMainWindow):
 
         # Tabs（路径设置已改为输入栏 ⚙️ 按钮，不再是 tab）
         self._set_tab_texts()
+
+        # 画布下方的运行日志区（标题 + 清空/收起两个按钮）
+        if getattr(self, "log_dock", None) is not None:
+            try:
+                self._log_title.setText(self._tr("log_dock_title"))
+                self._log_clear_btn.setText(self._tr("log_dock_clear"))
+                self._log_clear_btn.setToolTip(self._tr("log_dock_clear"))
+                self._toggle_log_dock(self._log_collapsed)
+            except Exception:
+                pass
 
         # Group boxes
         if hasattr(self, "btn_paths"):
@@ -2962,6 +3176,116 @@ class OrbitalVisApp(QMainWindow):
         p.end()
         return QIcon(pm)
 
+    def _setup_log_dock(self):
+        """把运行日志放在画布正下方：一个可折叠的控制台（不是右侧页签）。
+
+        这块区域原来是画布底部的「一键样式 + 显示 + 导出」卡片（302px，7 行
+        22 个控件），已经压成 42px 工具条（见 ``studio_canvas_bar``），省出来的
+        高度给日志用：144px 正好十来行，报错、Multiwfn 输出、进度都能一眼看到，
+        不用切页，也不会把右侧参数面板顶掉。
+
+        布局是「左栏竖排 + 画布 stretch=1」，所以窗口变高时多出来的高度全归
+        画布，日志保持固定高度；担心挡画布就点右上角「▾」收起，只留 26px 的
+        标题条。
+        """
+        from PyQt5.QtWidgets import QToolButton
+
+        dock = QFrame()
+        dock.setObjectName("LogDock")
+        dock.setStyleSheet(_LOG_DOCK_QSS)
+        lay = QVBoxLayout(dock)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        head = QWidget()
+        head.setObjectName("LogDockHead")
+        hl = QHBoxLayout(head)
+        hl.setContentsMargins(10, 1, 6, 1)
+        hl.setSpacing(2)
+        self._log_title = QLabel(self._tr("log_dock_title"))
+        self._log_title.setObjectName("LogDockTitle")
+        hl.addWidget(self._log_title)
+        hl.addStretch(1)
+
+        def _mk_btn(text, tip):
+            btn = QToolButton()
+            btn.setObjectName("LogDockBtn")
+            btn.setText(text)
+            btn.setToolTip(tip)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setFocusPolicy(Qt.NoFocus)
+            btn.setAutoRaise(True)
+            hl.addWidget(btn)
+            return btn
+
+        self._log_clear_btn = _mk_btn(self._tr("log_dock_clear"),
+                                      self._tr("log_dock_clear"))
+        self._log_toggle_btn = _mk_btn("▾", self._tr("log_dock_collapse"))
+        self._log_clear_btn.clicked.connect(self._clear_log_text)
+        self._log_toggle_btn.clicked.connect(self._toggle_log_dock)
+
+        lay.addWidget(head)
+        lay.addWidget(self.log_text, stretch=1)
+
+        # 段落默认左对齐：启动时那段诗词是按 AlignHCenter 写进同一个文档的，
+        # 块格式会被后面的 insertBlock 继承，日志整块跟着居中。
+        try:
+            doc = self.log_text.document()
+            opt = doc.defaultTextOption()
+            opt.setAlignment(Qt.AlignLeft)
+            doc.setDefaultTextOption(opt)
+        except Exception:
+            pass
+
+        self.log_dock = dock
+        self._log_body_h = 144
+        self._log_collapsed = False
+        self.log_text.setFixedHeight(self._log_body_h)
+
+        parent = getattr(self, "_left_widget", None)
+        p_lay = parent.layout() if parent is not None else None
+        if p_lay is not None:
+            p_lay.addWidget(dock)
+        else:                      # 极端兜底：挂到画布容器里，至少不丢
+            cv = self.grp_canvas.layout() if getattr(self, "grp_canvas", None) else None
+            if cv is not None:
+                cv.addWidget(dock)
+
+    def _clear_log_text(self):
+        """清空运行日志（只清显示，不动任何计算状态）。"""
+        if getattr(self, "log_text", None) is not None:
+            self.log_text.clear()
+
+    def _show_log_dock(self):
+        """展开日志区并把光标移到末尾 —— 侧栏/菜单里「日志」入口统一走这里。"""
+        if getattr(self, "log_dock", None) is None:
+            return
+        self._toggle_log_dock(False)
+        try:
+            from PyQt5.QtGui import QTextCursor
+
+            self.log_text.moveCursor(QTextCursor.End)
+            self.log_text.ensureCursorVisible()
+            self.log_text.setFocus()
+        except Exception:
+            pass
+
+    def _toggle_log_dock(self, collapsed=None):
+        """收起 / 展开日志区：收起后画布拿回那 144px。"""
+        if not getattr(self, "log_text", None):
+            return
+        want = (not self._log_collapsed) if collapsed is None else bool(collapsed)
+        self._log_collapsed = want
+        self.log_text.setVisible(not want)
+        if not want:
+            self.log_text.setFixedHeight(self._log_body_h)
+        try:
+            self._log_toggle_btn.setText("▸" if want else "▾")
+            self._log_toggle_btn.setToolTip(
+                self._tr("log_dock_expand" if want else "log_dock_collapse"))
+        except Exception:
+            pass
+
     def _append_log(self, msg):
         """追加运行日志 — 纯 QTextCursor + QTextCharFormat，不使用 HTML。"""
         if not getattr(self, "log_text", None):
@@ -2995,11 +3319,13 @@ class OrbitalVisApp(QMainWindow):
             # ── 分隔线 ──
             cursor = self.log_text.textCursor()
             cursor.movePosition(QTextCursor.End)
-            cursor.insertBlock()
+            sep_block = QTextBlockFormat()
+            sep_block.setAlignment(Qt.AlignLeft)
+            cursor.insertBlock(sep_block)
             sep_fmt = QTextCharFormat()
             sep_fmt.setForeground(QColor("#BDC3C7"))
             cursor.insertText(msg, sep_fmt)
-            cursor.insertBlock()
+            cursor.insertBlock(sep_block)
             self.log_text.setTextCursor(cursor)
             self.log_text.ensureCursorVisible()
             return
@@ -3022,9 +3348,14 @@ class OrbitalVisApp(QMainWindow):
         body_fmt.setForeground(QColor("#2C3E50"))
 
         # ── 写入 ──
+        # 块格式必须显式左对齐：insertBlock() 会继承上一段的块格式，而启动时
+        # 那段诗词是用 AlignHCenter 写进去的 —— 继承下来整块日志会跟着居中
+        # （日志挪到画布下方常驻后，居中排版一眼就看出不对劲）。
         cursor = self.log_text.textCursor()
         cursor.movePosition(QTextCursor.End)
-        cursor.insertBlock()
+        left_fmt = QTextBlockFormat()
+        left_fmt.setAlignment(Qt.AlignLeft)
+        cursor.insertBlock(left_fmt)
         cursor.insertText(ts + "  ", time_fmt)
         cursor.insertText("[" + tag + "]", tag_fmt)
         cursor.insertText("  " + msg, body_fmt)
@@ -3337,6 +3668,30 @@ class OrbitalVisApp(QMainWindow):
         if not os.path.exists(fchk_path):
             return
         self._fill_orbital_table(fchk_path)
+
+    def _open_lmo_wavefunction(self, path):
+        """把定域化导出的 LMO 波函数（``*_LMO.fch``）作为当前波函数打开。
+
+        定域化面板本身只负责生成 LMO 并展示指认表；只有当用户明确点
+        「用 LMO 波函数打开轨道表」时才切换当前波函数：输入行、画布结构与
+        「轨道」页的轨道表一起更新，之后的双击预览 / 批量 cube 仍走原有流程
+        （它们都读当前 fchk）。这样既不会在定域化一结束就悄悄换掉所有分析
+        面板的数据源，又保留了「用熟悉的那套轨道表浏览 LMO」的便利。
+        """
+        if not path or not os.path.isfile(path):
+            return
+        self.var_path.setText(path)
+        self._load_molecule(path)
+        try:
+            idx = self._tab_keys.index("tab_setup")
+        except ValueError:
+            idx = 0
+        if 0 <= idx < self.tabs.count():
+            self.tabs.setCurrentIndex(idx)
+            if getattr(self, "main_nav", None) is not None:
+                self.main_nav.setCurrentRow(idx)
+        self._append_log(
+            "已切换到定域化轨道波函数：%s" % os.path.basename(path))
 
     def _make_orbital_table(self):
         """创建统一的轨道表格。"""
@@ -4391,8 +4746,187 @@ class OrbitalVisApp(QMainWindow):
         self._append_log("[结构库] %s  %s" %
                          (entry.display_name(self._lang), path))
 
+    def _library_visualize_orbital(self, spec, iso=0.08, quality="medium"):
+        """「电子结构库」：现场求解析波函数 → 写 cube → 送主画布显示等值面。
+
+        这里**不调** ``_load_molecule()``：那条链路会按 XYZ / fchk 解析原子、
+        顺带覆盖画布当前样式；轨道本来就是纯标量场，直接走
+        ``_push_cubes_to_canvas()`` 这条成熟链路（先套 HoukMol3d 样式，
+        再 ``keep_style=True`` 载入，正负相位色才能正确烘焙进顶点）。
+        """
+        import os
+        import tempfile
+
+        from PyQt5.QtWidgets import QMessageBox
+
+        from molstudio.core.atomic_orbital import build_orbital_cube
+
+        if not self._canvas_ready():
+            self._append_log("[电子结构库] 画布尚未就绪，无法生成等值面")
+            return
+        try:
+            iso = max(0.005, min(float(iso), 0.5))
+            quality = str(quality) if quality in ("low", "medium", "high") \
+                else "medium"
+            out_dir = os.path.join(tempfile.gettempdir(), "molstudio_orbitals")
+            os.makedirs(out_dir, exist_ok=True)
+            path = os.path.join(out_dir, "%s_%s.cub" % (spec.id, quality))
+            info = build_orbital_cube(path, spec, quality, iso_hint=True)
+        except Exception as e:                               # noqa: BLE001
+            self._append_log("[电子结构库] 轨道求值失败：%s" % e)
+            QMessageBox.warning(
+                self,
+                "电子结构库" if self._lang == "zh" else "Orbital library",
+                str(e))
+            return
+
+        self._current_cubes = [path]
+        self._push_cubes_to_canvas([path], auto_load=True, iso=iso)
+        self._apply_orbital_phase_style()
+        self._append_log(
+            "[电子结构库] %s  %s | %s 网格 %d³ | iso=%.3f | "
+            "峰值 %.4g a.u.（场已按峰值归一化，形状不变）"
+            % (spec.display_name(self._lang), spec.group_label(self._lang),
+               quality, info["n_grid"], iso, info["psi_max"]))
+
+    #: 电子结构库的相位配色，与列表缩略图严格同一套（蓝 = ψ>0，橙 = ψ<0），
+    #: 学生看图例和看画布是同一个颜色约定。
+    ORBITAL_PHASE_POS = (43, 108, 176)
+    ORBITAL_PHASE_NEG = (224, 83, 59)
+
+    @staticmethod
+    def _orbital_view_quat():
+        """等轴测斜视角的四元数：先绕 x 轴 -60°，再绕 y 轴 25°。
+
+        相机默认 ``q = (0,0,0,1)``，视线正沿 **z 轴**。于是 p_z 的两个瓣
+        一前一后完全重叠，投影成一个圆（实测画布上"只有一个灰球"，半径
+        7.44 Bohr 正好等于 2p_z 等值面沿 z 的投影半径）；d_z²、f_z³ 同样
+        看不出层状结构。载入轨道后统一给一个斜视角。
+
+        -60° 而不是 -30°：波函数沿轴向的瓣本身是"贴着节面"的两团，倾角太小
+        时投影几乎不分离（试过 -18°，两瓣叠成一个圆）；-60° 时 z 轴在屏幕
+        上仍有 sin60° ≈ 0.87 的投影长度，同时把 d_z² 的腰环让出来。
+        """
+        import math
+
+        import numpy as np
+
+        def _axis(axis, deg):
+            h = math.radians(deg) * 0.5
+            s, c = math.sin(h), math.cos(h)
+            return np.array([axis[0] * s, axis[1] * s, axis[2] * s, c])
+
+        def _mul(a, b):
+            x1, y1, z1, w1 = a
+            x2, y2, z2, w2 = b
+            return np.array([
+                w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+                w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+                w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+                w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2])
+
+        # 绕 x 轴 -60°：把 z 轴从"正对观察者"转到屏幕上明显倾斜，沿轴排列的
+        # 两个瓣才会真正分开；再绕 y 轴 25° 给一点侧向，d_z² 的圆环能看全。
+        return _mul(_axis((0, 1, 0), 25.0), _axis((1, 0, 0), -60.0))
+
+    def _apply_orbital_phase_style(self):
+        """轨道等值面专用观感：斜视角 + 蓝/橙相位 + 教学平涂 + 按网格取景。
+
+        ``_push_cubes_to_canvas()`` 统一套的是 HoukMol3d。它的等值面材质是
+        ``o_reg = [pow 0.85, diffuse 0.12, spec 0.085, sharp 0.82]``、
+        ``ambient = 0``、``orb_opacity = 0.48``、相位色近白 —— 直接光漫反射
+        只有 0.12，于是相位色被压成墨蓝 / 土棕，再叠上半透明与景深雾化，
+        白底上就是一团发灰的球（用户实测判断"完全失败"）。
+
+        这里不改全局样式（用户随时可能切回分子视图），只在送完轨道之后覆盖
+        本场景需要的四项：固有色补光、去白高光、去背面压暗、关景深雾化。
+        """
+        canvas = getattr(self, "cub_canvas", None)
+        glw = getattr(canvas, "glw", None)
+        if glw is None:
+            return
+        try:
+            glw.set_phase_colors(pos_rgb=self.ORBITAL_PHASE_POS,
+                                 neg_rgb=self.ORBITAL_PHASE_NEG)
+        except Exception:                                     # noqa: BLE001
+            pass
+        try:
+            # 必须真正不透明：OIT 半透明在白底上会把蓝/橙冲淡成灰白，
+            # 实测 0.92 不透明度下相位色几乎看不出来。
+            canvas.set_transparency(0.0)
+        except Exception:                                     # noqa: BLE001
+            pass
+        try:
+            # ambient 0.75：把固有色补回来（材质本身漫反射只有 0.12）。
+            # spec_mul 0.10：白高光点会把蓝/橙冲成灰白，教学图不需要。
+            glw.set_surface_material(ambient=0.75, spec_mul=0.10)
+        except Exception:                                     # noqa: BLE001
+            pass
+        try:
+            # 不透明表面没有被"看穿"的需求，背面压暗只会让背光侧发黑。
+            glw.set_back_dim(1.0)
+        except Exception:                                     # noqa: BLE001
+            pass
+        try:
+            # 景深雾化把远端波瓣混向白色背景 —— 2p/3d 的两瓣一前一后，
+            # 后面那瓣会被冲淡到几乎看不见。
+            glw.set_fade_enabled(False)
+        except Exception:                                     # noqa: BLE001
+            pass
+        try:
+            glw.cam.q = self._orbital_view_quat()
+        except Exception:                                     # noqa: BLE001
+            pass
+        self._frame_orbital_mesh(glw)
+        try:
+            glw.update()
+        except Exception:                                     # noqa: BLE001
+            pass
+
+    @staticmethod
+    def _frame_orbital_mesh(glw):
+        """按**等值面网格**重新取景，而不是按 cube 立方体。
+
+        ``glw.load()`` 用 ``compute_bounding_sphere(cube)`` 定相机：NATOMS = 0
+        时半径是"立方体中心到角点" = extent·√3，而波函数真正长出等值面的范围
+        通常只有 1.0·extent 上下 —— 于是物体只占画面高度的一半（实测 52%），
+        载入 4f 这种点数多、瓣薄的轨道更显得小。
+
+        这里改用 pos/neg 两张网格的顶点算半径；**中心仍取 cube 中心（原子核
+        所在处）**，否则 sp³ 这类单侧瓣的网格重心偏离原点，旋转时核会漂走。
+        """
+        import numpy as np
+
+        verts = []
+        for surf in (getattr(glw, "_pos_surf", None),
+                     getattr(glw, "_neg_surf", None)):
+            v = getattr(surf, "vertices", None)
+            if v is not None and len(v):
+                verts.append(np.asarray(v, dtype=np.float64))
+        if not verts:
+            return
+        pts = np.concatenate(verts, axis=0)
+        cam = getattr(glw, "cam", None)
+        ctr = np.asarray(getattr(cam, "ctr", (0.0, 0.0, 0.0)), dtype=np.float64)
+        try:
+            r = float(np.max(np.linalg.norm(pts - ctr, axis=1)))
+        except Exception:                                     # noqa: BLE001
+            return
+        if not np.isfinite(r) or r <= 1e-6:
+            return
+        try:
+            cam.set_center_zoom(ctr, r)
+            glw._scene_r = r      # 雾化参考尺度跟着走（本场景已关雾化）
+        except Exception:                                     # noqa: BLE001
+            pass
+
     def _library_visualize_crystal(self, entry, options):
-        """载入晶体 CIF、套用导出选项里的超胞/边框设置，再跳到晶体 tab。"""
+        """载入晶体 CIF 并套用导出选项里的超胞/边框设置（留在结构库页）。
+
+        只把结构送上画布，**不自动跳到「晶体」tab**：用户是在结构库里挑结构的，
+        挑完继续在结构库里点「导出 PowerPoint 3D」才是常见流程；需要调晶胞框
+        颜色 / 配位多面体时，再按「打开晶体 tab 调整」。
+        """
         from molstudio.core.crystal_library import crystal_path
         panel = getattr(self, "crystal_panel", None)
         if panel is None:
@@ -4400,17 +4934,99 @@ class OrbitalVisApp(QMainWindow):
                 self, "晶体", "晶体 tab 当前不可用，无法载入晶体结构。")
             return
         cif = str(crystal_path(entry))
-        if not panel.load(cif):
-            QMessageBox.warning(self, "晶体", "晶体载入失败：%s" % cif)
-            return
-        panel.chk_boundary.setChecked(bool(options.fill_boundary))
-        panel._set_reps(*options.reps(), rebuild=True)
-        panel.chk_box.setChecked(bool(options.show_cell_box))
-        self._switch_to_tab("tab_crystal")
+        # 载入会连着触发几次 structureChanged：先把「晶体 tab → 导出设置」的
+        # 回填挡住，避免它把用户刚设好的超胞中途改回 1×，最后再统一对账一次。
+        self._syncing_crystal_options = True
+        try:
+            if not panel.load(cif):
+                QMessageBox.warning(self, "晶体", "晶体载入失败：%s" % cif)
+                return
+            panel.chk_boundary.setChecked(bool(options.fill_boundary))
+            panel._set_reps(*options.reps(), rebuild=True)
+            panel.chk_box.setChecked(bool(options.show_cell_box))
+        finally:
+            self._syncing_crystal_options = False
+        # 若扩胞超过画布上限被退回，把设置里的数字改成实际生效值
+        self._mirror_crystal_state_to_library_options()
         self._append_log(
-            "[结构库] 晶体 %s → 晶体 tab（%d×%d×%d，晶胞框=%s）" %
+            "[结构库] 晶体 %s 已载入画布（%d×%d×%d，晶胞框=%s）" %
             (entry.display_name(self._lang), *options.reps(),
              "开" if options.show_cell_box else "关"))
+
+    def _on_library_crystal_options_changed(self, what="reps"):
+        """结构库「导出设置」里改了扩晶胞 / 边界补齐 → 同步到「晶体」tab。
+
+        两边是同一个结构：导出（.glb）读的是晶体 tab 里当前画到画布上的那份
+        坐标，所以这里必须让画布跟着设置一起变，否则会出现"设置里扩了 2×，
+        导出的 .glb 还是 1×1×1"。
+        """
+        panel = getattr(self, "crystal_panel", None)
+        lib = getattr(self, "library_panel", None)
+        if panel is None or lib is None or panel.crystal is None:
+            return
+        if getattr(self, "_syncing_crystal_options", False):
+            return
+        if panel.crystal.is_molecule:
+            return
+        try:
+            from molstudio.core.crystal_library import crystal_path
+            entry = lib.crystal_view.current_entry()
+            if entry is None:
+                return
+            if panel.crystal.source != crystal_path(entry).name:
+                return          # 画布上是别的晶体，不去动它
+            options = lib.options()
+            reps = tuple(options.reps())
+            fill = bool(options.fill_boundary)
+        except Exception:                                      # noqa: BLE001
+            return
+        if what == "fill":
+            if panel.chk_boundary.isChecked() == fill:
+                return
+            panel.chk_boundary.setChecked(fill)   # 触发一次 _rebuild()
+        else:
+            if panel._reps() == reps:
+                return
+            panel._set_reps(*reps, rebuild=False)
+            panel._rebuild()
+        # 画布已换（可能扩包失败被退回），把设置里的数字回填成实际生效值
+        self._mirror_crystal_state_to_library_options()
+
+    def _mirror_crystal_state_to_library_options(self):
+        """把「晶体」tab 里实际生效的超胞 / 边界补齐回填到结构库导出设置。
+
+        结构库的扩晶胞输入框只到 3×，晶体 tab 能到 6×：超过 3× 时不回填，
+        免得把用户 4× 的选择悄悄压成 3×（导出仍按晶体 tab 的实际几何走）。
+        """
+        panel = getattr(self, "crystal_panel", None)
+        lib = getattr(self, "library_panel", None)
+        if panel is None or lib is None or panel.crystal is None:
+            return
+        if getattr(self, "_syncing_crystal_options", False):
+            return
+        if panel.crystal.is_molecule:
+            return
+        try:
+            entry = lib.crystal_view.current_entry()
+            from molstudio.core.crystal_library import crystal_path
+            if entry is None or panel.crystal.source != crystal_path(entry).name:
+                return
+            reps = tuple(panel._reps())
+            if max(reps) > 3:
+                return
+            fill = bool(panel.chk_boundary.isChecked())
+            options = lib.options()
+            if tuple(options.reps()) == reps and bool(options.fill_boundary) == fill:
+                return
+            options.supercell = reps
+            options.fill_boundary = fill
+            self._syncing_crystal_options = True
+            try:
+                lib.set_options(options)
+            finally:
+                self._syncing_crystal_options = False
+        except Exception:                                      # noqa: BLE001
+            pass
 
     def _library_open_crystal_tab(self):
         self._switch_to_tab("tab_crystal")
@@ -4500,16 +5116,43 @@ class OrbitalVisApp(QMainWindow):
                            "来源：分子结构库")
 
     def _library_export_crystal(self, entry, options):
+        """结构库「导出 PowerPoint 3D」：把用户眼前这份晶体几何写成 .glb。
+
+        晶体 tab 里当前显示的就是这个晶体时，直接用它画布上的坐标 —— 用户在
+        晶体 tab 里扩过晶胞（或改过边界补齐）后，导出的 .glb 必须和画布上的
+        超胞一致，而不是回到「导出设置」里那个旧数字。只有在画布上是别的
+        结构时，才按条目 + 导出选项重新展开一遍。
+        """
         from molstudio.core.bonding import crystal_bond_pairs
         from molstudio.core.crystal_library import crystal_geometry
-        try:
-            symbols, coords, corners, _crystal = crystal_geometry(
-                entry, supercell=options.reps(),
-                fill_boundary=options.fill_boundary,
-                with_cell_box=options.show_cell_box)
-        except Exception as exc:                              # noqa: BLE001
-            QMessageBox.warning(self, "PPT 3D", "晶体展开失败：%s" % exc)
-            return
+        panel = getattr(self, "crystal_panel", None)
+        symbols = coords = corners = None
+        reps = options.reps()
+        same_crystal = False
+        if (panel is not None and panel.crystal is not None
+                and not panel.crystal.is_molecule and panel._atoms):
+            try:
+                from molstudio.core.crystal_library import crystal_path
+                same_crystal = (panel.crystal.source
+                                == crystal_path(entry).name)
+            except Exception:                                 # noqa: BLE001
+                same_crystal = False
+        if same_crystal:
+            reps = tuple(panel._reps())
+            symbols = [str(atom[1]) for atom in panel._atoms]
+            coords = [[float(v) for v in atom[3]] for atom in panel._atoms]
+            if options.show_cell_box:
+                corners = [[float(v) for v in c]
+                           for c in panel.crystal.cell_corners()]
+        else:
+            try:
+                symbols, coords, corners, _crystal = crystal_geometry(
+                    entry, supercell=options.reps(),
+                    fill_boundary=options.fill_boundary,
+                    with_cell_box=options.show_cell_box)
+            except Exception as exc:                          # noqa: BLE001
+                QMessageBox.warning(self, "PPT 3D", "晶体展开失败：%s" % exc)
+                return
         # 显式给出第一配位壳层键表：导出器默认的共价半径判据会把 NaCl 的
         # Na-Na 次近邻也连成键，PPT 里的 3D 晶胞会与画布不一致。
         bonds = [(i + 1, j + 1)
@@ -4528,7 +5171,7 @@ class OrbitalVisApp(QMainWindow):
             return
         self._ppt3d_report(
             path, options, surfaces, legend, cell_box,
-            "来源：晶体结构库 %d×%d×%d" % options.reps())
+            "来源：晶体结构库 %d×%d×%d" % reps)
 
     def _export_current_ppt3d(self):
         """工具栏 PPT 3D：先确认导出参数（含晶胞边框），再写出 GLB。"""
@@ -4888,12 +5531,29 @@ class OrbitalVisApp(QMainWindow):
     def _get_canvas_structure(self):
         """把左侧画布当前分子读成 (symbols, coords/Å)，供「位阻地图」等面板使用。
 
-        优先读 MolCanvas 的原子表（``(序号, 元素符号, 原子序数, (x,y,z))``，Å）；
-        MolCanvas 为空时回退到 OpenGL 画布内部坐标（Bohr → Å）。返回 ``None``
+        优先读 OpenGL 画布内部坐标（Bohr → Å）——那才是用户眼睛看到的、
+        **当前**那份结构：晶体 tab 扩晶胞后只更新 OpenGL 画布，隐藏的
+        MolCanvas 原子表不会跟着变，先读它会把旧结构（甚至上一次载入的
+        分子）当成当前结构导出。OpenGL 画布不可用时回退到 MolCanvas 的
+        原子表（``(序号, 元素符号, 原子序数, (x,y,z))``，Å）。返回 ``None``
         表示画布上还没有结构。
         """
         import numpy as np
 
+        # OpenGL 画布（画布内部把坐标存成 Bohr）
+        glw = getattr(self, "cub_canvas", None)
+        glw = getattr(glw, "glw", None)
+        if glw is not None:
+            try:
+                from molstudio.core.surface_projection import atoms_from_canvas
+                got = atoms_from_canvas(glw)
+                if got is not None:
+                    syms, xyz = got
+                    if syms:
+                        return list(syms), np.asarray(xyz, dtype=float)
+            except Exception:                                 # noqa: BLE001
+                pass
+        # 回退：MolCanvas 原子表
         atoms = getattr(self, "mol_canvas", None)
         atoms = getattr(atoms, "atoms", None) or []
         symbols, coords = [], []
@@ -4906,19 +5566,6 @@ class OrbitalVisApp(QMainWindow):
                 return None
         if symbols:
             return symbols, np.asarray(coords, dtype=float)
-        # 回退：OpenGL 画布内部把坐标存成 Bohr
-        glw = getattr(self, "cub_canvas", None)
-        glw = getattr(glw, "glw", None)
-        if glw is not None:
-            try:
-                from molstudio.core.surface_projection import atoms_from_canvas
-                got = atoms_from_canvas(glw)
-                if got is not None:
-                    syms, xyz = got
-                    if syms:
-                        return list(syms), np.asarray(xyz, dtype=float)
-            except Exception:
-                pass
         return None
 
     def _apply_xtb_structure(self, symbols, coords, label=""):
@@ -5359,8 +6006,12 @@ class OrbitalVisApp(QMainWindow):
         except (ValueError, AttributeError):
             return 0.05
 
-    def _push_cubes_to_canvas(self, cubes, auto_load=True):
-        """生成/载入 cube 后，把列表送进左侧画布并自动渲染第一个。"""
+    def _push_cubes_to_canvas(self, cubes, auto_load=True, iso=None):
+        """生成/载入 cube 后，把列表送进左侧画布并自动渲染第一个。
+
+        ``iso`` 为空时用画布默认等值面；轨道权重福井函数等量级很小的函数
+        （OW f/Δf 的典型值 1e-4~1e-2）由调用方传入按 cube 数据推算的值。
+        """
         if not self._canvas_ready() or not cubes:
             return
         paths = []
@@ -5374,7 +6025,7 @@ class OrbitalVisApp(QMainWindow):
         try:
             self.cub_canvas.set_cube_list(paths, auto_load=False)
             if auto_load:
-                iso = self._canvas_iso()
+                iso = self._canvas_iso() if iso is None else float(iso)
                 # 先套 HoukMol3d 一键观感，再载入 cube（keep_style=True：不让
                 # load_cube 用面板「等值面配色」下拉覆盖相位色）。
                 # 顺序很关键：等值面网格在后台线程算、颜色在发起计算时就烘焙进
@@ -5394,6 +6045,72 @@ class OrbitalVisApp(QMainWindow):
                 ])
         except Exception as e:
             self._append_log(f"[画布] 加载失败: {e}")
+
+    def _show_owf_cube(self, path, iso=None):
+        """把轨道权重福井函数/双描述符的 cube 显示到左侧画布。
+
+        ``iso`` 由面板用 ``ow_fukui.suggest_iso`` 按 cube 数值量级推算
+        （OW f/Δf 的等值面常用 1e-4~1e-2 a.u.）。**不能走
+        ``_push_cubes_to_canvas``/``CubCanvasPanel.set_isovalue``**：那里为了
+        轨道 cube 把等值面下限卡在 0.005，OW 函数会被整块钳掉，画布上什么也
+        看不到（实测 C60 Δf_w 用 0.0003 时全空）。这里直接调 ``glw.load`` 并把
+        画布 iso 控件同步成实际值（滑块只覆盖 0.001~2.0，更小的值只显示在输入
+        框里，OW 页自己的等值面控件才是主控）。
+        """
+        if not path or not os.path.isfile(path):
+            return
+        if not self._canvas_ready():
+            return
+        canvas = self.cub_canvas
+        glw = getattr(canvas, "glw", None)
+        if glw is None:
+            return
+        if iso is None:
+            iso = self._canvas_iso()
+        try:
+            iso = max(1e-6, float(iso))
+        except (TypeError, ValueError):
+            iso = 0.0003
+        try:
+            canvas.set_cube_list([path], auto_load=False)
+        except Exception:
+            pass
+        try:
+            canvas._apply_houkmol3d_style()
+        except Exception:
+            pass
+        try:
+            loaded = glw.load(path, iso)
+        except Exception as exc:                                   # noqa: BLE001
+            self._append_log(f"[画布] OW-Fukui 等值面加载失败: {exc}")
+            return
+        if not loaded:
+            self._append_log("[画布] OW-Fukui 等值面加载失败")
+            return
+        # 同步画布自己的 iso 控件（输入框允许 6 位小数，滑块钳到可表示范围）
+        try:
+            canvas._loaded_path = path
+            edit = getattr(canvas, "_iso_edit", None)
+            if edit is not None:
+                edit.blockSignals(True)
+                edit.setText(("%.6f" % iso).rstrip("0").rstrip("."))
+                edit.blockSignals(False)
+            sld = getattr(canvas, "_iso_sld", None)
+            if sld is not None:
+                sld.blockSignals(True)
+                try:
+                    value = int(round(min(max(iso, sld.minimum() / 1000.0),
+                                          2.0) * 1000))
+                except Exception:
+                    value = sld.minimum()
+                sld.setValue(max(sld.minimum(), min(sld.maximum(), value)))
+                sld.blockSignals(False)
+        except Exception:
+            pass
+        try:
+            glw.set_vmd_scene([{"type": "orbital", "vol": path, "iso": iso}])
+        except Exception:
+            pass
 
     def _gl_preview(self):
         """在左侧内嵌画布中预览轨道。"""
@@ -5592,15 +6309,7 @@ class OrbitalVisApp(QMainWindow):
         if hasattr(self, 'worker') and self.worker.isRunning():
             self.worker.stop()
 
-    def closeEvent(self, event):
-        """主窗口退出前关闭无 parent 的 VMD 控制台窗口，避免孤儿窗口。"""
-        try:
-            self._close_vmd_console()
-        except Exception:
-            pass
-        super().closeEvent(event)
-
-    # ── Hydrogen Filter ──
+    # ── 氢原子过滤 ──
 
     def _toggle_h_filter(self):
         if not self.vmd_port:

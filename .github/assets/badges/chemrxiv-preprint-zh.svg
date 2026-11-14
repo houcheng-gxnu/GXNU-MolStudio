@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="116" height="20" role="img" aria-label="ChemRxiv: 预印本">
+  <title>ChemRxiv: 预印本</title>
+  <linearGradient id="s" x2="0" y2="100%">
+    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+    <stop offset="1" stop-opacity=".1"/>
+  </linearGradient>
+  <clipPath id="r">
+    <rect width="116" height="20" rx="3" fill="#fff"/>
+  </clipPath>
+  <g clip-path="url(#r)">
+    <rect width="70" height="20" fill="#555"/>
+    <rect x="70" width="46" height="20" fill="#007ec6"/>
+    <rect width="116" height="20" fill="url(#s)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,DejaVu Sans,Microsoft YaHei,PingFang SC,sans-serif" font-size="11">
+    <text x="35" y="15" fill="#010101" fill-opacity=".3">ChemRxiv</text>
+    <text x="35" y="14">ChemRxiv</text>
+    <text x="93" y="15" fill="#010101" fill-opacity=".3">预印本</text>
+    <text x="93" y="14">预印本</text>
+  </g>
+</svg>

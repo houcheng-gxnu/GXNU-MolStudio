@@ -110,6 +110,8 @@ ICON_ACCENT = "#2F6FED"     # 选中态图标色
 NAV_ICONS = {
     "tab_viz": "orbital",
     "tab_setup": "chart",
+    "tab_lmo": "sigma",        # 轨道定域化（LMO）
+    "tab_ow_fukui": "target",  # 轨道权重福井函数 / 双描述符（反应位点）
     "tab_charge_bond": "bond",
     "tab_nbo": "atom",
     "tab_esp": "wave",

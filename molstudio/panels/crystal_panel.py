@@ -107,6 +107,8 @@ class CrystalPanel(QWidget):
         self._atoms = None
         self._applied_reps = (1, 1, 1)
         self._active = False
+        # 结构库页也会把晶体显示在画布上：那一页虽然本面板不可见，仍要画晶胞框
+        self._overlay_page_active = False
         self._overlay_installed = False
         self._build_ui()
         self._install_overlay()
@@ -301,9 +303,17 @@ class CrystalPanel(QWidget):
         if self.glw is not None:
             self.glw.update()
 
-    # ── 晶胞框叠加（只在"本面板可见 + 画布上是我们的结构"时画）──
+    # ── 晶胞框叠加（只在"本面板可见 / 结构库页 + 画布上是我们的结构"时画）──
+    def set_overlay_page_active(self, on):
+        """结构库页也会把晶体画在画布上：该页也算「晶体可见」。"""
+        on = bool(on)
+        if self._overlay_page_active == on:
+            return
+        self._overlay_page_active = on
+        self._refresh_canvas()
+
     def _box_corners(self):
-        if (self.crystal is None or not self._active
+        if (self.crystal is None or not (self._active or self._overlay_page_active)
                 or not self.chk_box.isChecked() or self._atoms is None):
             return None
         # 画布上的分子被别的面板换掉了（原子数不一致）→ 不画框，免得框错结构

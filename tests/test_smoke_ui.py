@@ -58,6 +58,16 @@ def test_nav_and_tabs():
         assert w.dos_panel is not None, "态密度面板未加载"
         assert "tab_edd" in w._tab_keys, w._tab_keys
         assert w.edd_panel is not None, "电子密度差面板未加载"
+        # 轨道定域化（LMO）必须作为独立功能页接进主窗口，且紧跟在「轨道」页后面
+        assert "tab_lmo" in w._tab_keys, w._tab_keys
+        assert w.lmo_panel is not None, "轨道定域化面板未加载"
+        assert (w._tab_keys.index("tab_lmo")
+                == w._tab_keys.index("tab_setup") + 1), w._tab_keys
+        # 轨道权重福井函数 / 双描述符页：必须接进主窗口，且紧跟「电子密度差」页
+        assert "tab_ow_fukui" in w._tab_keys, w._tab_keys
+        assert w.ow_fukui_panel is not None, "轨道权重福井函数面板未加载"
+        assert (w._tab_keys.index("tab_ow_fukui")
+                == w._tab_keys.index("tab_edd") + 1), w._tab_keys
         assert "tab_di" in w._tab_keys, w._tab_keys
         assert w.di_panel is not None, "DI 分析面板未加载"
         assert w.btn_molecule_library.text()
@@ -141,6 +151,23 @@ def test_language_and_style_switch():
         w.hide()
 
 
+def test_close_event_stops_lmo_panel():
+    """关窗必须真的调用 LMOPanel.shutdown()。
+
+    回归：main_window.py 里曾有两个同名 closeEvent 定义，后者覆盖前者，
+    导致所有面板/线程的 shutdown 都不执行（2026-11 独立评审发现）。
+    """
+    w = _window()
+    called = []
+    try:
+        w.lmo_panel.shutdown = lambda: called.append(True)
+        w.close()
+        _pump(120)
+    finally:
+        w.hide()
+    assert called, "OrbitalVisApp.closeEvent 没有调用 lmo_panel.shutdown()"
+
+
 def test_startup_poem_is_framed_and_centered():
     """启动诗词：整块字符框、框内居中，且居中格式不泄漏到后面的日志行。"""
     os.environ["MOLSTUDIO_POEM"] = "咏梅"      # 固定一首，内容才可预期
@@ -172,3 +199,36 @@ def test_startup_poem_is_framed_and_centered():
             w.hide()
     finally:
         os.environ.pop("MOLSTUDIO_POEM", None)
+
+
+def test_run_log_dock_below_canvas():
+    """运行日志是画布下方的可折叠控制台，不再占右侧一个页签位。
+
+    原来它是右栏的一个页签：看日志要先切页，切走还会把参数面板顶掉。
+    现在挂在左栏、画布正下方，收起后高度还给画布。
+    """
+    w = _window()
+    try:
+        assert "tab_log" not in w._tab_keys, "日志仍是右侧页签"
+        assert all(w.tabs.widget(i) is not w.log_text
+                   for i in range(w.tabs.count()))
+        dock = getattr(w, "log_dock", None)
+        assert dock is not None, "没有建画布下方的日志区"
+        assert dock.parentWidget() is w._left_widget, "日志区不在左栏（画布那一列）"
+        if w.cub_canvas is None:
+            return
+        top = dock.mapTo(w, dock.rect().topLeft()).y()
+        bottom = w.cub_canvas.mapTo(w, w.cub_canvas.rect().bottomLeft()).y()
+        assert top >= bottom - 2, "日志区被排到画布上面去了"
+
+        h0 = w.cub_canvas.height()
+        w._toggle_log_dock(True)
+        _pump(80)
+        assert not w.log_text.isVisible(), "折叠后日志正文还在"
+        assert w.cub_canvas.height() > h0, "折叠后画布没拿回高度"
+        w._toggle_log_dock(False)
+        _pump(80)
+        assert w.log_text.isVisible(), "展开后日志正文没回来"
+        assert w.log_text.height() > 40
+    finally:
+        w.close()

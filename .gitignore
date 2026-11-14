@@ -78,6 +78,19 @@ dsh_dates.txt
 debug-vdw-shell-bond-black.md
 color_wheel_demos.py
 
+# 本地生成产物 / 第三方依赖 / 演示文件（不入库）
+/node_modules/
+/outputs/
+/.dsh-office-*/
+/gaussian_bench/
+*.mp4
+*.pptx
+/screenshots/*
+/tools/build_co2_application.py
+/tools/build_co2_summary.mjs
+/tools/inspect_docx_structure.py
+/tools/set_xlsx_active_tab.ps1
+
 # 面板设置（含本机路径，不入库）
 irc_panel_settings.ini
 di_panel_settings.ini

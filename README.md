@@ -1,11 +1,11 @@
 <h1 align="center">GXNU MolStudio</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0-blue.svg" alt="Version 1.0">
-  <img src="https://img.shields.io/badge/python-3.8+-green.svg" alt="Python 3.8+">
-  <img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="GPLv3 License">
-  <a href="https://doi.org/10.5281/zenodo.22821586"><img src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22821586-blue.svg" alt="DOI"></a>
-  <a href="https://doi.org/10.26434/chemrxiv.15009253/v2"><img src="https://img.shields.io/badge/ChemRxiv-preprint-informational.svg" alt="ChemRxiv preprint"></a>
+  <img src=".github/assets/badges/version-1.0.svg" height="20" alt="Version 1.0">
+  <img src=".github/assets/badges/python-3.8-plus.svg" height="20" alt="Python 3.8+">
+  <img src=".github/assets/badges/license-gplv3.svg" height="20" alt="GPLv3 License">
+  <a href="https://doi.org/10.5281/zenodo.22821586"><img src=".github/assets/badges/zenodo-doi.svg" height="20" alt="DOI: 10.5281/zenodo.22821586"></a>
+  <a href="https://doi.org/10.26434/chemrxiv.15009253/v2"><img src=".github/assets/badges/chemrxiv-preprint.svg" height="20" alt="ChemRxiv preprint"></a>
 </p>
 
 <p align="center">
@@ -118,15 +118,40 @@ What is integrated today: **reading** Gaussian / Multiwfn inputs and outputs (fc
   phosphorescence band position is meaningful while its intensity is explicitly
   normalised.
 - **Orbital browser** — orbital energies, occupations, HOMO/LUMO labels; double-click to generate a cube
+- **Orbital localization (LMO)** — drives Multiwfn main function 19 to localize the
+  loaded `.fchk` by Pipek–Mezey (Mulliken / Löwdin / Becke) or Foster–Boys; a table lists
+  each LMO with energy, occupation, single-/two-/multi-center assignment, Hirshfeld
+  composition and centre, and double-clicking an LMO caches its cube on the canvas.
+  Optional LMO energies (from MOs or a supplied Fock matrix), LMO centres/dipoles and
+  open-shell α/β are supported; produces `<stem>_LMO.fch`, `_LMOcen.txt`, `_LMOdip.txt`
+  and a full log, and can reopen the LMO wavefunction in the MO table.
+- **Default UI (reference layout)** — top toolbar (open / snapshot / save image /
+  measure / reset view / language / settings), grouped left sidebar, central 3D
+  view, a dedicated right-hand “Properties” tab (next to Settings / Citations,
+  with a load-and-refresh button and molecular/energy cards), bottom “Run log /
+  Calculation output / Errors” tabs, and a status bar with version / status /
+  CPU / memory. The “Tools ▾” button under the canvas expands four tool cards
+  (render style, display, measure & analysis, file export)
+- **Local ORCA calculation (Favorites tab)** — open “Favorites → ORCA” in the
+  left sidebar; parameters sit in the right-hand settings area. It reads the
+  main-window canvas / gjf structure, builds ORCA inputs (Opt / Freq /
+  OptTS+Freq / IRC / TD-DFT / CPCM / SMD / D3BJ), runs locally, parses energy /
+  HOMO / LUMO / frequencies, and auto-converts `.gbw → .molden.input → .fchk`
+  (Multiwfn) so existing fchk-based analysis pages can read ORCA results
 - **ESP electrostatic potential** — isosurface + extrema labels + color scale bar
 - **NBO analysis** — bond orders, occupations, second-order perturbation E(2) orbital pairs
 - **Charge analysis** — Mulliken / fitted charges with bond-order visualization
 - **IRC analysis** — track Mayer bond orders and atomic charges along an IRC path, showing each structure live in the shared canvas
-- **Distortion–Interaction (DI) analysis** — chart-left/results-right layout:
-  the original energy-step and decomposition-bar plots remain together in the
-  upper analysis area. Five Gaussian logs load below them on the left; the
-  calculation controls, results table and export actions stay together on the
-  right.
+- **Distortion–Interaction (DI) analysis** — the “Local workflow…” button opens
+  a dedicated popup: load the transition-state log, shift-drag a box on the embedded
+  structure canvas to split the complex into two fragments (click atoms to toggle
+  membership, or auto-detect from bond connectivity). One click writes four
+  Gaussian inputs — single points of both fragments at the TS geometry plus
+  fragment optimizations, with method/basis and setup keywords copied from the
+  TS log route — runs them locally with g16, then loads the five logs back on the
+  DI page and plots ΔE_strain / ΔE_int / ΔE‡ (energy-step + decomposition-bar
+  charts). Loading five existing logs manually is still supported; result table,
+  PNG/HTML export and settings persistence are unchanged.
 - **Energetic Span Model (ESM)** — catalytic-cycle analysis: identify TDI/TDTS, compute the energy span δE and TOF, step-shaped energy profiles
 - **AIM topology** — QTAIM bond critical points and bond paths from `.wfn` / `.wfx` / fchk input
 - **Charge & Mayer bond order** — combined charge-population and bond-order analysis
@@ -172,6 +197,18 @@ What is integrated today: **reading** Gaussian / Multiwfn inputs and outputs (fc
   `ρ(parent) − Σρ(fragment)`, exports the cube, and MolStudio displays positive
   and negative density regions with independent colors, isovalue/opacity
   controls and VMD scene registration.
+- **Orbital-weighted Fukui function (OW-Fukui)** — predicts nucleophilic and
+  electrophilic attack sites for frontier-orbital (quasi-)degenerate systems
+  (C60, 18-carbon ring, …) following sobereva.com/533: drives Multiwfn main
+  function 22 to build the orbital-weighted f_w+ / f_w− / f_w0 and the dual
+  descriptor Δf_w. The Δ parameter (default 0.1 Hartree) is adjustable; the four
+  functions are shown as isosurfaces on the canvas and exported as
+  `<stem>_OW_f+.cub`, `<stem>_OW_f-.cub`, `<stem>_OW_f0.cub` and
+  `<stem>_OW_DD.cub`, while the
+  Hirshfeld condensed OW values are tabulated (CSV export), together with the
+  orbital weights of the ten most important occupied / virtual orbitals.
+  Closed-shell single-determinant wavefunctions that contain virtual orbitals
+  only; diffuse functions are discouraged.
 - **AICD induced current** — reads the tensor dump written by Gaussian
   `nmr=csgt iop(10/93=1|2)` and renders the classic AICD figure (yellow
   anisotropy isosurface + green-shaft/red-head current-density arrows + field
@@ -235,19 +272,30 @@ On first launch, browse and select the Multiwfn path (and others) in the GUI ⚙
 python main.py
 ```
 
-The GUI ships with four interchangeable layouts — same features, different chrome:
+The GUI ships with seven interchangeable layouts — same features, different chrome.
+**Classic blue theme + grouped sidebar is the default** (2026-11-12):
 
 | `--ui` | Layout | Source |
 |---|---|---|
-| *(default)* / `classic` | classic three-column | `main_window.py` |
+| *(default)* / `classic_nav` | **Classic blue theme, grouped sidebar**: everything from classic (blue section badges, 设置/引文 tabs), only the flat 27-item nav is replaced by 6 collapsible groups | `main_window_classic_nav.py` |
+| `classic` | pure classic three-column (flat nav, behaviour unchanged) | `main_window.py` |
+| `focus` | **Focus cards (kept as an alternative)**: light-grey rounded cards, grouped sidebar, unified type scale | `main_window_focus.py` |
+| `studio` | Studio full interface: grouped sidebar, single-line top bar, canvas-first | `main_window_studio.py` |
 | `clean` | Clean Light cards | `main_window_clean.py` |
 | `clean2` | Bridge cards | `main_window_clean2.py` |
 | `canvas` | **canvas-first**: 58 px icon rail, collapsible right drawer, one-click styles in a dropdown | `main_window_canvas_first.py` |
 
 ```bash
-python main.py --ui canvas            # or: MOLSTUDIO_UI=canvas python main.py
-python main_window_canvas_first.py    # standalone, same result
+python main.py                        # classic blue + grouped sidebar (default)
+python main.py --ui classic           # pure classic
+python main.py --ui focus             # grey Focus cards (still available)
+python main.py --ui studio            # full interface; or MOLSTUDIO_UI=studio python main.py
 ```
+
+In the default layout: `Ctrl+K` searches all tools and `Ctrl+B` collapses the
+sidebar to a 56 px rail. In Focus: additionally `Ctrl+I` toggles the inspector
+drawer and `Ctrl+Shift+F` switches Focus / full on the fly. See
+`docs/CLASSIC_NAV_UI.md` and `docs/FOCUS_UI.md`.
 
 ### Command-line mode (batch)
 
@@ -363,7 +411,7 @@ Hou, C. GXNU MolStudio: An Integrated Open-Source Platform for Molecular Visuali
 
 **Software archive (this release):**
 
-[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22821586-blue.svg)](https://doi.org/10.5281/zenodo.22821586)
+[![DOI](.github/assets/badges/zenodo-doi.svg)](https://doi.org/10.5281/zenodo.22821586)
 
 ```bibtex
 @software{GXNUMolStudio2026,

@@ -24,13 +24,20 @@ from molstudio.ui.main_window import OrbitalVisApp
 
 
 # ── 界面风格选择 ─────────────────────────────────────────────────────────
-#   --ui clean      → Clean Light 卡片界面（main_window_clean.py）
-#   --ui clean2     → Bridge 卡片界面（main_window_clean2.py，xTBridge Lite 风）
-#   --ui canvas     → 画布优先界面（main_window_canvas_first.py：图标 rail +
-#                     可收起抽屉 + 样式下拉；2026-09-27 新增）
-#   --ui classic    → 原来的界面（默认，行为与以前完全一致）
+#   --ui classic_nav → 经典蓝色主题 + 分级侧栏（main_window_classic_nav.py；
+#                      2026-11-12 新增，**默认**：整体回到经典蓝色版，只把左侧
+#                      tab 换成 Studio 的分组导航）
+#   --ui classic     → 原来的界面（行为与以前完全一致，不分级）
+#   --ui focus       → Focus 灰色卡片主题（main_window_focus.py：圆角卡片分层 +
+#                      展开分组侧栏 + 统一字号行距；2026-11-11 新增，**保留备用**）
+#   --ui studio      → Studio 完整界面（main_window_studio.py：分组侧栏 + 单行顶栏 +
+#                      画布优先 + 检查器；2026-11-11 新增）
+#   --ui clean       → Clean Light 卡片界面（main_window_clean.py）
+#   --ui clean2      → Bridge 卡片界面（main_window_clean2.py，xTBridge Lite 风）
+#   --ui canvas      → 画布优先界面（main_window_canvas_first.py：图标 rail +
+#                      可收起抽屉 + 样式下拉；2026-09-27 新增）
 #   环境变量 MOLSTUDIO_UI 可作为默认值（--ui 优先级更高）
-#   `python main_window_clean.py` 就是给自己设上 MOLSTUDIO_UI=clean 再走这里。
+#   Focus 里按 Ctrl+Shift+F 可在 Focus / 完整界面之间即时切换，不必重启。
 def _pick_ui():
     val = os.environ.get("MOLSTUDIO_UI", "").strip().lower()
     argv = sys.argv
@@ -41,11 +48,30 @@ def _pick_ui():
             del argv[i:i + 2]          # 摘掉，免得干扰批处理模式的 argparse
         else:
             del argv[i]
-    return val if val in ("clean", "clean2", "canvas", "classic") else ""
+    valid = ("classic_nav", "classic", "focus", "studio",
+             "clean", "clean2", "canvas")
+    return val if val in valid else "classic_nav"
 
 
 def _make_window(ui):
     """按选择构造主窗口；新界面加载失败时自动回退到经典界面。"""
+    if ui == "classic_nav":
+        try:
+            from molstudio.ui.main_window_classic_nav import (
+                MolStudioClassicNavWindow)
+            return MolStudioClassicNavWindow()
+        except Exception as e:
+            import traceback
+            print(f"[ui] 分级经典界面加载失败，回退到经典界面：{e}")
+            traceback.print_exc()
+    if ui == "focus":
+        try:
+            from molstudio.ui.main_window_focus import MolStudioFocusWindow
+            return MolStudioFocusWindow()
+        except Exception as e:
+            import traceback
+            print(f"[ui] 极简界面加载失败，回退到经典界面：{e}")
+            traceback.print_exc()
     if ui == "clean":
         try:
             from molstudio.ui.main_window_clean import MolStudioCleanWindow
@@ -69,6 +95,14 @@ def _make_window(ui):
         except Exception as e:
             import traceback
             print(f"[ui] 画布优先界面加载失败，回退到经典界面：{e}")
+            traceback.print_exc()
+    if ui == "studio":
+        try:
+            from molstudio.ui.main_window_studio import MolStudioStudioWindow
+            return MolStudioStudioWindow()
+        except Exception as e:
+            import traceback
+            print(f"[ui] Studio 界面加载失败，回退到经典界面：{e}")
             traceback.print_exc()
     return OrbitalVisApp()
 

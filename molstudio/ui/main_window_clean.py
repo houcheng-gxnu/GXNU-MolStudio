@@ -98,6 +98,8 @@ ICON_ACCENT = "#1D4ED8"     # 选中态图标色
 NAV_ICONS = {
     "tab_viz": "orbital",
     "tab_setup": "chart",
+    "tab_lmo": "sigma",        # 轨道定域化（LMO）
+    "tab_ow_fukui": "target",  # 轨道权重福井函数 / 双描述符（反应位点）
     "tab_charge_bond": "bond",
     "tab_nbo": "atom",
     "tab_esp": "wave",
@@ -220,6 +222,13 @@ QFrame#NavCard, QFrame#RightCard, QWidget#CanvasCard {
     background-color: %(bg_card)s;
     border: 1px solid %(line)s;
     border-radius: %(card_r)dpx;
+}
+
+/* 结构库页隐藏了外层「设置 / 引文」页签栏，右卡顶边会变成一条孤立的横线：
+   主窗口在结构库页给卡片打 flatTop 属性，这里去掉顶边（见 theme.LIGHT_QSS
+   同名规则）。 */
+QFrame#RightCard[flatTop="true"] {
+    border-top: none;
 }
 
 /* ═══════════════ 分组框 → 无边框分区标题 ═══════════════

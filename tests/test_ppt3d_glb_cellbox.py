@@ -118,8 +118,8 @@ def test_library_export_passes_live_options():
     assert opt.cell_box_spec([[0, 0, 0]] * 8) is None
 
 
-def test_library_page_has_four_tabs_on_one_row():
-    """Exactly one tab bar with four sibling tabs; no nested tab widget."""
+def test_library_page_tabs_on_one_row():
+    """Exactly one tab bar with five sibling tabs; no nested tab widget."""
     import os
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PyQt5.QtWidgets import QApplication, QTabWidget
@@ -130,11 +130,12 @@ def test_library_page_has_four_tabs_on_one_row():
     tab_widgets = panel.findChildren(QTabWidget)
     assert len(tab_widgets) == 1, "nested tab widgets are back"
     tabs = panel.sub_tabs
-    assert tabs.count() == 4
-    titles = [tabs.tabText(i) for i in range(4)]
-    assert titles == ["🧪 分子结构库", "💎 晶体结构库",
-                      "⚙ 导出设置", "📖 引文"]
-    assert tabs.tabBar().count() == 4
+    # 2026-11-12：多了第 5 页「电子结构」（原子/杂化轨道），且页签名去掉 emoji
+    # —— 带 emoji 时 tabbar 总宽 780+，第 5 个页签会被挤进滚动箭头。
+    assert tabs.count() == 5
+    titles = [tabs.tabText(i) for i in range(5)]
+    assert titles == ["分子库", "晶体库", "电子结构", "导出设置", "引文"]
+    assert tabs.tabBar().count() == 5
     assert tabs.tabBar().usesScrollButtons()
     assert panel.findChildren(QTabWidget) == [tabs]
     # 标题 / 副标题两行说明已移除；页签不再自带小字体 QSS，
@@ -167,8 +168,8 @@ def test_library_page_has_four_tabs_on_one_row():
     assert "COD" in panel.lbl_current_source.text()
 
     panel.set_language("en")
-    assert [panel.sub_tabs.tabText(i) for i in range(4)] == [
-        "🧪 Molecules", "💎 Crystals", "⚙ Export settings", "📖 Citation"]
+    assert [panel.sub_tabs.tabText(i) for i in range(5)] == [
+        "Molecules", "Crystals", "Orbitals", "Export", "Citation"]
     assert "教学" not in panel.txt_citation.toPlainText()
 
 
@@ -183,7 +184,7 @@ def test_library_page_has_only_one_visible_tab_bar():
     win = OrbitalVisApp()
     try:
         bar = win.right_tabs.tabBar()
-        assert win.library_panel.sub_tabs.count() == 4
+        assert win.library_panel.sub_tabs.count() == 5
         win._switch_to_tab("tab_library")
         assert bar.isHidden(), "外层全局页签栏仍显示，结构库成了两层 tab"
         assert win.right_tabs.currentIndex() == 0
@@ -195,4 +196,101 @@ def test_library_page_has_only_one_visible_tab_bar():
         win._switch_to_tab("tab_library")
         assert bar.isHidden()
     finally:
+        win.close()
+
+
+def test_library_page_hides_the_line_above_its_tabs():
+    """页签栏隐藏后，右侧白卡的顶边会孤立地压在结构库页签上方 —— 必须去掉。
+
+    做法是给 RightCard 打 flatTop 属性（QSS 选择器去掉顶边）；切回其它功能页
+    时属性摘掉，白卡的顶边恢复（那些页面上它位于全局页签栏下方，是正常边框）。
+    """
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt5.QtWidgets import QApplication
+    from molstudio.ui.main_window import OrbitalVisApp
+
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    win = OrbitalVisApp()
+    try:
+        win._switch_to_tab("tab_library")
+        assert bool(win.right_card.property("flatTop")) is True
+        other = next(k for k in win._tab_keys if k != "tab_library")
+        win._switch_to_tab(other)
+        assert bool(win.right_card.property("flatTop")) is False
+        win._switch_to_tab("tab_library")
+        assert bool(win.right_card.property("flatTop")) is True
+    finally:
+        win.close()
+
+
+def test_library_crystal_load_stays_on_the_library_page():
+    """「载入并可视化」只把晶体放上画布，不再自动跳到「晶体」tab。"""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt5.QtWidgets import QApplication
+    from molstudio.ui.main_window import OrbitalVisApp
+
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    win = OrbitalVisApp()
+    try:
+        win._switch_to_tab("tab_library")
+        panel = win.library_panel
+        panel.sub_tabs.setCurrentIndex(1)
+        panel._visualize_current()
+        assert win._tab_keys[win.tabs.currentIndex()] == "tab_library"
+        assert win.crystal_panel is not None
+        assert win.crystal_panel.crystal is not None
+        assert win.crystal_panel._atoms
+    finally:
+        win.close()
+
+
+def test_library_crystal_export_uses_the_expanded_supercell():
+    """晶体 tab 里扩过晶胞后，结构库导出的 .glb 必须也是扩包后的结构。"""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt5.QtWidgets import QApplication
+    from molstudio.core.crystal_library import crystal_geometry
+    from molstudio.ui.main_window import OrbitalVisApp
+    import molstudio.core.molecule_export as molecule_export
+
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    win = OrbitalVisApp()
+    captured = {}
+
+    def fake_export_glb(path, symbols, coords, **kwargs):
+        captured["symbols"] = list(symbols)
+        captured["coords"] = [list(c) for c in coords]
+
+    old_export = molecule_export.export_glb
+    molecule_export.export_glb = fake_export_glb
+    win._ppt3d_save_path = lambda stem, start_dir=None: "unused.glb"
+    win._ppt3d_report = lambda *a, **k: None
+    try:
+        win._switch_to_tab("tab_library")
+        panel = win.library_panel
+        panel.sub_tabs.setCurrentIndex(1)
+        panel._visualize_current()
+        entry = panel.crystal_view.current_entry()
+        assert entry is not None
+        unit_cell_atoms = len(crystal_geometry(entry)[0])
+
+        # 在「晶体」tab 里扩到 2×1×1（设置里也会同步显示成 2×1×1）
+        win.crystal_panel._set_reps(2, 1, 1, rebuild=True)
+        assert tuple(panel.options().supercell) == (2, 1, 1)
+
+        panel._export_current()
+        assert captured["symbols"], "没有写出 .glb"
+        assert len(captured["symbols"]) == len(win.crystal_panel._atoms)
+        assert len(captured["symbols"]) > unit_cell_atoms
+
+        # 反过来：在结构库「导出设置」里改扩晶胞，画布也要跟着变
+        captured.clear()
+        panel.options_widget.spin_reps[0].setValue(1)
+        assert win.crystal_panel._reps() == (1, 1, 1)
+        panel._export_current()
+        assert len(captured["symbols"]) == unit_cell_atoms
+    finally:
+        molecule_export.export_glb = old_export
         win.close()

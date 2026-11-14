@@ -539,6 +539,13 @@ QFrame#NavCard, QFrame#RightCard {
     border-radius: 10px;
 }
 
+/* 结构库页：外层全局「设置 / 引文」页签栏被隐藏后，右侧白卡的顶边会变成
+   一条孤零零的横线，压在结构库自己的四个页签上方。main_window 在结构库页
+   给卡片打上 flatTop 属性（切回其它功能页时摘掉），这里把顶边去掉。 */
+QFrame#RightCard[flatTop="true"] {
+    border-top: none;
+}
+
 QListWidget#MainNav {
     background: transparent;
     border: none;

@@ -354,6 +354,72 @@ REFS = {
                 "(Using Multiwfn to plot electron density difference maps); "
                 "http://sobereva.com/113 (accessed 2026).",
     },
+    45: {
+        "tag": "Pipek–Mezey 定域化",
+        "tag_en": "Pipek–Mezey localization",
+        "text": "Pipek, J.; Mezey, P. G. A Fast Intrinsic Localization "
+                "Procedure Applicable for Ab Initio and Semiempirical Linear "
+                "Combination of Atomic Orbital Wave Functions. "
+                "J. Chem. Phys. 1989, 90, 4916–4926. doi:10.1063/1.456588",
+    },
+    46: {
+        "tag": "Foster–Boys 定域化",
+        "tag_en": "Foster–Boys localization",
+        "text": "Foster, J. M.; Boys, S. F. Canonical Configurational "
+                "Interaction Procedure. Rev. Mod. Phys. 1960, 32, 300–302. "
+                "doi:10.1103/RevModPhys.32.300",
+    },
+    47: {
+        "tag": "PM 布居推广",
+        "tag_en": "PM with partial charges",
+        "text": "Lehtola, S.; Jónsson, H. Pipek–Mezey Orbital Localization "
+                "Using Various Partial Charge Estimates. J. Chem. Theory "
+                "Comput. 2014, 10, 642–649. doi:10.1021/ct401016x",
+    },
+    48: {
+        "tag": "轨道定域化教程",
+        "tag_en": "Orbital localization tutorial",
+        "text": "Lu, T. Multiwfn的轨道定域化功能的使用以及与NBO、AdNDP分析的对比 "
+                "(The use of orbital localization function of Multiwfn and its "
+                "comparison with NBO and AdNDP analyses); "
+                "http://sobereva.com/380 (accessed 2026).",
+    },
+    # ── 49 起：轨道权重福井函数 / 轨道权重双描述符（OW-Fukui，49–52 为后补条目；
+    #    卷/页/DOI 经 Crossref 核实，方法与默认 Δ 的背景见教程 [51]）──
+    49: {
+        "tag": "OW-Fukui 原文",
+        "tag_en": "OW-Fukui paper",
+        "text": "Pino-Rios, R.; Yañez, O.; Inostroza, D.; Ruiz, L.; Cardenas, C.; "
+                "Fuentealba, P.; Tiznado, W. Proposal of a Simple and Effective Local "
+                "Reactivity Descriptor through a Topological Analysis of an "
+                "Orbital-Weighted Fukui Function. J. Comput. Chem. 2017, 38, "
+                "481–488. doi:10.1002/jcc.24699",
+    },
+    50: {
+        "tag": "OW 双描述符原文",
+        "tag_en": "OW dual descriptor paper",
+        "text": "Pino-Rios, R.; Inostroza, D.; Cárdenas-Jirón, G.; Tiznado, W. "
+                "Orbital-Weighted Dual Descriptor for the Study of Local Reactivity "
+                "of Systems with (Quasi-) Degenerate States. J. Phys. Chem. A 2019, "
+                "123, 10556–10562. doi:10.1021/acs.jpca.9b07516",
+    },
+    51: {
+        "tag": "OW-Fukui 教程",
+        "tag_en": "OW-Fukui tutorial",
+        "text": "Lu, T. 通过轨道权重福井函数和轨道权重双描述符预测亲核和亲电反应位点 "
+                "(Prediction of nucleophilic and electrophilic reaction sites by "
+                "orbital-weighted Fukui function and orbital-weighted dual "
+                "descriptor); http://sobereva.com/533 (accessed 2026).",
+    },
+    52: {
+        "tag": "CDFT 书章节",
+        "tag_en": "CDFT book chapter",
+        "text": "Lu, T.; Chen, Q. Realization of Conceptual Density Functional Theory "
+                "and Information-Theoretic Approach in Multiwfn Program. In "
+                "Conceptual Density Functional Theory: Towards a New Chemical "
+                "Reactivity Theory; Wiley-VCH: Weinheim, 2022; pp 631–647. "
+                "doi:10.1002/9783527829941.ch31",
+    },
 }
 
 
@@ -409,6 +475,40 @@ TABS = {
                "The build tested in this cycle; state the version for "
                "reproducibility."),
         ],
+    },
+    "tab_lmo": {
+        "zh": "轨道定域化", "en": "LMO",
+        "refs": [
+            _r(5, "engine", "正则 MO → 定域化 MO（主功能 19：Pipek–Mezey / "
+                            "Foster–Boys、LMO 能量、Hirshfeld 轨道成分与 LMO 中心）",
+               "Canonical MOs → localized MOs (main function 19: Pipek–Mezey / "
+               "Foster–Boys, LMO energies, Hirshfeld compositions and LMO centers)."),
+            _r(6, "engine", "本模块实际调用的 Multiwfn 版本",
+               "The Multiwfn build used by this module."),
+            _r(45, "method", "Pipek–Mezey 定域化：本页默认方法，保留 σ/π 分离特征",
+               "Pipek–Mezey localization, the default method here; preserves "
+               "σ/π separation."),
+            _r(46, "method", "Foster–Boys 定域化：可选方法，对弥散函数稳健但把双键"
+                             "表现为香蕉键",
+               "Foster–Boys localization (optional): robust with diffuse functions "
+               "but describes double bonds as banana bonds."),
+            _r(47, "method", "PM 与 Löwdin / Hirshfeld / Becke 布居结合；弥散函数下"
+                             "改用 PM-Becke 的依据",
+               "PM combined with Löwdin / Hirshfeld / Becke populations; basis for "
+               "switching to PM-Becke with diffuse functions."),
+            _r(48, "method", "LMO 的含义、使用流程以及与 NBO / AdNDP 的对比；"
+                             "单中心 / 双中心指认的解读",
+               "Meaning and workflow of LMOs, comparison with NBO / AdNDP, and how to "
+               "read the single-/two-center assignments."),
+        ],
+        "note_zh": "轨道定域化只对占轨道的酉变换，总能量、电子密度、ELF 等可观测量"
+                   "不变；默认只定域化占据轨道。使用弥散函数（阴离子、强外场）时"
+                   "不要用 PM-Mulliken/PM-Löwdin，改 PM-Becke 或 Foster–Boys。",
+        "note_en": "Orbital localization is a unitary transformation of occupied MOs; "
+                   "observables such as the total energy, density and ELF are "
+                   "unchanged. Only occupied orbitals are localized by default. With "
+                   "diffuse functions (anions, strong external fields) avoid "
+                   "PM-Mulliken/PM-Löwdin and use PM-Becke or Foster–Boys instead.",
     },
     "tab_spectrum": {
         "zh": "分子光谱", "en": "Spectra",
@@ -763,6 +863,64 @@ TABS = {
                    "line, runs the job, and parses/plots the results. Command "
                    "construction and output parsing are informed by the "
                    "author's xTBridge project (MIT).",
+    },
+    "tab_ow_fukui": {
+        "zh": "福井函数", "en": "Fukui",
+        "refs": [
+            _r(5, "engine", "主功能 22：OW 福井函数/双描述符的格点数据、Hirshfeld "
+                            "简缩值与格点导出（选项 4/5/6/7）",
+               "Main function 22: OW Fukui/dual-descriptor grid data, Hirshfeld "
+               "condensed values and grid export (options 4/5/6/7)."),
+            _r(6, "engine", "本模块实际调用的 Multiwfn 版本；选项编号与 stdout "
+                            "格式以该版本为准",
+               "The Multiwfn build used by this module; option numbering and stdout "
+               "format follow this build."),
+            _r(49, "method", "轨道权重福井函数的提出：按与 (μ−ε_i) 的 Gaussian 距离"
+                             "给各轨道加权，使 f_w+ / f_w− / f_w0 在（准）简并体系里"
+                             "仍满足分子对称性，且全空间积分仍为 1",
+               "Proposal of the orbital-weighted Fukui function: Gaussian weighting in "
+               "(μ−ε_i) makes f_w+ / f_w− / f_w0 respect molecular symmetry in "
+               "(quasi-)degenerate systems while still integrating to 1."),
+            _r(50, "method", "轨道权重双描述符 Δf_w = f_w+ − f_w−：一张图同时给出亲核/"
+                             "亲电位点，Δf_w 为负处易受亲电进攻",
+               "The orbital-weighted dual descriptor Δf_w = f_w+ − f_w−: one map gives "
+               "both nucleophilic and electrophilic sites; negative Δf_w marks "
+               "electrophilic attack."),
+            _r(51, "method", "方法背景、Δ 参数的含义与默认值（0.1 Hartree）、推荐等值面"
+                             "数值（C60 0.0003、HBC 0.0001、C18 0.0008、CH3Cl 0.008 "
+                             "a.u.）以及简并体系的解读方式",
+               "Method background, meaning and default of Δ (0.1 Hartree), "
+               "recommended isovalues (C60 0.0003, HBC 0.0001, C18 0.0008, CH3Cl "
+               "0.008 a.u.) and how to read the results for degenerate systems."),
+            _r(52, "method", "主功能 22 所实现的 CDFT 概念（福井函数、双描述符及其简缩"
+                             "形式）的汇总背景",
+               "Background on the CDFT quantities implemented by main function 22 "
+               "(Fukui function, dual descriptor and their condensed forms)."),
+        ],
+        "note_zh": "仅适用于闭壳层单行列式波函数；输入文件必须含空轨道（.fch/.fchk/"
+                   ".mwfn，不能用 .wfn/.wfx），且不建议使用弥散函数（会破坏非占据"
+                   "轨道的化学意义）。Δ 默认 0.1 Hartree（[49] 的推荐值），界面可调："
+                   "Δ 越小越接近原始福井函数，低阶占据轨道/高能空轨道的权重也越小。"
+                   "解读：f_w− 大、Δf_w 明显为负的区域易受亲电进攻，Δf_w 为正的区域"
+                   "易受亲核进攻；四个函数全空间积分均为 1，Hirshfeld 简缩值按原子"
+                   "求和也应约为 1。若前线轨道没有（准）简并特征，应改用普通福井函数/"
+                   "双描述符。引文卷页与默认 Δ 的来龙去脉见教程 [51]（DOI 经 "
+                   "Crossref 核实）。",
+        "note_en": "Only valid for closed-shell single-determinant wavefunctions. The "
+                   "input must contain virtual orbitals (.fch/.fchk/.mwfn; .wfn/.wfx "
+                   "do not work), and diffuse functions are not recommended because "
+                   "they spoil the chemical meaning of the virtual orbitals. Δ "
+                   "defaults to 0.1 Hartree (the value recommended in [49]) and is "
+                   "adjustable: smaller Δ approaches the plain Fukui function and "
+                   "reduces the weight of deep occupied / high virtual orbitals. "
+                   "Interpretation: large f_w− and clearly negative Δf_w mark sites "
+                   "prone to electrophilic attack; positive Δf_w marks nucleophilic "
+                   "attack. All four functions integrate to 1 over space, so the "
+                   "Hirshfeld condensed values should also sum to about 1 per "
+                   "function. If the frontier orbitals are not (quasi-)degenerate, "
+                   "use the plain Fukui function / dual descriptor instead. Volumes, "
+                   "pages and the default Δ are documented in tutorial [51] (DOIs "
+                   "verified against Crossref).",
     },
     "tab_log": {
         "zh": "日志", "en": "Log",
