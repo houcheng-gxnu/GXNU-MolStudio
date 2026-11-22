@@ -48,6 +48,10 @@ a = Analysis(
     datas=[
         # 窗口/任务栏图标、启动画面校徽、内置样式 json
         (ASSETS, os.path.join("molstudio", "assets")),
+        # 高斯 External 联用脚本：高斯的 external= 会用外部 python 直接执行
+        # 这个文件，所以必须作为**独立文件**随包分发（不能只进 PYZ）。
+        (os.path.join(ROOT, "molstudio", "tools", "gau_xtb.py"),
+         os.path.join("molstudio", "tools")),
     ],
     hiddenimports=hiddenimports,
     hookspath=[],

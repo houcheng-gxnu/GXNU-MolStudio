@@ -109,6 +109,29 @@ DEFAULT_SETTINGS = {
     "max_cycles": 80,              # 与 Multiwfn 默认 80 不同才发送
 }
 
+#: LOBA / mLOBA 氧化态分析默认设置。阈值与 Multiwfn 菜单一致，单位是百分数。
+LOBA_DEFAULT_SETTINGS = {
+    "method": "loba",              # "loba"（阈值 LOBA）| "mloba"（按最大贡献归属）
+    "threshold": 50.0,             # 百分数；50 是 Multiwfn / LOBA 原文常用值
+    "fragment": "",                # 例如 "1-5,7-11"；空表示只算逐原子氧化态
+}
+
+#: LOBA / mLOBA 方法说明（UI 可直接读取）。
+LOBA_METHODS = {
+    "loba": {
+        "name_zh": "LOBA（贡献阈值）",
+        "name_en": "LOBA (contribution threshold)",
+    },
+    "mloba": {
+        "name_zh": "mLOBA（按最大贡献归属）",
+        "name_en": "mLOBA (assign to largest contribution)",
+    },
+}
+
+#: LOBA 需要调用 Multiwfn 立即计算所有已占据 LMO 的 Hirshfeld 成分，
+#: 大基组体系可能比单帧轨道显示更慢。
+LOBA_DEFAULT_TIMEOUT = 3600
+
 #: Multiwfn 内建默认值（用于「只发送非默认设置」判断）
 _MW_DEFAULT_METHOD = "pm_mulliken"
 _MW_DEFAULT_COMPOSITION = "hirshfeld"
@@ -623,6 +646,452 @@ def settings_summary(settings: dict, lang: str = "zh") -> str:
         parts.append("max %d cycles / conv %s"
                      % (s["max_cycles"], _fmt_num(s["convergence"])))
     return " · ".join(parts)
+
+
+# ────────────────────────────── LOBA / mLOBA ──────────────────────────────
+
+def _merge_loba_settings(settings=None):
+    """默认 LOBA 设置 + 用户覆盖；阈值为 1–100 的百分数。"""
+    s = dict(LOBA_DEFAULT_SETTINGS)
+    if settings:
+        if not isinstance(settings, dict):
+            raise ValueError("LOBA settings 必须是 dict")
+        s.update(settings)
+
+    s["method"] = str(s.get("method") or "loba").strip().lower()
+    if s["method"] not in LOBA_METHODS:
+        raise ValueError("未知 LOBA 方法：%r（可选：%s）"
+                         % (s["method"], ", ".join(LOBA_METHODS)))
+    try:
+        threshold = float(s.get("threshold"))
+    except (TypeError, ValueError):
+        raise ValueError("LOBA 阈值必须是数字")
+    if not math.isfinite(threshold):
+        raise ValueError("LOBA 阈值必须是有限数字")
+    if not 0 < threshold <= 100:
+        raise ValueError("LOBA 阈值必须在 0–100% 之间")
+    s["threshold"] = threshold
+    s["fragment"] = parse_fragment_spec(s.get("fragment"))
+    return s
+
+
+def _fragment_ranges(indices):
+    """把递增原子序号压缩成 ``1,3-5,9`` 形式。"""
+    ordered = sorted(set(int(index) for index in indices))
+    if not ordered:
+        return ""
+    chunks = []
+    start = previous = ordered[0]
+    for index in ordered[1:]:
+        if index == previous + 1:
+            previous = index
+            continue
+        chunks.append(str(start) if start == previous
+                      else "%d-%d" % (start, previous))
+        start = previous = index
+    chunks.append(str(start) if start == previous
+                  else "%d-%d" % (start, previous))
+    return ",".join(chunks)
+
+
+def parse_fragment_spec(text, n_atoms=None):
+    """校验并规范化 Multiwfn 片段原子序号。
+
+    接受 ``1,3-5,9``（逗号、空白均可作分隔符），返回压缩后的相同格式。
+    空输入返回空串。序号必须从 1 开始；提供 ``n_atoms`` 时还会检查越界。
+    """
+    if text is None:
+        return ""
+    if isinstance(text, (list, tuple)):
+        raw = ",".join(str(item) for item in text)
+    else:
+        raw = str(text).strip()
+    if not raw:
+        return ""
+    raw = raw.replace("，", ",").replace("–", "-").replace("—", "-")
+    if re.search(r"[^0-9,\-\s]", raw):
+        raise ValueError("片段只能使用原子序号和范围，例如 1,3-5,9")
+    indices = set()
+    for token in re.split(r"[\s,]+", raw):
+        if not token:
+            continue
+        match = re.fullmatch(r"(\d+)(?:-(\d+))?", token)
+        if not match:
+            raise ValueError("片段范围格式无效：%s" % token)
+        first = int(match.group(1))
+        last = int(match.group(2) or first)
+        if first < 1 or last < 1:
+            raise ValueError("原子序号必须从 1 开始")
+        if last < first:
+            raise ValueError("片段范围起点不能大于终点：%s" % token)
+        if n_atoms is not None:
+            try:
+                limit = int(n_atoms)
+            except (TypeError, ValueError):
+                limit = 0
+            if limit > 0 and last > limit:
+                raise ValueError("片段原子序号 %d 超出体系原子数 %d"
+                                 % (last, limit))
+        if last - first > 100000:
+            raise ValueError("片段范围过大：%s" % token)
+        indices.update(range(first, last + 1))
+    if not indices:
+        return ""
+    if n_atoms is not None:
+        try:
+            n_atoms = int(n_atoms)
+        except (TypeError, ValueError):
+            n_atoms = 0
+        if n_atoms > 0 and max(indices) > n_atoms:
+            raise ValueError("片段原子序号 %d 超出体系原子数 %d"
+                             % (max(indices), n_atoms))
+    return _fragment_ranges(indices)
+
+
+def build_loba_sequence(settings=None):
+    """拼出 Multiwfn ``8 → 100`` 的 LOBA / mLOBA stdin 序列。
+
+    片段必须先于阈值输入（``-1`` 后的提示直接等待原子序号）。分析完成后
+    输入 ``0`` 退出 LOBA 子菜单、``-10`` 返回主菜单、``q`` 退出程序。
+    """
+    s = _merge_loba_settings(settings)
+    parts = ["\n", "8\n", "100\n"]
+    if s["fragment"]:
+        parts.extend(["-1\n", s["fragment"] + "\n"])
+    if s["method"] == "mloba":
+        parts.append("m\n")
+    else:
+        parts.append(("%.10g" % s["threshold"]) + "\n")
+    parts.extend(["0\n", "-10\n", "q\n"])
+    return "".join(parts)
+
+
+_RE_LOBA_ATOM = re.compile(
+    r"Oxidation state of atom\s+(\d+)\s*\(\s*([A-Za-z]+)\s*\)\s*:\s*"
+    r"([+-]?\d+(?:\.\d+)?)", re.I)
+_RE_LOBA_SUM = re.compile(
+    r"The sum of oxidation states\s*:\s*([+-]?\d+(?:\.\d+)?)", re.I)
+_RE_LOBA_FRAGMENT = re.compile(
+    r"Oxidation state of (?:the )?fragment\s*:\s*([+-]?\d+(?:\.\d+)?)", re.I)
+
+
+def parse_loba_output(text):
+    """解析 Multiwfn LOBA / mLOBA 氧化态输出。
+
+    返回 ``atoms``（按原子序号排序）、``sum``（未给出时为 ``None``）、
+    ``fragment_oxidation_state`` 与 ``warnings``。同一结果块在输出中重复打印
+    时按原子序号覆盖，不重复累加。
+    """
+    out = {
+        "atoms": [],
+        "sum": None,
+        "fragment_oxidation_state": None,
+        "warnings": [],
+    }
+    if not text:
+        out["warnings"].append("输出为空，未检测到 LOBA 氧化态结果")
+        return out
+    if not isinstance(text, str):
+        try:
+            text = str(text)
+        except Exception:
+            out["warnings"].append("输出内容无法作为文本解析")
+            return out
+
+    atoms = {}
+    for match in _RE_LOBA_ATOM.finditer(text):
+        try:
+            index = int(match.group(1))
+            value = float(match.group(3))
+        except (TypeError, ValueError):
+            continue
+        atoms[index] = {
+            "index": index,
+            "element": match.group(2).strip(),
+            "oxidation_state": value,
+        }
+    out["atoms"] = [atoms[index] for index in sorted(atoms)]
+    if not out["atoms"]:
+        out["warnings"].append(
+            "未检测到 Oxidation state of atom 行，LOBA 可能失败或输入序列有误")
+
+    sums = list(_RE_LOBA_SUM.finditer(text))
+    if sums:
+        try:
+            out["sum"] = float(sums[-1].group(1))
+        except (TypeError, ValueError):
+            pass
+    elif out["atoms"]:
+        out["warnings"].append("未检测到氧化态总和")
+
+    fragments = list(_RE_LOBA_FRAGMENT.finditer(text))
+    if fragments:
+        try:
+            out["fragment_oxidation_state"] = float(fragments[-1].group(1))
+        except (TypeError, ValueError):
+            pass
+
+    low = text.lower()
+    if "forrtl: severe" in low or "forrtl: error" in low:
+        out["warnings"].append(
+            "Multiwfn 输出包含 Fortran 运行时错误，LOBA 结果可能不完整")
+    return out
+
+
+def parse_fchk_atoms(fchk_path):
+    """从 fchk 读取原子数、原子序数、元素符号和体系净电荷。"""
+    path = os.path.abspath(str(fchk_path)) if fchk_path else ""
+    if not path or not os.path.isfile(path):
+        raise RuntimeError("找不到 fchk 文件：%s" % (path or "(空路径)"))
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+            content = handle.read()
+    except OSError as exc:
+        raise RuntimeError("读取 fchk 失败：%s" % exc) from exc
+
+    def _read_int(label):
+        match = re.search(
+            r"^%s\s+I\s+(-?\d+)" % re.escape(label),
+            content, re.MULTILINE)
+        return int(match.group(1)) if match else None
+
+    n_atoms = _read_int("Number of atoms") or 0
+    charge = _read_int("Charge")
+    atomic_numbers = []
+    match = re.search(
+        r"^Atomic numbers\s+I\s+N=\s*(\d+)\s*$",
+        content, re.MULTILINE)
+    if match:
+        expected = int(match.group(1))
+        tail = content[match.end():].lstrip("\r\n")
+        for line in tail.splitlines():
+            tokens = line.split()
+            if not tokens:
+                if atomic_numbers:
+                    break
+                continue
+            try:
+                values = [int(token) for token in tokens]
+            except ValueError:
+                break
+            atomic_numbers.extend(values)
+            if len(atomic_numbers) >= expected:
+                atomic_numbers = atomic_numbers[:expected]
+                break
+    if n_atoms <= 0:
+        n_atoms = len(atomic_numbers)
+
+    try:
+        from molstudio.core.fchk_orbital import ELEMENT_SYMBOLS
+    except Exception:  # noqa: BLE001 - 无符号表时用原子序数兜底
+        ELEMENT_SYMBOLS = {}
+    elements = [
+        ELEMENT_SYMBOLS.get(number, "E%d" % number)
+        for number in atomic_numbers
+    ]
+    return {
+        "n_atoms": n_atoms,
+        "charge": charge,
+        "atomic_numbers": atomic_numbers,
+        "elements": elements,
+    }
+
+
+def _loba_base_result(settings, seconds=0.0):
+    return {
+        "ok": False,
+        "error": "",
+        "settings": settings,
+        "atoms": [],
+        "sum": None,
+        "fragment_oxidation_state": None,
+        "net_charge": None,
+        "sum_difference": None,
+        "atomic_numbers": [],
+        "raw": "",
+        "log_path": "",
+        "seconds": float(seconds),
+        "warnings": [],
+    }
+
+
+def run_loba(lmo_fch_path, multiwfn_exe, settings=None, out_dir=None,
+             on_log=None, on_stage=None, cancel_check=None, proc_holder=None,
+             timeout=LOBA_DEFAULT_TIMEOUT):
+    """对已定域化波函数运行 Multiwfn 的 LOBA / mLOBA 氧化态分析。
+
+    ``lmo_fch_path`` 应是 ``run_localization`` 生成的 ``*_LMO.fch``。函数在
+    独立 ASCII 临时目录中启动 Multiwfn，避免中文用户名/路径触发 Fortran
+    输入输出问题；完整 stdout 会写到 ``<stem>_LOBA.log``。
+    """
+    t0 = time.time()
+    try:
+        s = _merge_loba_settings(settings)
+    except ValueError as exc:
+        raise RuntimeError("LOBA 设置无效：%s" % exc) from exc
+
+    fchk_path = os.path.abspath(str(lmo_fch_path)) if lmo_fch_path else ""
+    if not fchk_path or not os.path.isfile(fchk_path):
+        raise RuntimeError("找不到 LMO 波函数：%s"
+                           % (fchk_path or "(空路径)"))
+    if not multiwfn_exe:
+        try:
+            from .fchk_orbital import DEFAULT_MULTIWFN as multiwfn_exe
+        except Exception:
+            multiwfn_exe = ""
+    multiwfn_exe = os.path.abspath(str(multiwfn_exe)) if multiwfn_exe else ""
+    if not multiwfn_exe or not os.path.isfile(multiwfn_exe):
+        raise RuntimeError("找不到 Multiwfn 可执行文件：%s"
+                           % (multiwfn_exe or "(空路径)"))
+
+    fchk_info = parse_fchk_atoms(fchk_path)
+    try:
+        s["fragment"] = parse_fragment_spec(
+            s["fragment"], n_atoms=fchk_info.get("n_atoms"))
+    except ValueError as exc:
+        raise RuntimeError("LOBA 片段定义无效：%s" % exc) from exc
+
+    out_dir = (os.path.abspath(str(out_dir)) if out_dir
+               else os.path.dirname(fchk_path))
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+    except OSError as exc:
+        raise RuntimeError("无法创建 LOBA 输出目录：%s（%s）"
+                           % (out_dir, exc)) from exc
+
+    if _cancel_requested(cancel_check):
+        result = _loba_base_result(s, seconds=time.time() - t0)
+        result["error"] = "已取消"
+        result["net_charge"] = fchk_info.get("charge")
+        result["atomic_numbers"] = fchk_info.get("atomic_numbers") or []
+        result["warnings"].append("已取消（未启动 Multiwfn）")
+        return result
+
+    _emit_log(on_log, "开始 LOBA 氧化态分析（Multiwfn 轨道成分 → 100）")
+    _emit_log(on_log, "输入 LMO 波函数：%s" % fchk_path)
+    if s["method"] == "mloba":
+        _emit_log(on_log, "方法：mLOBA（每个轨道归属到最大贡献原子）")
+    else:
+        _emit_log(on_log, "方法：LOBA，阈值 %.6g%%" % s["threshold"])
+    if s["fragment"]:
+        _emit_log(on_log, "片段原子：%s" % s["fragment"])
+    _emit_stage(on_stage, 5, "准备 LOBA 分析")
+
+    temp_dir = ""
+    try:
+        temp_dir = _safe_ascii_tmp_dir(
+            "molstudio_loba_", exe_dir=os.path.dirname(multiwfn_exe))
+        shutil.copy2(fchk_path, os.path.join(temp_dir, "sys.fchk"))
+        sequence = build_loba_sequence(s)
+        creationflags = 0
+        if sys.platform == "win32":
+            creationflags = (getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                             | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        _emit_stage(on_stage, 15, "启动 Multiwfn")
+        run_started = time.time()
+        try:
+            proc = subprocess.Popen(
+                [multiwfn_exe, "sys.fchk"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, cwd=temp_dir,
+                creationflags=creationflags)
+        except OSError as exc:
+            raise RuntimeError("无法启动 Multiwfn：%s" % exc) from exc
+        if isinstance(proc_holder, dict):
+            proc_holder["proc"] = proc
+        if _cancel_requested(cancel_check):
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        try:
+            try:
+                raw_bytes, _ = proc.communicate(
+                    input=sequence.encode("utf-8"), timeout=timeout)
+            except subprocess.TimeoutExpired:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                try:
+                    proc.communicate(timeout=10)
+                except Exception:
+                    pass
+                raise RuntimeError(
+                    "Multiwfn LOBA 分析超时（%s 秒），已终止进程"
+                    % timeout) from None
+        finally:
+            if isinstance(proc_holder, dict):
+                proc_holder.pop("proc", None)
+
+        raw = _decode(raw_bytes)
+        rc = proc.returncode
+        _emit_stage(on_stage, 82, "解析氧化态")
+        _emit_log(on_log, "Multiwfn 运行结束，用时 %.1f s，退出码 %s"
+                  % (time.time() - run_started, rc))
+        parsed = parse_loba_output(raw)
+        cancelled = _cancel_requested(cancel_check)
+        if rc not in (0, None):
+            parsed["warnings"].append(
+                "Multiwfn 退出码非 0（%s），LOBA 结果可能不完整" % rc)
+
+        stem = os.path.splitext(os.path.basename(fchk_path))[0]
+        log_path = os.path.join(out_dir, "%s_LOBA.log" % stem)
+        try:
+            with open(log_path, "w", encoding="utf-8", newline="") as handle:
+                handle.write(raw)
+        except OSError as exc:
+            log_path = ""
+            parsed["warnings"].append("写入 LOBA 日志失败：%s" % exc)
+
+        net_charge = fchk_info.get("charge")
+        total = parsed.get("sum")
+        difference = None
+        if total is not None and net_charge is not None:
+            difference = float(total) - float(net_charge)
+            if abs(difference) > 1e-6:
+                parsed["warnings"].append(
+                    "LOBA 氧化态总和 %s 与体系净电荷 %s 不一致；"
+                    "LOBA 不保证每个原子或总和都落在化学预期值上，"
+                    "可提高阈值或改用 mLOBA 对照"
+                    % (("%.6g" % total), net_charge))
+
+        ok = bool(parsed.get("atoms")) and not cancelled
+        error = ""
+        if cancelled:
+            error = "已取消"
+        elif not parsed.get("atoms"):
+            error = "Multiwfn 未返回原子氧化态，请检查 LOBA 日志"
+
+        result = _loba_base_result(s, seconds=time.time() - t0)
+        result.update(parsed)
+        result.update({
+            "ok": ok,
+            "error": error,
+            "net_charge": net_charge,
+            "sum_difference": difference,
+            "atomic_numbers": fchk_info.get("atomic_numbers") or [],
+            "raw": raw,
+            "log_path": log_path,
+        })
+        _emit_stage(on_stage, 100, "完成" if ok else "失败/取消")
+        if ok:
+            _emit_log(on_log, "LOBA 完成：%d 个原子，氧化态总和 %s"
+                      % (len(result["atoms"]),
+                         ("%.6g" % total) if total is not None else "未给出"))
+        else:
+            _emit_log(on_log, "LOBA 失败/取消：%s" % error)
+        for warning in result.get("warnings") or []:
+            _emit_log(on_log, "警告：%s" % warning)
+        return result
+    finally:
+        if isinstance(proc_holder, dict):
+            proc_holder.pop("proc", None)
+        if temp_dir:
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception:
+                pass
 
 
 # ────────────────────────────── 子进程 / 工作目录 ──────────────────────────────
@@ -1175,10 +1644,18 @@ __all__ = [
     "LMO_METHODS",
     "COMPOSITION_METHODS",
     "DEFAULT_SETTINGS",
+    "LOBA_METHODS",
+    "LOBA_DEFAULT_SETTINGS",
+    "LOBA_DEFAULT_TIMEOUT",
     "build_sequence",
+    "build_loba_sequence",
     "parse_lmo_output",
     "parse_lmocen",
+    "parse_loba_output",
+    "parse_fchk_atoms",
+    "parse_fragment_spec",
     "run_localization",
+    "run_loba",
     "gen_lmo_cube",
     "settings_summary",
 ]

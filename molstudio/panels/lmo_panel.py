@@ -4,7 +4,8 @@
 把主窗口当前载入的 .fchk 交给 Multiwfn 主功能 19（轨道定域化）处理，
 得到保留 σ/π 分离的局域分子轨道（LMO），在右侧页面用表格展示
 能量、占据、成分指认与 LMO 中心；双击某一行即可生成该 LMO 的
-cube 并交给画布显示。
+cube 并交给画布显示。定域化完成后，同一页面还可对 `_LMO.fch`
+运行 Multiwfn 的 LOBA / mLOBA 氧化态分析。
 
 设计遵循仓库其它面板的惯例：
 * 所有界面文字都放在模块级 ``TEXT`` 字典里，``set_lang()`` 负责整页刷新；
@@ -52,9 +53,13 @@ from molstudio.core.multiwfn_lmo import (
     COMPOSITION_METHODS,
     DEFAULT_SETTINGS,
     LMO_METHODS,
+    LOBA_DEFAULT_SETTINGS,
+    LOBA_METHODS,
     gen_lmo_cube,
     parse_lmocen,
+    parse_fragment_spec,
     run_localization,
+    run_loba,
 )
 
 
@@ -66,8 +71,9 @@ TEXT = {
         "intro": (
             "把当前波函数交给 Multiwfn 主功能 19 做轨道定域化（LMO），"
             "得到保留 σ/π 分离的局域分子轨道；双击结果行即可在画布上查看"
-            "该 LMO 的等值面。"
+            "该 LMO 的等值面，并可继续计算 LOBA 氧化态。"
             "<a href=\"http://sobereva.com/380\">Multiwfn 轨道定域化教程</a>"
+            " · <a href=\"http://sobereva.com/362\">LOBA 氧化态教程</a>"
         ),
         "source_group": "输入波函数",
         "source_none": "请先在主界面载入 .fch / .fchk 文件。",
@@ -143,6 +149,62 @@ TEXT = {
         ),
         "summary_cen": "LMO 中心：{name}",
         "summary_dip": "LMO 偶极：{name}",
+        "loba_title": "LOBA 氧化态分析",
+        "loba_intro": (
+            "对已定域化波函数计算 Hirshfeld 轨道成分，按贡献阈值把每个"
+            "占据轨道的电子归属给原子（LOBA），或用“最大贡献归属”"
+            "（mLOBA）得到氧化态。可填片段原子序号（如 1-5,7-11）"
+            "同时计算片段氧化态。"
+        ),
+        "loba_method": "方法",
+        "loba_threshold": "贡献阈值 (%)",
+        "loba_fragment": "片段原子",
+        "loba_fragment_placeholder": "例如 1-5,7-11；留空只算逐原子结果",
+        "loba_fragment_tip": (
+            "按 Multiwfn 原子序号填写，支持逗号与范围。留空只输出逐原子氧化态。"
+        ),
+        "loba_threshold_tip": (
+            "常用 50%；结果异常时可比较 60%、70%。阈值敏感通常说明 "
+            "LOBA 对该体系或原子不够可靠。"
+        ),
+        "loba_method_tip": (
+            "LOBA 只在单原子贡献超过阈值时归属该轨道；mLOBA 总是归属给"
+            "贡献最大的原子。两者都使用 Hirshfeld 原子成分。"
+        ),
+        "loba_hint": (
+            "LOBA 使用 Hirshfeld 成分，不保证总和等于净电荷；过渡金属"
+            "通常是 LOBA 最可靠的使用对象。建议用不同阈值或 mLOBA 做稳定性对照。"
+        ),
+        "loba_run": "计算氧化态",
+        "loba_stop": "停止",
+        "loba_status_waiting": "请先完成轨道定域化，生成 LMO 波函数。",
+        "loba_status_ready": "就绪：可在已定域化波函数上运行 LOBA。",
+        "loba_status_working": "正在计算 LOBA 氧化态…",
+        "loba_status_done": "LOBA 氧化态计算完成",
+        "loba_status_failed": "LOBA 氧化态计算失败",
+        "loba_status_cancelled": "LOBA 已停止",
+        "loba_result_empty": "氧化态结果会显示在这里。",
+        "loba_summary": (
+            "{method} · Hirshfeld · {threshold} · 用时 {secs} s\n"
+            "氧化态总和：{sum}　体系净电荷：{charge}\n日志：{log}"
+        ),
+        "loba_summary_fragment": "片段 {fragment} 的氧化态：{state}",
+        "loba_sum_error": "总和与净电荷不一致；LOBA 不保证二者相等。",
+        "loba_col_index": "原子",
+        "loba_col_element": "元素",
+        "loba_col_state": "氧化态",
+        "loba_export": "导出氧化态 CSV",
+        "loba_export_tip": "把逐原子氧化态导出为 UTF-8 CSV 文件",
+        "loba_no_result": "尚未生成 LOBA 氧化态结果",
+        "loba_no_lmo_fch": "找不到已定域化的 LMO 波函数，请先运行轨道定域化",
+        "loba_invalid_fragment": "片段原子定义无效：{msg}",
+        "loba_failed_title": "LOBA 分析失败",
+        "loba_log_start": "[LOBA] {method} · {threshold} · {fragment}",
+        "loba_log_done": "[LOBA] 完成：{n} 个原子，总和 {sum}，用时 {secs} s",
+        "loba_log_error": "[LOBA] 失败：{msg}",
+        "loba_log_cancelling": "[LOBA] 正在停止…",
+        "loba_log_cancelled": "[LOBA] 已停止",
+        "loba_log_csv_saved": "[LOBA] CSV 已保存：{path}",
         "conv_yes": "已收敛",
         "conv_no": "未收敛",
         "warn_count": " · {n} 条警告",
@@ -220,9 +282,11 @@ TEXT = {
             "Localize the current wavefunction into localized molecular "
             "orbitals (LMOs) with Multiwfn main function 19; PM-Mulliken "
             "keeps the σ/π separation. Double-click a result row to show the "
-            "LMO isosurface on the canvas. "
+            "LMO isosurface on the canvas, then continue with LOBA oxidation "
+            "states. "
             "<a href=\"http://sobereva.com/380\">Multiwfn orbital-localization "
-            "tutorial</a>"
+            "tutorial</a> · <a href=\"http://sobereva.com/362\">LOBA oxidation-"
+            "state tutorial</a>"
         ),
         "source_group": "Source wavefunction",
         "source_none": "Load a .fch / .fchk file in the main window first.",
@@ -304,6 +368,68 @@ TEXT = {
         ),
         "summary_cen": "LMO centers: {name}",
         "summary_dip": "LMO dipoles: {name}",
+        "loba_title": "LOBA oxidation states",
+        "loba_intro": (
+            "Compute Hirshfeld orbital contributions for the localized "
+            "wavefunction, assign electrons by a contribution threshold "
+            "(LOBA), or assign every orbital to its largest contributor "
+            "(mLOBA). Enter fragment atom indices (for example 1-5,7-11) to "
+            "also obtain a fragment oxidation state."
+        ),
+        "loba_method": "Method",
+        "loba_threshold": "Contribution threshold (%)",
+        "loba_fragment": "Fragment atoms",
+        "loba_fragment_placeholder": "e.g. 1-5,7-11; leave blank for atoms only",
+        "loba_fragment_tip": (
+            "Use Multiwfn atom indices with commas and ranges. Leave blank to "
+            "output atomic oxidation states only."
+        ),
+        "loba_threshold_tip": (
+            "50% is commonly used. Compare 60% and 70% if a result looks "
+            "unusual; strong threshold sensitivity suggests LOBA is not reliable "
+            "for that system or atom."
+        ),
+        "loba_method_tip": (
+            "LOBA assigns an orbital only when one atom exceeds the threshold; "
+            "mLOBA always assigns it to the largest contributor. Both use "
+            "Hirshfeld atomic contributions."
+        ),
+        "loba_hint": (
+            "LOBA uses Hirshfeld contributions and does not guarantee that the "
+            "oxidation-state sum equals the net charge. It is usually most "
+            "informative for transition metals; check stability with another "
+            "threshold or mLOBA."
+        ),
+        "loba_run": "Compute oxidation states",
+        "loba_stop": "Stop",
+        "loba_status_waiting": "Run orbital localization first to create the LMO wavefunction.",
+        "loba_status_ready": "Ready: run LOBA on the localized wavefunction.",
+        "loba_status_working": "Computing LOBA oxidation states…",
+        "loba_status_done": "LOBA oxidation-state calculation complete",
+        "loba_status_failed": "LOBA oxidation-state calculation failed",
+        "loba_status_cancelled": "LOBA stopped",
+        "loba_result_empty": "Oxidation-state results appear here.",
+        "loba_summary": (
+            "{method} · Hirshfeld · {threshold} · {secs} s\n"
+            "Oxidation-state sum: {sum}   Net charge: {charge}\nLog: {log}"
+        ),
+        "loba_summary_fragment": "Oxidation state of fragment {fragment}: {state}",
+        "loba_sum_error": "Sum and net charge differ; LOBA does not guarantee equality.",
+        "loba_col_index": "Atom",
+        "loba_col_element": "Element",
+        "loba_col_state": "Ox. state",
+        "loba_export": "Export oxidation-state CSV",
+        "loba_export_tip": "Export atomic oxidation states as a UTF-8 CSV file",
+        "loba_no_result": "No LOBA oxidation-state result is available yet",
+        "loba_no_lmo_fch": "Cannot find the localized LMO wavefunction; run orbital localization first",
+        "loba_invalid_fragment": "Invalid fragment definition: {msg}",
+        "loba_failed_title": "LOBA analysis failed",
+        "loba_log_start": "[LOBA] {method} · {threshold} · {fragment}",
+        "loba_log_done": "[LOBA] Complete: {n} atoms, sum {sum}, {secs} s",
+        "loba_log_error": "[LOBA] Failed: {msg}",
+        "loba_log_cancelling": "[LOBA] Stopping…",
+        "loba_log_cancelled": "[LOBA] Stopped",
+        "loba_log_csv_saved": "[LOBA] CSV saved: {path}",
         "conv_yes": "converged",
         "conv_no": "not converged",
         "warn_count": " · {n} warning(s)",
@@ -455,6 +581,57 @@ class LMOWorker(QThread):
         self.finished.emit(result)
 
 
+class LOBAWorker(QThread):
+    """在后台对已定域化波函数运行 LOBA / mLOBA。"""
+
+    log = pyqtSignal(str)
+    stage = pyqtSignal(int, str)
+    finished = pyqtSignal(dict)
+    failed = pyqtSignal(str)
+
+    def __init__(self, lmo_fch, multiwfn_exe, settings, parent=None):
+        super().__init__(parent)
+        self._lmo_fch = str(lmo_fch or "")
+        self._multiwfn_exe = str(multiwfn_exe or "")
+        self._settings = dict(settings or {})
+        self._stop_event = threading.Event()
+        self._proc = {}
+
+    def is_stopped(self):
+        return self._stop_event.is_set()
+
+    def stop(self):
+        self._stop_event.set()
+        proc = self._proc.get("proc") if isinstance(self._proc, dict) else None
+        if proc is None:
+            return
+        try:
+            poll = getattr(proc, "poll", None)
+            if (poll is None or poll() is None) and hasattr(proc, "terminate"):
+                proc.terminate()
+        except Exception:  # noqa: BLE001 - 停止路径不做异常处理
+            pass
+
+    def run(self):
+        try:
+            result = run_loba(
+                self._lmo_fch,
+                self._multiwfn_exe,
+                settings=self._settings,
+                on_log=self.log.emit,
+                on_stage=self.stage.emit,
+                cancel_check=self._stop_event.is_set,
+                proc_holder=self._proc,
+            )
+        except Exception as exc:  # noqa: BLE001 - 统一转成界面错误
+            self.failed.emit(str(exc))
+            return
+        if not isinstance(result, dict):
+            result = {"ok": False, "error": "invalid LOBA result",
+                      "atoms": [], "warnings": []}
+        self.finished.emit(result)
+
+
 class LMOCubeWorker(QThread):
     """后台为单个 LMO 生成 cube（调用 ``gen_lmo_cube``）。
 
@@ -534,14 +711,18 @@ class LMOPanel(QWidget):
 
         self._source_path = ""
         self._worker = None
+        self._loba_worker = None
         self._cube_worker = None
         self._last_result = None
+        self._last_loba_result = None
         self._row_specs_cache = []
         self._running = False
+        self._loba_running = False
         self._generating = False
         self._shutting_down = False
         self._gen_label = ""
         self._status_key = "status_no_source"
+        self._loba_status_key = "loba_status_waiting"
         self._status_args = {}
         self._advanced_open = False
 
@@ -585,6 +766,16 @@ class LMOPanel(QWidget):
             except (KeyError, IndexError, ValueError):
                 pass
         self.lbl_status.setText(text)
+
+    def _set_loba_status(self, key):
+        self._loba_status_key = key
+        self._refresh_loba_status()
+
+    def _refresh_loba_status(self):
+        try:
+            self.lbl_loba_status.setText(self._t(self._loba_status_key))
+        except AttributeError:
+            pass
 
     def _current_fchk(self):
         try:
@@ -666,6 +857,7 @@ class LMOPanel(QWidget):
         self._build_settings_group(root)
         self._build_run_group(root)
         self._build_result_group(root)
+        self._build_loba_group(root)
         root.addStretch(0)
 
     def _build_source_group(self, root):
@@ -938,6 +1130,103 @@ class LMOPanel(QWidget):
 
         root.addWidget(self.grp_result, 1)
 
+    def _build_loba_group(self, root):
+        self.grp_loba = QGroupBox()
+        layout = QVBoxLayout(self.grp_loba)
+        layout.setContentsMargins(10, 12, 10, 10)
+        layout.setSpacing(6)
+
+        self.lbl_loba_intro = QLabel()
+        self.lbl_loba_intro.setWordWrap(True)
+        self.lbl_loba_intro.setStyleSheet("color:#475569;")
+        layout.addWidget(self.lbl_loba_intro)
+
+        self.loba_inputs = QWidget()
+        form = QFormLayout(self.loba_inputs)
+        form.setContentsMargins(0, 2, 0, 2)
+        form.setSpacing(6)
+        form.setRowWrapPolicy(QFormLayout.WrapLongRows)
+
+        self.lbl_loba_method = QLabel()
+        self.cmb_loba_method = QComboBox()
+        for key in ("loba", "mloba"):
+            self.cmb_loba_method.addItem("", key)
+        self._set_combo_data(
+            self.cmb_loba_method,
+            LOBA_DEFAULT_SETTINGS.get("method", "loba"))
+        self.cmb_loba_method.currentIndexChanged.connect(
+            self._refresh_loba_controls)
+        form.addRow(self.lbl_loba_method, self.cmb_loba_method)
+
+        self.lbl_loba_threshold = QLabel()
+        self.spin_loba_threshold = QDoubleSpinBox()
+        self.spin_loba_threshold.setRange(1.0, 100.0)
+        self.spin_loba_threshold.setDecimals(1)
+        self.spin_loba_threshold.setSingleStep(1.0)
+        self.spin_loba_threshold.setSuffix(" %")
+        self.spin_loba_threshold.setValue(
+            float(LOBA_DEFAULT_SETTINGS.get("threshold", 50.0)))
+        form.addRow(self.lbl_loba_threshold, self.spin_loba_threshold)
+
+        self.lbl_loba_fragment = QLabel()
+        self.edit_loba_fragment = QLineEdit()
+        form.addRow(self.lbl_loba_fragment, self.edit_loba_fragment)
+        layout.addWidget(self.loba_inputs)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(6)
+        self.btn_loba_run = QPushButton()
+        self.btn_loba_run.setMinimumHeight(38)
+        self.btn_loba_run.clicked.connect(self._start_loba)
+        self.btn_loba_stop = QPushButton()
+        self.btn_loba_stop.setEnabled(False)
+        self.btn_loba_stop.clicked.connect(self._stop_loba)
+        buttons.addWidget(self.btn_loba_run, 1)
+        buttons.addWidget(self.btn_loba_stop, 0)
+        layout.addLayout(buttons)
+
+        self.loba_progress = QProgressBar()
+        self.loba_progress.setRange(0, 100)
+        self.loba_progress.setValue(0)
+        layout.addWidget(self.loba_progress)
+
+        self.lbl_loba_status = QLabel()
+        self.lbl_loba_status.setWordWrap(True)
+        layout.addWidget(self.lbl_loba_status)
+
+        self.lbl_loba_hint = QLabel()
+        self.lbl_loba_hint.setWordWrap(True)
+        self.lbl_loba_hint.setStyleSheet("font-size:12px;color:#64748B;")
+        layout.addWidget(self.lbl_loba_hint)
+
+        self.lbl_loba_summary = QLabel()
+        self.lbl_loba_summary.setWordWrap(True)
+        self.lbl_loba_summary.setStyleSheet(
+            "padding:6px 8px;background:#F8FAFC;border:1px solid #E2E8F0;"
+            "border-radius:6px;color:#334155;")
+        layout.addWidget(self.lbl_loba_summary)
+
+        self.loba_table = QTableWidget(0, 3)
+        self.loba_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.loba_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.loba_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.loba_table.setAlternatingRowColors(True)
+        self.loba_table.verticalHeader().setVisible(False)
+        self.loba_table.setMinimumHeight(150)
+        self.loba_table.setWordWrap(False)
+        loba_header = self.loba_table.horizontalHeader()
+        loba_header.setStretchLastSection(True)
+        loba_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        loba_header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        layout.addWidget(self.loba_table)
+
+        self.btn_loba_export = QPushButton()
+        self.btn_loba_export.setEnabled(False)
+        self.btn_loba_export.clicked.connect(self._export_loba_csv)
+        layout.addWidget(self.btn_loba_export)
+
+        root.addWidget(self.grp_loba)
+
     # ── 语言 ────────────────────────────────────────────────────────────
     def set_lang(self, lang):
         self._lang = "en" if lang == "en" else "zh"
@@ -1020,11 +1309,42 @@ class LMOPanel(QWidget):
         self.btn_open_dir.setText(t("open_dir"))
         self.btn_open_dir.setToolTip(t("open_dir_tip"))
 
+        # LOBA / mLOBA
+        self.grp_loba.setTitle(t("loba_title"))
+        self.lbl_loba_intro.setText(t("loba_intro"))
+        self.lbl_loba_method.setText(t("loba_method"))
+        self.cmb_loba_method.setToolTip(t("loba_method_tip"))
+        for index in range(self.cmb_loba_method.count()):
+            key = self.cmb_loba_method.itemData(index)
+            entry = LOBA_METHODS.get(key) or {}
+            self.cmb_loba_method.setItemText(
+                index,
+                entry.get("name_zh" if self._lang == "zh" else "name_en")
+                or str(key))
+        self.lbl_loba_threshold.setText(t("loba_threshold"))
+        self.spin_loba_threshold.setToolTip(t("loba_threshold_tip"))
+        self.lbl_loba_fragment.setText(t("loba_fragment"))
+        self.edit_loba_fragment.setPlaceholderText(
+            t("loba_fragment_placeholder"))
+        self.edit_loba_fragment.setToolTip(t("loba_fragment_tip"))
+        self.btn_loba_run.setText(t("loba_run"))
+        self.btn_loba_stop.setText(t("loba_stop"))
+        self.lbl_loba_hint.setText(t("loba_hint"))
+        self.loba_table.setHorizontalHeaderLabels([
+            t("loba_col_index"), t("loba_col_element"),
+            t("loba_col_state")])
+        self.btn_loba_export.setText(t("loba_export"))
+        self.btn_loba_export.setToolTip(t("loba_export_tip"))
+
         # 语言切换后重新套用动态内容（状态、来源、摘要、已填表格行）
         self._refresh_status()
+        self._refresh_loba_status()
         self._refresh_source()
         self._refresh_energy_controls()
+        self._refresh_loba_controls()
         self._refresh_summary()
+        self._refresh_loba_summary()
+        self._refresh_loba_table()
         if self._last_result is not None:
             self._refresh_table()
         self._update_actions()
@@ -1032,6 +1352,7 @@ class LMOPanel(QWidget):
     # ── 状态 / 输入来源 ─────────────────────────────────────────────────
     def set_source_from_main(self, path=None):
         """读取（或接收）主界面当前波函数路径并刷新显示。"""
+        previous_loba_input = self._loba_input_path()
         if path is None:
             path = self._current_fchk()
         try:
@@ -1039,7 +1360,17 @@ class LMOPanel(QWidget):
         except Exception:  # noqa: BLE001 - 异常输入按空处理
             path = ""
         self._source_path = path
+        if (previous_loba_input
+                and self._loba_input_path() != previous_loba_input):
+            self._last_loba_result = None
+            self.loba_progress.setRange(0, 100)
+            self.loba_progress.setValue(0)
+            self._refresh_loba_table()
+            self._refresh_loba_summary()
         self._refresh_source()
+        if not self._running and not self._loba_running:
+            self._refresh_loba_status_from_result()
+            self._update_actions()
 
     def showEvent(self, event):
         # 切换回本页时跟随主窗口当前 fchk（载入新文件后不必手动点刷新）
@@ -1089,6 +1420,23 @@ class LMOPanel(QWidget):
         for widget in (self.lbl_fock_file, self.edit_fock, self.btn_browse_fock):
             widget.setEnabled(file_mode)
 
+    def _refresh_loba_controls(self, *_args):
+        loba_mode = self.cmb_loba_method.currentData() == "loba"
+        self.lbl_loba_threshold.setEnabled(loba_mode)
+        self.spin_loba_threshold.setEnabled(loba_mode)
+        self.spin_loba_threshold.setToolTip(
+            self._t("loba_threshold_tip") if loba_mode else "")
+
+    def _loba_settings(self):
+        method = self.cmb_loba_method.currentData()
+        if method not in LOBA_METHODS:
+            method = "loba"
+        return {
+            "method": method,
+            "threshold": float(self.spin_loba_threshold.value()),
+            "fragment": self.edit_loba_fragment.text().strip(),
+        }
+
     def _toggle_advanced(self, checked):
         self._advanced_open = bool(checked)
         self.advanced_body.setVisible(self._advanced_open)
@@ -1113,7 +1461,7 @@ class LMOPanel(QWidget):
 
     # ── 运行 / 停止 ─────────────────────────────────────────────────────
     def _start(self):
-        if self._running or self._generating:
+        if self._running or self._generating or self._loba_running:
             return
         fchk = self._current_fchk()
         if not fchk or not os.path.isfile(fchk):
@@ -1159,11 +1507,158 @@ class LMOPanel(QWidget):
         self._set_status("status_cancelling")
         self._log(self._t("log_cancelling"))
 
+    def _start_loba(self):
+        if self._running or self._generating or self._loba_running:
+            return
+        lmo_fch = self._loba_input_path()
+        if not lmo_fch or not os.path.isfile(lmo_fch):
+            QMessageBox.warning(
+                self, self._t("warning"), self._t("loba_no_lmo_fch"))
+            return
+        multiwfn = self._current_multiwfn()
+        if not multiwfn or not os.path.isfile(multiwfn):
+            QMessageBox.warning(self, self._t("warning"), self._t("need_mw"))
+            return
+        settings = self._loba_settings()
+        try:
+            settings["fragment"] = parse_fragment_spec(
+                settings.get("fragment"))
+        except ValueError as exc:
+            QMessageBox.warning(
+                self, self._t("warning"),
+                self._t("loba_invalid_fragment").format(msg=exc))
+            return
+
+        self._last_loba_result = None
+        self._refresh_loba_table()
+        self._refresh_loba_summary()
+        self._loba_worker = LOBAWorker(lmo_fch, multiwfn, settings, self)
+        self._loba_worker.log.connect(self._on_log)
+        self._loba_worker.stage.connect(self._on_loba_stage)
+        self._loba_worker.finished.connect(self._on_loba_finished)
+        self._loba_worker.failed.connect(self._on_loba_failed)
+
+        method = self.cmb_loba_method.currentText()
+        threshold = ("mLOBA" if settings["method"] == "mloba"
+                     else "%.1f%%" % settings["threshold"])
+        fragment = settings.get("fragment") or self._t("dash")
+        self._log(self._t("loba_log_start").format(
+            method=method, threshold=threshold, fragment=fragment))
+        self.loba_progress.setRange(0, 0)
+        self.loba_progress.setValue(0)
+        self._set_loba_status("loba_status_working")
+        self._set_loba_running(True)
+        self._loba_worker.start()
+
+    def _stop_loba(self):
+        if (self._loba_worker is None
+                or not self._loba_worker.isRunning()):
+            return
+        self._loba_worker.stop()
+        self._set_loba_status("loba_status_cancelled")
+        self._log(self._t("loba_log_cancelling"))
+
+    def _set_loba_running(self, running):
+        self._loba_running = bool(running)
+        self.loba_inputs.setEnabled(not self._loba_running)
+        self.btn_loba_run.setEnabled(not self._loba_running)
+        self.btn_loba_stop.setEnabled(self._loba_running)
+        for widget in (self.grp_source, self.grp_settings, self.btn_run):
+            widget.setEnabled(not self._loba_running and not self._running)
+        self._update_actions()
+
+    def _on_loba_stage(self, percent, _text):
+        try:
+            value = int(percent)
+        except (TypeError, ValueError):
+            value = 0
+        if self.loba_progress.maximum() == 0:
+            self.loba_progress.setRange(0, 100)
+        self.loba_progress.setValue(max(0, min(100, value)))
+
+    def _on_loba_finished(self, result):
+        if self._shutting_down:
+            self._loba_worker = None
+            self._loba_running = False
+            return
+        if not isinstance(result, dict):
+            result = {"ok": False, "error": "invalid LOBA result",
+                      "atoms": [], "warnings": []}
+        cancelled = (self._loba_worker is not None
+                     and self._loba_worker.is_stopped())
+        if result.get("ok") and not cancelled:
+            self._apply_loba_result(result)
+        self.loba_progress.setRange(0, 100)
+        if result.get("ok") and not cancelled:
+            self.loba_progress.setValue(100)
+            self._set_loba_status("loba_status_done")
+            seconds = _as_float(result.get("seconds"))
+            seconds_text = ("%.1f" % seconds) if seconds is not None else "—"
+            total = _as_float(result.get("sum"))
+            total_text = ("%.6g" % total) if total is not None else "—"
+            self._log(self._t("loba_log_done").format(
+                n=len(result.get("atoms") or []),
+                sum=total_text,
+                secs=seconds_text))
+            try:
+                self.scroll_area.ensureWidgetVisible(self.grp_loba, 0, 0)
+            except Exception:  # noqa: BLE001 - 滚动失败不影响结果
+                pass
+        elif cancelled:
+            self.loba_progress.setValue(0)
+            self._set_loba_status("loba_status_cancelled")
+            self._log(self._t("loba_log_cancelled"))
+        else:
+            self.loba_progress.setValue(0)
+            error = str(result.get("error") or self._t("loba_status_failed"))
+            self._set_loba_status("loba_status_failed")
+            self._log(self._t("loba_log_error").format(msg=error))
+            QMessageBox.warning(self, self._t("loba_failed_title"), error)
+        self._finish_loba_worker()
+
+    def _on_loba_failed(self, message):
+        if self._shutting_down:
+            self._loba_worker = None
+            self._loba_running = False
+            return
+        self.loba_progress.setRange(0, 100)
+        self.loba_progress.setValue(0)
+        if self._loba_worker is not None and self._loba_worker.is_stopped():
+            self._set_loba_status("loba_status_cancelled")
+            self._log(self._t("loba_log_cancelled"))
+            self._finish_loba_worker()
+            return
+        self._set_loba_status("loba_status_failed")
+        self._log(self._t("loba_log_error").format(msg=message))
+        QMessageBox.warning(
+            self, self._t("loba_failed_title"),
+            str(message or self._t("loba_status_failed")))
+        self._finish_loba_worker()
+
+    def _finish_loba_worker(self):
+        worker = self._loba_worker
+        self._loba_worker = None
+        if worker is not None:
+            try:
+                if worker.isRunning():
+                    worker.wait(3000)
+            except Exception:  # noqa: BLE001 - 清理失败不影响界面
+                pass
+        self._set_loba_running(False)
+        if self._last_loba_result is None:
+            self._set_loba_status(
+                "loba_status_ready" if self._loba_input_path() else
+                "loba_status_waiting")
+
     def _set_running(self, running):
         self._running = bool(running)
         for widget in (self.grp_source, self.grp_settings, self.btn_run):
-            widget.setEnabled(not self._running)
+            widget.setEnabled(not self._running and not self._loba_running)
         self.btn_stop.setEnabled(self._running)
+        if self._running:
+            self.btn_loba_run.setEnabled(False)
+        else:
+            self._refresh_loba_status_from_result()
         self._update_actions()
 
     def _on_stage(self, percent, _text):
@@ -1250,10 +1745,46 @@ class LMOPanel(QWidget):
         """把核心模块的结果字典套用到摘要与结果表（探针脚本也直接调用它）。"""
         if not isinstance(result, dict):
             return
+        previous_loba_input = self._loba_input_path()
         self._last_result = result
+        current_loba_input = self._loba_input_path()
+        if (previous_loba_input
+                and current_loba_input != previous_loba_input):
+            self._last_loba_result = None
+            self.loba_progress.setRange(0, 100)
+            self.loba_progress.setValue(0)
+            self._refresh_loba_table()
+            self._refresh_loba_summary()
         self._refresh_summary()
         self._refresh_table()
+        self._refresh_loba_status_from_result()
         self._update_actions()
+
+    def _lmo_fch_path(self):
+        result = self._last_result
+        if not isinstance(result, dict):
+            return ""
+        return str(result.get("lmo_fch") or "").strip()
+
+    def _loba_input_path(self):
+        """优先使用本次定域化产物；也接受主界面已载入的 ``*_LMO.fch``。"""
+        path = self._lmo_fch_path()
+        if path and os.path.isfile(path):
+            return path
+        source = str(self._source_path or "").strip()
+        if (source and os.path.isfile(source)
+                and re.match(r"(?i)^.+_LMO\.fchk?$", os.path.basename(source))):
+            return source
+        return ""
+
+    def _refresh_loba_status_from_result(self):
+        if self._loba_running:
+            return
+        path = self._loba_input_path()
+        if path:
+            self._set_loba_status("loba_status_ready")
+        else:
+            self._set_loba_status("loba_status_waiting")
 
     def _lmo_count(self, result=None):
         """表格实际行数 = 能量行 ∪ 只有指认的行（摘要/日志统一用这个数）。
@@ -1640,15 +2171,147 @@ class LMOPanel(QWidget):
         except (TypeError, ValueError):
             return self._t("dash")
 
+    # ── LOBA 结果 ───────────────────────────────────────────────────────
+    def _apply_loba_result(self, result):
+        """套用 LOBA 结果字典（探针测试也直接调用）。"""
+        if not isinstance(result, dict):
+            return
+        self._last_loba_result = result
+        self._refresh_loba_table()
+        self._refresh_loba_summary()
+        self._update_actions()
+
+    def _refresh_loba_table(self):
+        result = self._last_loba_result
+        atoms = result.get("atoms") if isinstance(result, dict) else []
+        atoms = atoms if isinstance(atoms, list) else []
+        self.loba_table.setRowCount(0)
+        if not atoms:
+            return
+        atoms = sorted(
+            [atom for atom in atoms if isinstance(atom, dict)],
+            key=lambda atom: (_as_int(atom.get("index"), 10 ** 9)
+                              or 10 ** 9))
+        self.loba_table.setRowCount(len(atoms))
+        for row, atom in enumerate(atoms):
+            index = _as_int(atom.get("index"))
+            state = _as_float(atom.get("oxidation_state"))
+            state_text = self._t("dash")
+            if state is not None:
+                if abs(state - round(state)) < 1e-8:
+                    state_text = "%+d" % int(round(state))
+                else:
+                    state_text = "%+.4g" % state
+            values = (
+                self._t("dash") if index is None else str(index),
+                str(atom.get("element") or self._t("dash")),
+                state_text,
+            )
+            for column, text in enumerate(values):
+                item = QTableWidgetItem(text)
+                if column in (0, 2):
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.loba_table.setItem(row, column, item)
+
+    def _refresh_loba_summary(self):
+        result = self._last_loba_result
+        if not isinstance(result, dict) or not result:
+            self.lbl_loba_summary.setText(self._t("loba_result_empty"))
+            return
+        settings = result.get("settings")
+        settings = settings if isinstance(settings, dict) else {}
+        method_key = str(settings.get("method") or "loba")
+        method_entry = LOBA_METHODS.get(method_key) or {}
+        method = str(method_entry.get(
+            "name_zh" if self._lang == "zh" else "name_en") or method_key)
+        if method_key == "mloba":
+            threshold = self._t("dash")
+        else:
+            threshold_value = _as_float(settings.get("threshold"), 50.0)
+            threshold = "%.1f%%" % threshold_value
+        seconds = _as_float(result.get("seconds"))
+        secs_text = ("%.1f" % seconds) if seconds is not None else self._t(
+            "dash")
+        total = _as_float(result.get("sum"))
+        total_text = ("%.6g" % total) if total is not None else self._t("dash")
+        charge = _as_float(result.get("net_charge"))
+        charge_text = ("%g" % charge) if charge is not None else self._t("dash")
+        log_name = os.path.basename(str(result.get("log_path") or ""))
+        summary = self._t("loba_summary").format(
+            method=method,
+            threshold=threshold,
+            secs=secs_text,
+            sum=total_text,
+            charge=charge_text,
+            log=log_name or self._t("dash"))
+        fragment = str(settings.get("fragment") or "")
+        fragment_state = _as_float(result.get("fragment_oxidation_state"))
+        if fragment:
+            state_text = (("%+.6g" % fragment_state)
+                          if fragment_state is not None else self._t("dash"))
+            summary += "\n" + self._t("loba_summary_fragment").format(
+                fragment=fragment, state=state_text)
+        difference = _as_float(result.get("sum_difference"))
+        if difference is not None and abs(difference) > 1e-6:
+            summary += "\n" + self._t("loba_sum_error")
+        self.lbl_loba_summary.setText(summary)
+
+    def _export_loba_csv(self):
+        result = self._last_loba_result
+        atoms = result.get("atoms") if isinstance(result, dict) else None
+        if not isinstance(atoms, list) or not atoms:
+            QMessageBox.warning(
+                self, self._t("warning"), self._t("loba_no_result"))
+            return
+        work_dir = os.path.dirname(str(result.get("log_path") or ""))
+        if not work_dir:
+            work_dir = self._output_dir() or os.getcwd()
+        stem = os.path.splitext(os.path.basename(
+            self._loba_input_path() or "LMO"))[0] or "LMO"
+        if stem.endswith("_LMO"):
+            stem = stem[:-4]
+        path, _ = QFileDialog.getSaveFileName(
+            self, self._t("loba_export"),
+            os.path.join(work_dir, stem + "_LOBA.csv"),
+            self._t("csv_filter"))
+        if not path:
+            return
+        try:
+            with open(path, "w", newline="", encoding="utf-8-sig") as handle:
+                writer = csv.writer(handle)
+                writer.writerow([
+                    self._t("loba_col_index"), self._t("loba_col_element"),
+                    self._t("loba_col_state")])
+                for atom in atoms:
+                    if not isinstance(atom, dict):
+                        continue
+                    index = _as_int(atom.get("index"))
+                    state = _as_float(atom.get("oxidation_state"))
+                    writer.writerow([
+                        "" if index is None else index,
+                        atom.get("element") or "",
+                        "" if state is None else ("%.10g" % state),
+                    ])
+            self._log(self._t("loba_log_csv_saved").format(path=path))
+        except Exception as exc:  # noqa: BLE001 - CSV 操作失败给出提示
+            QMessageBox.warning(
+                self, self._t("failed_title"),
+                self._t("csv_failed_msg").format(msg=exc))
+
     def _update_actions(self):
         result = self._last_result or {}
         has_rows = self.table.rowCount() > 0
-        busy = self._running or self._generating
+        busy = self._running or self._generating or self._loba_running
         self.btn_visualize.setEnabled(has_rows and not busy)
-        lmo_fch = str(result.get("lmo_fch") or "").strip()
+        lmo_fch = self._lmo_fch_path()
         self.btn_open_wavefunction.setEnabled(bool(lmo_fch) and not busy)
         self.btn_export_csv.setEnabled(has_rows and not self._running)
         self.btn_open_dir.setEnabled(bool(self._output_dir()) and not busy)
+        lmo_ready = bool(self._loba_input_path())
+        self.btn_loba_run.setEnabled(lmo_ready and not busy)
+        self.btn_loba_stop.setEnabled(self._loba_running)
+        self.btn_loba_export.setEnabled(
+            bool(self._last_loba_result) and not self._loba_running)
 
     def _output_dir(self):
         result = self._last_result or {}
@@ -1880,14 +2543,14 @@ class LMOPanel(QWidget):
         super().closeEvent(event)
 
     def shutdown(self):
-        """主窗口关闭时调用：停止定域化与 cube 生成线程。
+        """主窗口关闭时调用：停止定域化、LOBA 与 cube 生成线程。
 
         关闭阶段不再弹任何模态框：后台线程被 stop() 终止后仍可能通过队列
         把 finished/error 信号送进来，`_shutting_down` 会让这些槽函数安静
         退出（否则关窗时会弹「定域化失败」对话框，甚至阻塞退出）。
         """
         self._shutting_down = True
-        for worker in (self._worker, self._cube_worker):
+        for worker in (self._worker, self._loba_worker, self._cube_worker):
             if worker is None:
                 continue
             try:
@@ -1898,7 +2561,8 @@ class LMOPanel(QWidget):
             except Exception:  # noqa: BLE001 - 关闭阶段不再抛错
                 pass
         self._worker = None
+        self._loba_worker = None
         self._cube_worker = None
 
 
-__all__ = ["LMOPanel", "LMOWorker", "LMOCubeWorker", "TEXT"]
+__all__ = ["LMOPanel", "LMOWorker", "LOBAWorker", "LMOCubeWorker", "TEXT"]

@@ -40,6 +40,15 @@ ATOM_RADII = {
 }
 DEFAULT_ATOM_RADIUS = 0.42
 BOND_RADIUS = 0.105
+#: 1 Bohr in Angstrom. Canvas / cube coordinates are Bohr, glTF uses Angstrom.
+BOHR_TO_ANGSTROM = 0.529177210903
+
+#: Canonical phase colours of the electronic-structure library (sRGB, 0-255).
+#: Blue = psi > 0, orange = psi < 0 in the library thumbnails and on the
+#: canvas; the UI passes its own (identical) constants when exporting so the
+#: .glb always follows the current palette. These are the headless defaults.
+ORBITAL_PHASE_POS = (43, 108, 176)
+ORBITAL_PHASE_NEG = (224, 83, 59)
 
 _COMPONENT_BYTES = {
     5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4,
@@ -708,17 +717,22 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
             indices.extend(int(i) + offset for i in part.indices)
             offset += vertex_count
         merged = _Part(positions=positions, normals=normals, indices=indices)
-        native_parts = {"__native__": merged}
+        native_parts = ({"__native__": merged} if merged.indices else {})
         for extra in ("__outline__", "__cellbox__"):
             if extra in parts:
                 native_parts[extra] = parts[extra]
         parts = native_parts
-        native_colours["__native__"] = colours
-        material_specs = {
-            "__native__": ([1.0, 1.0, 1.0, 1.0], roughness, "Molecule"),
-            "__outline__": (
-                list(outline_rgba) + [1.0], 0.55, "Atom outline"),
-        }
+        if merged.indices:
+            native_colours["__native__"] = colours
+        # A surface-only scene (atomic-orbital .glb) has no atoms at all here.
+        # Keep it out of the material list too: an unused "Molecule" material
+        # makes some glTF viewers (and the Khronos validator) complain.
+        material_specs = {}
+        if merged.indices:
+            material_specs["__native__"] = (
+                [1.0, 1.0, 1.0, 1.0], roughness, "Molecule")
+        material_specs["__outline__"] = (
+            list(outline_rgba) + [1.0], 0.55, "Atom outline")
         if "__outline__" in parts:
             native_colours["__outline__"] = (
                 outline_rgba * (len(parts["__outline__"].positions) // 3))
@@ -910,8 +924,9 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
                 "bonds": int(len(ordered)),
                 "multiple_bonds": int(sum(1 for _i, _j, order in ordered
                                           if order > 1)),
-                "contact_ao": bool(native_pbr and bake_ao),
-                "ao_rays": int(ao_rays if native_pbr and bake_ao else 0),
+                "contact_ao": bool(native_pbr and bake_ao and visible.any()),
+                "ao_rays": int(ao_rays if native_pbr and bake_ao
+                               and visible.any() else 0),
                 "atom_outline": bool("__outline__" in parts),
                 "cell_box": bool("__cellbox__" in parts),
                 "surface_layers": surface_metadata,
@@ -933,7 +948,7 @@ def _build_gltf(symbols: Sequence[str], coords: np.ndarray, bonds,
 
 
 def surface_layers_from_canvas(glw, *,
-                               bohr_to_angstrom: float = 0.529177210903):
+                               bohr_to_angstrom: float = BOHR_TO_ANGSTROM):
     """Snapshot visible isosurfaces from a MolStudio OpenGL canvas.
 
     The canvas stores positions in Bohr; GLB uses Angstrom. Vertex colours
@@ -1005,6 +1020,61 @@ def surface_layers_from_canvas(glw, *,
     return layers
 
 
+def orbital_surface_layers(spec, *, iso=None, quality: str = "medium",
+                           pos_rgb=ORBITAL_PHASE_POS,
+                           neg_rgb=ORBITAL_PHASE_NEG,
+                           opacity: float = 1.0,
+                           roughness: float = 0.52):
+    """Snapshot an analytic atomic / hybrid orbital as GLB surface layers.
+
+    Unlike :func:`surface_layers_from_canvas` this needs no GL canvas: the
+    mesh is re-extracted on a sampling box that grows until the isosurface
+    closes (see :func:`molstudio.core.atomic_orbital.iso_surfaces`).  The
+    canvas grid is deliberately clipped at ``spec.extent``, so exporting the
+    canvas mesh would leave the lobe tips sliced open — invisible on screen
+    thanks to double-sided rendering, but a hole in PowerPoint.
+
+    Returns one :class:`SurfaceLayer` per phase (Bohr → Angstrom), using the
+    same blue / orange phase colours as the library preview and the canvas.
+    """
+    from molstudio.core.atomic_orbital import QUALITY_LEVELS, iso_surfaces
+
+    quality = str(quality)
+    samples = QUALITY_LEVELS.get(quality, QUALITY_LEVELS["medium"])
+    pos, neg = iso_surfaces(spec, n=samples, iso=iso)
+
+    def _layer(surface, name, rgb):
+        vertices = getattr(surface, "vertices", None)
+        indices = getattr(surface, "indices", None)
+        if (vertices is None or indices is None
+                or getattr(surface, "vertex_count", 0) <= 0):
+            return None
+        normals = getattr(surface, "normals", None)
+        return SurfaceLayer(
+            name=name,
+            vertices=np.asarray(vertices, dtype=float) * BOHR_TO_ANGSTROM,
+            normals=(None if normals is None
+                     else np.asarray(normals, dtype=float)),
+            indices=np.asarray(indices),
+            colors=tuple(max(0.0, min(1.0, float(c) / 255.0))
+                         for c in rgb[:3]),
+            opacity=opacity,
+            roughness=roughness,
+            kind="orbital",
+            double_sided=True,
+        )
+
+    layers = [
+        layer for layer in (
+            _layer(pos, "Orbital — positive phase", pos_rgb),
+            _layer(neg, "Orbital — negative phase", neg_rgb),
+        ) if layer is not None
+    ]
+    if not layers:
+        raise ValueError("等值面为空：请降低 iso 或提高网格精度")
+    return layers
+
+
 def export_glb(path, symbols: Iterable[str], coords, *, bonds=None,
                bond_orders=None, atom_colors=None, atom_radii=None,
                visible_atoms=None, bond_color=None, bond_radius=None,
@@ -1021,13 +1091,21 @@ def export_glb(path, symbols: Iterable[str], coords, *, bonds=None,
     ``Insert > 3D Models > This Device``. PowerPoint normalises the model size
     and provides rotation controls; the source remains editable in MolStudio.
     Surface layers use the same Angstrom coordinate system as ``coords``.
+
+    ``symbols`` / ``coords`` may be empty when ``surfaces`` (or ``cell_box``)
+    provide the geometry: the structure library's analytic-orbital export is a
+    surface-only model (the orbital cube carries no atoms, NATOMS = 0).
     """
     symbols = [_symbol(s) for s in symbols]
     coords = np.asarray(coords, dtype=float)
-    if not symbols or coords.ndim != 2 or coords.shape[1] != 3:
+    if coords.size == 0:
+        coords = coords.reshape(0, 3)      # [] / np.array([]) -> (0, 3)
+    if coords.ndim != 2 or coords.shape[1] != 3:
         raise ValueError("分子结构为空或坐标格式不正确")
     if coords.shape[0] != len(symbols):
         raise ValueError("原子数与坐标行数不一致")
+    if not symbols and not surfaces and not cell_box:
+        raise ValueError("没有可导出的结构或等值面")
     if not np.isfinite(coords).all():
         raise ValueError("分子坐标含非有限数值")
 
@@ -1046,6 +1124,11 @@ def export_glb(path, symbols: Iterable[str], coords, *, bonds=None,
         atom_outline=atom_outline, outline_ratio=outline_ratio,
         outline_color=outline_color, surfaces=surfaces,
         cell_box=cell_box)
+    if not gltf["meshes"][0]["primitives"]:
+        # Do not leave a header-only .glb behind: PowerPoint rejects it and the
+        # user cannot tell why. Happens when every surface is invisible or has
+        # opacity 0 and there are no atoms.
+        raise ValueError("没有可导出的可见几何（结构为空或等值面透明度过低）")
     json_bytes = json.dumps(gltf, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     json_bytes += b" " * ((4 - len(json_bytes) % 4) % 4)
     binary += b"\0" * ((4 - len(binary) % 4) % 4)
@@ -1107,6 +1190,8 @@ def validate_glb(path) -> dict:
 
 
 __all__ = [
-    "ATOM_RADII", "BOND_RADIUS", "ELEMENT_COLOURS",
-    "SurfaceLayer", "export_glb", "surface_layers_from_canvas", "validate_glb",
+    "ATOM_RADII", "BOHR_TO_ANGSTROM", "BOND_RADIUS", "ELEMENT_COLOURS",
+    "ORBITAL_PHASE_POS", "ORBITAL_PHASE_NEG",
+    "SurfaceLayer", "export_glb", "orbital_surface_layers",
+    "surface_layers_from_canvas", "validate_glb",
 ]

@@ -88,6 +88,27 @@ create a derivative work, so their licenses do not affect MolStudio's GPLv3.
 
 ---
 
+## 2b. xTBridge — MIT（高斯 × xTB 联用脚本，**已随包分发**）
+
+The Gaussian "External" bridge script is a **vendored copy** (MIT, GPLv3-compatible)
+of the xTBridge project's `gau_xtb.py`. It is bundled because Gaussian launches it
+as a separate process.
+
+| | |
+|---|---|
+| **Project** | [xTBridge](https://github.com/houcheng-gxnu/xTBridge) — Gaussian + xTB external interface |
+| **Copyright** | (c) 2026 houcheng-gxnu |
+| **License** | MIT License |
+| **Bundled file** | `molstudio/tools/gau_xtb.py` — protocol implementation unchanged; only the module docstring adds provenance/environment notes |
+| **Driver code** | `molstudio/core/xtb_bridge.py` (route sanitising, `external=` injection, env vars, client `.bat`) is MolStudio's own implementation; the rules follow xTBridge's documented behaviour |
+
+The MIT text is kept at the top of `molstudio/tools/gau_xtb.py`. The protocol
+itself follows Tian Lu's original `gau_xtb` scheme
+(<http://sobereva.com/soft/gau_xtb>), which xTBridge also credits.
+Gaussian and xTB themselves are **not** bundled (see §2).
+
+---
+
 ## 3. Third-party data tables and palettes
 
 These are **scientific data / colour values**, reproduced as numbers. Data per se

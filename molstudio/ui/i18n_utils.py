@@ -34,12 +34,12 @@ def combined_map():
     from molstudio.panels import (asm_irc_panel, crystal_panel, cub_stack_panel,
                                   di_analysis_panel, energy_span_panel, esp_panel,
                                   etsnocv_panel, igmh_panel, irc_panel, ircsplit_panel,
-                                  mpp_panel)
+                                  microkinetics_panel, mpp_panel)
 
     merged = {}
     for module in (asm_irc_panel, crystal_panel, cub_stack_panel, di_analysis_panel,
                    energy_span_panel, esp_panel, etsnocv_panel, igmh_panel, irc_panel,
-                   ircsplit_panel, mpp_panel):
+                   ircsplit_panel, microkinetics_panel, mpp_panel):
         merged.update(getattr(module, "_LANG_EXTRA", {}) or {})
     merged.update(CV_EN_EXTRA)
     return merged

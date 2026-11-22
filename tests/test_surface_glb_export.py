@@ -193,3 +193,136 @@ def test_esp_legend_png_is_written_beside_glb(tmp_path):
     assert image.width() == 1200 and image.height() == 256
     assert QColor(image.pixel(200, 150)) != QColor("#FFFFFF")
     app.processEvents()
+
+
+# ── surface-only atomic-orbital export (structure library) ──────────────
+
+def _orbital_layers(ident="2pz", **kwargs):
+    from molstudio.core.atomic_orbital import orbital_by_id
+    from molstudio.core.molecule_export import orbital_surface_layers
+
+    return orbital_surface_layers(orbital_by_id(ident), **kwargs)
+
+
+def test_atomless_surface_only_glb_is_valid(tmp_path):
+    """A model with no atoms must still be a valid, PowerPoint-importable GLB."""
+    layers = _orbital_layers(iso=0.08, quality="low")
+    assert [layer.kind for layer in layers] == ["orbital", "orbital"]
+    assert [layer.name for layer in layers] == [
+        "Orbital — positive phase", "Orbital — negative phase"]
+    # The orbital mesh uses the same phase colours as the library preview.
+    assert layers[0].colors == pytest.approx((43 / 255, 108 / 255, 176 / 255))
+    assert layers[1].colors == pytest.approx((224 / 255, 83 / 255, 59 / 255))
+    # Cube coordinates are Bohr; the GLB is Angstrom (2p_z reaches ~5.5 A).
+    assert float(np.abs(layers[0].vertices).max()) < 6.0
+
+    target = export_glb(
+        tmp_path / "2pz.glb", [], np.zeros((0, 3)), surfaces=layers,
+        native_pbr=True, high_detail=True, title="2p_z")
+
+    gltf = validate_glb(target)
+    assert gltf["extras"]["chemistry"]["atoms"] == 0
+    assert gltf["extras"]["chemistry"]["surface_layers"] == [
+        {"name": layer.name, "kind": "orbital",
+         "vertices": len(layer.vertices), "triangles": len(layer.indices) // 3,
+         "opacity": 1.0}
+        for layer in layers
+    ]
+    names = [material["name"] for material in gltf["materials"]]
+    # No empty "Molecule" material is left behind for an atom-less scene.
+    assert "Molecule" not in names
+    assert names == ["Orbital — positive phase", "Orbital — negative phase"]
+    assert len(gltf["meshes"][0]["primitives"]) == 2
+    for primitive in gltf["meshes"][0]["primitives"]:
+        material = gltf["materials"][primitive["material"]]
+        assert material["alphaMode"] == "OPAQUE"     # phase lobes are solid
+        assert material["doubleSided"] is True
+        assert set(primitive["attributes"]) == {"POSITION", "NORMAL", "COLOR_0"}
+
+
+def test_orbital_surface_mesh_is_closed():
+    """Exported lobes must be watertight: the canvas grid is clipped, GLB is not."""
+    layers = _orbital_layers(ident="3dz2", iso=0.08, quality="low")
+    for layer in layers:
+        tri = np.asarray(layer.indices).reshape(-1, 3)
+        edges = np.sort(np.concatenate(
+            [tri[:, [0, 1]], tri[:, [1, 2]], tri[:, [2, 0]]]), axis=1)
+        _, counts = np.unique(edges, axis=0, return_counts=True)
+        assert int((counts == 1).sum()) == 0, layer.name
+
+
+def test_orbital_export_follows_canvas_phase_colours(tmp_path):
+    """改画布配色 / 透明度 / 粗糙度 / 翻转相位后，导出的 .glb 必须跟着变。"""
+    from types import SimpleNamespace
+
+    from molstudio.core.atomic_orbital import orbital_by_id
+    from molstudio.core.ppt3d_options import Ppt3dOptions
+    from molstudio.ui.main_window import OrbitalVisApp
+
+    app = QApplication.instance() or QApplication(sys.argv)  # noqa: F841
+
+    def _export(flipped: bool):
+        glw = SimpleNamespace(
+            _surf_vcolor=False,
+            _orbital_recs=[object()],
+            _pc=(1.0, 0.0, 0.0),        # 正相位：红
+            _nc=(0.0, 0.0, 1.0),        # 负相位：蓝
+            _orbital_flipped=[flipped],
+            _sp={"opacity": 0.5, "roughness": 0.2},
+            cam=None,
+        )
+        out = tmp_path / ("flipped.glb" if flipped else "palette.glb")
+        window = SimpleNamespace(
+            cub_canvas=SimpleNamespace(glw=glw),
+            _lang="zh",
+            _current_cubes=["2pz_low.cub"],
+            _library_orbital_cube="2pz_low.cub",
+            _library_orbital_spec="2pz",
+            ORBITAL_PHASE_POS=(43, 108, 176),
+            ORBITAL_PHASE_NEG=(224, 83, 59),
+            _canvas_orbital_style=OrbitalVisApp._canvas_orbital_style,
+            _ppt3d_save_path=lambda stem, start_dir=None: str(out),
+            _ppt3d_report=lambda *args, **kwargs: None,
+        )
+        OrbitalVisApp._library_export_orbital(
+            window, orbital_by_id("2pz"), 0.08, "low", Ppt3dOptions())
+        return validate_glb(out), out.read_bytes()
+
+    def _colour_of(gltf, raw, name):
+        primitive = next(
+            prim for prim in gltf["meshes"][0]["primitives"]
+            if gltf["materials"][prim["material"]]["name"] == name)
+        return _float_accessor(raw, gltf, primitive["attributes"]["COLOR_0"])[0]
+
+    gltf, raw = _export(flipped=False)
+    pos = next(m for m in gltf["materials"] if m["name"].endswith("positive phase"))
+    neg = next(m for m in gltf["materials"] if m["name"].endswith("negative phase"))
+    for material in (pos, neg):
+        assert material["alphaMode"] == "BLEND"
+        assert material["pbrMetallicRoughness"]["baseColorFactor"][3] == \
+            pytest.approx(0.5)
+        assert material["pbrMetallicRoughness"]["roughnessFactor"] == \
+            pytest.approx(0.2)
+    assert _colour_of(gltf, raw, "Orbital — positive phase") == pytest.approx(
+        [1.0, 0.0, 0.0], abs=2e-6)
+    assert _colour_of(gltf, raw, "Orbital — negative phase") == pytest.approx(
+        [0.0, 0.0, 1.0], abs=2e-6)
+
+    # 翻转相位后正 / 负两层的颜色互换（_pc/_nc 本身不变）
+    gltf_f, raw_f = _export(flipped=True)
+    assert _colour_of(gltf_f, raw_f, "Orbital — positive phase") == pytest.approx(
+        [0.0, 0.0, 1.0], abs=2e-6)
+    assert _colour_of(gltf_f, raw_f, "Orbital — negative phase") == pytest.approx(
+        [1.0, 0.0, 0.0], abs=2e-6)
+
+
+def test_export_glb_rejects_empty_scene(tmp_path):
+    target = tmp_path / "empty.glb"
+    with pytest.raises(ValueError):
+        export_glb(target, [], np.zeros((0, 3)))
+    assert not target.exists(), "失败时不能留下只有文件头的 .glb"
+
+    invisible = _tetra_surface(opacity=0.0)
+    with pytest.raises(ValueError):
+        export_glb(target, [], np.zeros((0, 3)), surfaces=[invisible])
+    assert not target.exists()

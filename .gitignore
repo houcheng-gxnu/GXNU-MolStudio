@@ -101,6 +101,19 @@ esm_panel_settings.ini
 /_irc_test/
 /_mayer_cache/
 
+# 渲染原型 / 演示沙盒（本地实验代码与出图，不入库）
+/demo_rt/
+/OptiX-MolDemo/
+
+# 画布探针输出（截图 / report.json，不入库）
+/tests/canvas_probe_out*/
+/tests/canvas_visual_probe.py
+
+# 临时缓存目录与中间图像（字体缓存 / PPM 等）
+/tmp*/
+*.ppm
+*.pgm
+
 # 宣传 / 设计文档（本地工作，不入库）
 /公众号推文_MolStudio.md
 /公众号推文_新功能.html

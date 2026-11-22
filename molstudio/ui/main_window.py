@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5 import QtCore
 from PyQt5.QtCore import (Qt, QTimer, QPropertyAnimation, QEasingCurve,
-                          QEvent)
+                          QEvent, QPointF, QRectF, pyqtSignal)
 from PyQt5.QtGui import (
     QFont, QColor, QPalette, QFontDatabase, QTextCursor, QTextCharFormat,
     QTextBlockFormat,
@@ -137,6 +137,13 @@ try:
 except Exception:
     _HAS_ORCA_PANEL = False
 
+# ── Gaussian 本机计算（g16：SP / Opt / Freq / TS / IRC / TD-DFT，含 xTB 联用） ──
+try:
+    from molstudio.panels.gaussian_panel import GaussianPanel
+    _HAS_GAUSSIAN_PANEL = True
+except Exception:
+    _HAS_GAUSSIAN_PANEL = False
+
 # ── AICD 感应电流密度各向异性（Gaussian nmr=csgt iop(10/93)，Herges 组方法） ──
 try:
     from molstudio.panels.aicd_panel import AicdPanel
@@ -207,6 +214,13 @@ try:
     _HAS_ESM_PANEL = True
 except Exception:
     _HAS_ESM_PANEL = False
+
+# ── 微观动力学（AUTOF 精确稳态模型，独立实现） ──
+try:
+    from molstudio.panels.microkinetics_panel import MicrokineticsPanel
+    _HAS_MICROKINETICS_PANEL = True
+except Exception:
+    _HAS_MICROKINETICS_PANEL = False
 
 # ── IRC 拆分（整合自早期的 IRCsplit_GUI.py，基于卢天 IRCsplit） ──
 try:
@@ -293,7 +307,185 @@ QTextEdit#RunLog {
     color: #374151;
     selection-background-color: #D6E4F5;
 }
+QFrame#LogDockGrip {
+    background: transparent;
+    border: none;
+}
 """
+
+
+class _DockChevronButton(QToolButton):
+    """日志折叠按钮：自绘 1.5px 圆头 V 形（与画布工具条同一套箭头语言）。
+
+    不用字体里的 ``▾``：那个字形在小字号下是实心三角，和工具条上的细箭头
+    并排时风格不一致，HiDPI 下也发糊。
+    """
+
+    _W, _H = 22, 18
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("LogDockBtn")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.NoFocus)
+        self.setFixedSize(self._W, self._H)
+        self._collapsed = False
+        self._hover = False
+
+    # 兼容原有调用：仍可当普通按钮取文字
+    def collapsed(self) -> bool:
+        return self._collapsed
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        self._collapsed = bool(collapsed)
+        self.update()
+
+    def enterEvent(self, ev):
+        self._hover = True
+        self.update()
+        super().enterEvent(ev)
+
+    def leaveEvent(self, ev):
+        self._hover = False
+        self.update()
+        super().leaveEvent(ev)
+
+    def paintEvent(self, ev):
+        p = QPainter(self)
+        try:
+            p.setRenderHint(QPainter.Antialiasing, True)
+            if self._hover:
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor("#EAEEF3"))
+                p.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
+                                  5, 5)
+            col = QColor("#4B5563" if self._hover else "#7B8494")
+            pen = QPen(col, 1.5)
+            pen.setCapStyle(Qt.RoundCap)
+            pen.setJoinStyle(Qt.RoundJoin)
+            p.setPen(pen)
+            p.setBrush(Qt.NoBrush)
+            cx = self.width() / 2.0
+            cy = self.height() / 2.0
+            # +1 = 向下箭头（展开态：点它收起）；-1 = 向上箭头（收起态：点它展开）
+            s = -1.0 if self._collapsed else 1.0
+            path = QPainterPath(QPointF(cx - 3.2, cy - 1.6 * s))
+            path.lineTo(QPointF(cx, cy + 1.7 * s))
+            path.lineTo(QPointF(cx + 3.2, cy - 1.6 * s))
+            p.drawPath(path)
+        finally:
+            p.end()
+
+
+class _LogDockGrip(QFrame):
+    """画布与「运行日志」之间的横向拖动条（右端带折叠按钮）。
+
+    以前日志正文高度写死 144px：想多看几行输出没法调，只有标题条右端一个
+    ``▾`` 能收起。这条 9px 的带子给出一块明确的拖动区（中间一根小握把），
+    那个 ``▾`` 也挪到这里，成为日志面板「上边缘」的控件 —— 在装了
+    ``RunLogConsole`` 的界面里标题条只剩空白，箭头原本孤零零地悬在里面。
+
+    信号：
+    * ``dragStarted``   按下（记录基准高度）
+    * ``dragMoved(dy)`` 相对按下点的位移，**向上为正**（日志变高）
+    * ``dragFinished``  松开
+    * ``resetRequested`` 双击（恢复默认高度）
+    """
+
+    dragStarted = pyqtSignal()
+    dragMoved = pyqtSignal(int)
+    dragFinished = pyqtSignal()
+    resetRequested = pyqtSignal()
+
+    _H = 9
+    _COLLAPSED_H = 24
+    _PILL_W, _PILL_H = 40, 4
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("LogDockGrip")
+        self.setFixedHeight(self._H)
+        self.setCursor(Qt.SizeVerCursor)
+        self.setToolTip("拖动调整运行日志高度（双击恢复默认）")
+        self._press_y = None
+        self._hover = False
+        self._collapsed = False
+        self._title = ""
+
+    # ── 收起态：变成一条带标题的「面板头」────────────────────────────────
+    def set_title(self, text: str) -> None:
+        self._title = str(text or "")
+        if self._collapsed:
+            self.update()
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        self._collapsed = bool(collapsed)
+        self.setFixedHeight(self._COLLAPSED_H if self._collapsed else self._H)
+        self.update()
+
+    # ── 悬停高亮 ────────────────────────────────────────────────────────
+    def enterEvent(self, ev):
+        self._hover = True
+        self.update()
+        super().enterEvent(ev)
+
+    def leaveEvent(self, ev):
+        self._hover = False
+        self.update()
+        super().leaveEvent(ev)
+
+    # ── 拖动 ────────────────────────────────────────────────────────────
+    def mousePressEvent(self, ev):
+        if ev.button() != Qt.LeftButton:
+            return super().mousePressEvent(ev)
+        self._press_y = ev.globalPos().y()
+        self.dragStarted.emit()
+        ev.accept()
+
+    def mouseMoveEvent(self, ev):
+        if self._press_y is None:
+            return super().mouseMoveEvent(ev)
+        self.dragMoved.emit(self._press_y - ev.globalPos().y())
+        ev.accept()
+
+    def mouseReleaseEvent(self, ev):
+        if self._press_y is None:
+            return super().mouseReleaseEvent(ev)
+        self._press_y = None
+        self.dragFinished.emit()
+        ev.accept()
+
+    def mouseDoubleClickEvent(self, ev):
+        if ev.button() == Qt.LeftButton:
+            self.resetRequested.emit()
+            ev.accept()
+            return
+        super().mouseDoubleClickEvent(ev)
+
+    # ── 画：展开时是一根居中握把；收起时是一条带标题的面板头 ───────────────
+    def paintEvent(self, ev):
+        p = QPainter(self)
+        try:
+            p.setRenderHint(QPainter.Antialiasing, True)
+            p.fillRect(self.rect(), QColor("#F1F4F8" if self._hover else "#FAFBFC"))
+            p.setPen(QPen(QColor("#EDF0F4"), 1))
+            p.drawLine(0, 0, self.width(), 0)
+            if self._collapsed:
+                p.setPen(QColor("#6B7280"))
+                f = QFont(p.font())
+                f.setPointSizeF(9.0)
+                p.setFont(f)
+                p.drawText(QRectF(12, 0, self.width() - 48, self.height()),
+                           int(Qt.AlignLeft | Qt.AlignVCenter), self._title)
+            else:
+                w, h = self._PILL_W, self._PILL_H
+                x = (self.width() - w) / 2.0
+                y = (self.height() - h) / 2.0
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor("#C6CDD7" if self._hover else "#D8DEE7"))
+                p.drawRoundedRect(QRectF(x, y, w, h), h / 2.0, h / 2.0)
+        finally:
+            p.end()
 
 # ── 左侧导航条 emoji ──
 # tab key → 图标表情，显示在各功能名之前（仅影响左侧导航条，不改 i18n 文案，
@@ -319,6 +511,7 @@ _NAV_EMOJI = {
     "tab_dos":         "📈",   # TDOS / PDOS / OPDOS
     "tab_xtb":         "⚡",   # xTB 半经验计算
     "tab_orca":        "🧪",   # ORCA 本机计算
+    "tab_gaussian":    "🧮",   # Gaussian 本机计算
     "tab_irc":         "🧭",   # IRC 反应路径
     "tab_di":          "🧩",   # DI 能量分解
     "tab_asm_irc":     "📈",   # ASM 沿 IRC 扫描
@@ -326,6 +519,7 @@ _NAV_EMOJI = {
     "tab_crystal":     "💎",   # 晶体
     "tab_library":     "📚",   # 结构库（分子 + 晶体）
     "tab_esm":         "📊",   # 能量跨度
+    "tab_microkinetics": "🧪",  # 微观动力学（AUTOF）
     "tab_ircsplit":    "✂️",   # IRC 拆分
     "tab_log":         "📋",   # 日志
 }
@@ -850,6 +1044,10 @@ class OrbitalVisApp(QMainWindow):
             "50%Transparent": "HalfTransparent"}
 
         self._current_cubes = []
+        # 结构库「电子结构」最近一次送上画布的 cube / 轨道 id（用于判断导出时
+        # 画布上的轨道场景是否就是这条轨道，从而决定要不要沿用它的翻转状态）。
+        self._library_orbital_cube = None
+        self._library_orbital_spec = None
         # 轨道预览目标: "canvas" = 左侧内嵌 OpenGL 画布, "vmd" = 外部 VMD
         self._preview_target = "canvas"
         # 拖放支持
@@ -937,6 +1135,8 @@ class OrbitalVisApp(QMainWindow):
                 self.cub_canvas.setMinimumWidth(360)
                 self.cub_canvas.show_params_panel(True)
                 self.cub_canvas.statusChanged.connect(self._on_canvas_status)
+                self.cub_canvas.export3dRequested.connect(
+                    self._export_current_ppt3d)
                 # 元素原子颜色设置等画布改动 → VMD 已连接时自动同步
                 self.cub_canvas.on_vmd_refresh = self._push_canvas_to_vmd_if_running
                 cv.addWidget(self.cub_canvas, stretch=1)
@@ -1057,6 +1257,8 @@ class OrbitalVisApp(QMainWindow):
         self.orbital_tabs = QTabWidget()
         self.orbital_table_alpha = self._make_orbital_table()
         self.orbital_tabs.addTab(self.orbital_table_alpha, "")
+        self.orbital_tabs.addTab(
+            self.spin_population_page, self._tr("spin_pop_tab"))
         self.orbital_table_beta = None
         # 提示 tab（假标签，固定在最右端）
         self.tab_hint = QWidget()
@@ -1383,6 +1585,8 @@ class OrbitalVisApp(QMainWindow):
                 self.orca_panel = OrcaPanel(
                     get_structure=self._get_canvas_structure,
                     on_open_structure=self._load_molecule,
+                    get_structure_path=lambda: getattr(
+                        self, "_last_structure_path", ""),
                     log_func=self._append_log,
                     parent=self,
                 )
@@ -1390,6 +1594,23 @@ class OrbitalVisApp(QMainWindow):
             except Exception as e:
                 self.orca_panel = None
                 self._append_log("[orca] ORCA 计算面板初始化失败：%s" % e)
+
+        # ── Gaussian 计算 tab（g16；含「高斯 × xTB 联用」External 模式） ──
+        self.gaussian_panel = None
+        if _HAS_GAUSSIAN_PANEL:
+            try:
+                self.gaussian_panel = GaussianPanel(
+                    get_structure=self._get_canvas_structure,
+                    on_open_structure=self._load_molecule,
+                    get_structure_path=lambda: getattr(
+                        self, "_last_structure_path", ""),
+                    log_func=self._append_log,
+                    parent=self,
+                )
+                self._add_tab(self.gaussian_panel, "tab_gaussian")
+            except Exception as e:
+                self.gaussian_panel = None
+                self._append_log("[gaussian] 高斯计算面板初始化失败：%s" % e)
 
         # ── AICD 感应电流密度各向异性 tab（Gaussian 张量转储 → 效果图） ──
         self.aicd_panel = None
@@ -1523,7 +1744,8 @@ class OrbitalVisApp(QMainWindow):
                     on_visualize_crystal=self._library_visualize_crystal,
                     on_export_crystal=self._library_export_crystal,
                     on_open_crystal_tab=self._library_open_crystal_tab,
-                    on_visualize_orbital=self._library_visualize_orbital)
+                    on_visualize_orbital=self._library_visualize_orbital,
+                    on_export_orbital=self._library_export_orbital)
                 self._add_tab(self.library_panel, "tab_library")
                 # 结构库「导出设置」里的扩晶胞 / 边界补齐 → 晶体 tab 的画布
                 self.library_panel.crystalOptionsChanged.connect(
@@ -1545,6 +1767,18 @@ class OrbitalVisApp(QMainWindow):
                 self._add_tab(self.esm_panel, "tab_esm")
             except Exception:
                 self.esm_panel = None
+
+        # ── 微观动力学 tab（AUTOF 精确稳态模型） ──
+        self.microkinetics_panel = None
+        if _HAS_MICROKINETICS_PANEL:
+            try:
+                self.microkinetics_panel = MicrokineticsPanel(
+                    log_func=self._append_log,
+                    parent=self,
+                )
+                self._add_tab(self.microkinetics_panel, "tab_microkinetics")
+            except Exception:
+                self.microkinetics_panel = None
 
         # ── IRC 拆分 tab（IRCsplit：解析 IRC 输出 → 左画布浏览结构 → 拆逐点 gjf）──
         self.ircsplit_panel = None
@@ -1745,8 +1979,13 @@ class OrbitalVisApp(QMainWindow):
         layout.setColumnStretch(1, 1)
 
         # ── 自旋密度行：独立可见行（grp_orbital 隐藏不挂布局，此行挂到轨道 tab） ──
+        self._spin_population_result = None
         self.spin_density_bar = QWidget()
-        spin_row = QHBoxLayout(self.spin_density_bar)
+        spin_bar_layout = QVBoxLayout(self.spin_density_bar)
+        spin_bar_layout.setContentsMargins(0, 0, 0, 0)
+        spin_bar_layout.setSpacing(6)
+        spin_top = QWidget()
+        spin_row = QHBoxLayout(spin_top)
         spin_row.setSpacing(6)
         spin_row.setContentsMargins(0, 0, 0, 0)
         self.btn_spin_density = QPushButton(self._tr("spin_density_btn"))
@@ -1773,6 +2012,121 @@ class OrbitalVisApp(QMainWindow):
         self.combo_orbit_grid.setToolTip(self._tr("orbit_grid_tip"))
         spin_row.addWidget(self.combo_orbit_grid)
         spin_row.addStretch()
+        spin_bar_layout.addWidget(spin_top)
+
+        self.spin_population_page = QWidget()
+        page_layout = QVBoxLayout(self.spin_population_page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setSpacing(0)
+        self.spin_population_group = QGroupBox(self._tr("spin_pop_title"))
+        pop_layout = QVBoxLayout(self.spin_population_group)
+        pop_layout.setContentsMargins(10, 10, 10, 10)
+        pop_layout.setSpacing(8)
+
+        self.lbl_spin_population_hint = QLabel(self._tr("spin_pop_hint"))
+        self.lbl_spin_population_hint.setWordWrap(True)
+        self.lbl_spin_population_hint.setOpenExternalLinks(True)
+        self.lbl_spin_population_hint.setStyleSheet(
+            "font-size:12px;color:#64748B;")
+        pop_layout.addWidget(self.lbl_spin_population_hint)
+
+        self.spin_population_table = QTableWidget(0, 5)
+        self.spin_population_table.setObjectName("SpinPopulationTable")
+        self.spin_population_table.setSelectionBehavior(
+            QAbstractItemView.SelectRows)
+        self.spin_population_table.setSelectionMode(
+            QAbstractItemView.SingleSelection)
+        self.spin_population_table.setEditTriggers(
+            QAbstractItemView.NoEditTriggers)
+        self.spin_population_table.setAlternatingRowColors(True)
+        self.spin_population_table.setShowGrid(False)
+        self.spin_population_table.verticalHeader().setVisible(False)
+        self.spin_population_table.verticalHeader().setDefaultSectionSize(26)
+        self.spin_population_table.setWordWrap(False)
+        self.spin_population_table.setMinimumHeight(220)
+        self.spin_population_table.setStyleSheet(
+            "QTableWidget#SpinPopulationTable {"
+            "background:#FFFFFF;border:1px solid #E2E8F0;"
+            "border-radius:6px;selection-background-color:#E8F1FB;"
+            "selection-color:#1F2937;}"
+            "QTableWidget#SpinPopulationTable QHeaderView::section {"
+            "background:#F1F5F9;color:#475569;border:none;"
+            "border-bottom:1px solid #DCE4EC;padding:6px 5px;"
+            "font-weight:600;}")
+        self.spin_population_table.setHorizontalHeaderLabels([
+            self._tr("spin_pop_col_atom"),
+            self._tr("spin_pop_col_element"),
+            self._tr("spin_pop_col_signed"),
+            self._tr("spin_pop_col_magnitude"),
+            self._tr("spin_pop_col_share"),
+        ])
+        pop_header = self.spin_population_table.horizontalHeader()
+        pop_header.setDefaultAlignment(Qt.AlignCenter)
+        pop_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        pop_header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        pop_header.setSectionResizeMode(2, QHeaderView.Interactive)
+        pop_header.setSectionResizeMode(3, QHeaderView.Interactive)
+        pop_header.setSectionResizeMode(4, QHeaderView.Stretch)
+        pop_header.resizeSection(2, 116)
+        pop_header.resizeSection(3, 104)
+        pop_layout.addWidget(self.spin_population_table, 1)
+
+        self.spin_population_metrics = QWidget()
+        metrics_layout = QGridLayout(self.spin_population_metrics)
+        metrics_layout.setContentsMargins(0, 0, 0, 0)
+        metrics_layout.setHorizontalSpacing(6)
+        metrics_layout.setVerticalSpacing(6)
+        self.spin_population_metric_values = {}
+        self.spin_population_metric_captions = {}
+        metric_specs = (
+            ("sum", "spin_pop_metric_sum"),
+            ("abs", "spin_pop_metric_abs"),
+            ("expected", "spin_pop_metric_expected"),
+            ("error", "spin_pop_metric_error"),
+        )
+        for index, (key, label_key) in enumerate(metric_specs):
+            card = QFrame()
+            card.setStyleSheet(
+                "QFrame{background:#F8FAFC;border:1px solid #E2E8F0;"
+                "border-radius:6px;} QLabel{border:none;background:transparent;}")
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(8, 5, 8, 5)
+            card_layout.setSpacing(1)
+            caption = QLabel(self._tr(label_key))
+            caption.setStyleSheet("font-size:11px;color:#64748B;")
+            value = QLabel("—")
+            value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            value.setStyleSheet(
+                "font-size:13px;font-weight:600;color:#1F2937;")
+            card_layout.addWidget(caption)
+            card_layout.addWidget(value)
+            metrics_layout.addWidget(card, index // 2, index % 2)
+            self.spin_population_metric_values[key] = value
+            self.spin_population_metric_captions[key] = (caption, label_key)
+        pop_layout.addWidget(self.spin_population_metrics)
+
+        self.lbl_spin_population_summary = QLabel(
+            self._tr("spin_pop_empty"))
+        self.lbl_spin_population_summary.setWordWrap(True)
+        self.lbl_spin_population_summary.setStyleSheet(
+            "padding:5px 7px;background:#F8FAFC;border:1px solid #E2E8F0;"
+            "border-radius:5px;color:#334155;")
+        pop_layout.addWidget(self.lbl_spin_population_summary)
+
+        self.btn_spin_population_export = QPushButton(
+            self._tr("spin_pop_export"))
+        self.btn_spin_population_export.setToolTip(
+            self._tr("spin_pop_export_tip"))
+        self.btn_spin_population_export.setEnabled(False)
+        self.btn_spin_population_export.clicked.connect(
+            self._export_spin_population_csv)
+        action_row = QHBoxLayout()
+        action_row.setContentsMargins(0, 0, 0, 0)
+        action_row.setSpacing(6)
+        action_row.addWidget(self.lbl_spin_population_summary, 1)
+        action_row.addWidget(self.btn_spin_population_export, 0)
+        pop_layout.addLayout(action_row)
+        page_layout.addWidget(self.spin_population_group, 1)
         return self.grp_orbital
 
     # ── 自旋密度：Multiwfn 生成 cube → 画布显示 + VMD 场景登记 ──
@@ -1810,6 +2164,10 @@ class OrbitalVisApp(QMainWindow):
             # 生成后要改就去可视化 tab 拖滑块。
             self._spin_iso = _SPIN_ISO_DEFAULT
             self.btn_spin_density.setEnabled(False)
+            self._clear_spin_population_result()
+            self.lbl_spin_population_summary.setText(
+                self._tr("spin_pop_computing"))
+            self.orbital_tabs.setCurrentWidget(self.spin_population_page)
             self._append_log(self._tr("spin_density_gen"))
             self._spin_worker = SpinDensityWorker(
                 fchk, exe_paths["multiwfn"], work_dir=out,
@@ -1827,8 +2185,22 @@ class OrbitalVisApp(QMainWindow):
             except Exception:
                 pass
 
-    def _on_spin_done(self, cube):
+    def _on_spin_done(self, result):
         self.btn_spin_density.setEnabled(True)
+        if not isinstance(result, dict):
+            # 兼容旧工作线程直接发 cube 路径的情况
+            result = {"cube": str(result or ""), "population": {}}
+        cube = str(result.get("cube") or "")
+        population = result.get("population")
+        if isinstance(population, dict):
+            self._apply_spin_population_result(population)
+        else:
+            self.lbl_spin_population_summary.setText(
+                self._tr("spin_pop_empty"))
+
+        if not cube or not os.path.isfile(cube):
+            self._append_log(self._tr("spin_density_failed"))
+            return
         try:
             if not self._canvas_ready():
                 QMessageBox.warning(self, self._tr("msg_title_hint"),
@@ -1852,10 +2224,198 @@ class OrbitalVisApp(QMainWindow):
 
     def _on_spin_error(self, msg):
         self.btn_spin_density.setEnabled(True)
+        self.lbl_spin_population_summary.setText(
+            self._tr("spin_pop_failed", msg=msg))
         try:
             self._append_log(str(msg))
         except Exception:
             pass
+
+    def _apply_spin_population_result(self, result):
+        self._spin_population_result = (
+            result if isinstance(result, dict) else None)
+        self._refresh_spin_population_table()
+        self._refresh_spin_population_summary()
+
+    def _clear_spin_population_result(self):
+        self._spin_population_result = None
+        self.spin_population_table.setRowCount(0)
+        self.lbl_spin_population_summary.setText(
+            self._tr("spin_pop_empty"))
+        self.btn_spin_population_export.setEnabled(False)
+        self._set_spin_population_metrics(None)
+
+    def _refresh_spin_population_table(self):
+        result = self._spin_population_result
+        atoms = result.get("atoms") if isinstance(result, dict) else []
+        atoms = atoms if isinstance(atoms, list) else []
+        self.spin_population_table.setRowCount(0)
+        if not atoms:
+            return
+        atoms = sorted(
+            [atom for atom in atoms if isinstance(atom, dict)],
+            key=lambda atom: int(atom.get("index") or 0))
+        self.spin_population_table.setRowCount(len(atoms))
+        for row, atom in enumerate(atoms):
+            value = float(atom.get("value") or 0.0)
+            magnitude = abs(value)
+            percent = atom.get("percent_abs")
+            try:
+                percent_text = "%.4f" % float(percent)
+            except (TypeError, ValueError):
+                percent_text = "—"
+            values = (
+                str(atom.get("index") or ""),
+                str(atom.get("element") or ""),
+                "%+.8f" % value,
+                "%.8f" % magnitude,
+                percent_text,
+            )
+            for column, text in enumerate(values):
+                item = QTableWidgetItem(text)
+                if column < 2:
+                    item.setTextAlignment(Qt.AlignCenter)
+                else:
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                if column == 2 and abs(value) > 1e-12:
+                    item.setForeground(QColor(
+                        "#008A3A" if value > 0 else "#1565C0"))
+                self.spin_population_table.setItem(row, column, item)
+
+    def _refresh_spin_population_summary(self):
+        result = self._spin_population_result
+        if not isinstance(result, dict) or not result:
+            self.lbl_spin_population_summary.setText(
+                self._tr("spin_pop_empty"))
+            self.btn_spin_population_export.setEnabled(False)
+            self._set_spin_population_metrics(None)
+            return
+        atoms = result.get("atoms") or []
+        if not result.get("ok") or not atoms:
+            error = str(result.get("error") or self._tr("spin_pop_empty"))
+            self.lbl_spin_population_summary.setText(
+                self._tr("spin_pop_failed", msg=error))
+            self.btn_spin_population_export.setEnabled(False)
+            self._set_spin_population_metrics(None)
+            return
+
+        def _fmt(value, decimals=8):
+            try:
+                return ("%." + str(decimals) + "f") % float(value)
+            except (TypeError, ValueError):
+                return "—"
+
+        method = str(result.get("method") or "Hirshfeld*")
+        summary = self._tr(
+            "spin_pop_summary",
+            method=method,
+            sum=_fmt(result.get("sum")),
+            sum_abs=_fmt(result.get("sum_abs")),
+            expected=_fmt(result.get("expected_spin_population")),
+            log=os.path.basename(str(result.get("log_path") or "")) or "—")
+        integration_error = result.get("integration_error")
+        try:
+            error_value = abs(float(integration_error))
+        except (TypeError, ValueError):
+            error_value = 0.0
+        if error_value > 0.02:
+            summary += "\n" + self._tr(
+                "spin_pop_integration_warning", error=_fmt(integration_error))
+        self.lbl_spin_population_summary.setText(summary)
+        self.btn_spin_population_export.setEnabled(True)
+        self._set_spin_population_metrics(result)
+
+    def _set_spin_population_metrics(self, result):
+        result = result if isinstance(result, dict) and result.get("ok") else {}
+
+        def _fmt(value, signed=False):
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return "—"
+            return (("%+.8f" if signed else "%.8f") % number)
+
+        values = {
+            "sum": _fmt(result.get("sum"), signed=True),
+            "abs": _fmt(result.get("sum_abs")),
+            "expected": _fmt(result.get("expected_spin_population"),
+                             signed=True),
+            "error": _fmt(result.get("integration_error"), signed=True),
+        }
+        for key, label in self.spin_population_metric_values.items():
+            label.setText(values.get(key, "—"))
+            if key == "error":
+                try:
+                    significant = abs(float(result.get("integration_error"))) > 0.02
+                except (TypeError, ValueError):
+                    significant = False
+                label.setStyleSheet(
+                    "font-size:13px;font-weight:600;color:%s;"
+                    % ("#C2410C" if significant else "#1F2937"))
+            elif key in ("sum", "expected"):
+                try:
+                    number = float(result.get(
+                        "sum" if key == "sum" else "expected_spin_population"))
+                except (TypeError, ValueError):
+                    number = 0.0
+                label.setStyleSheet(
+                    "font-size:13px;font-weight:600;color:%s;"
+                    % ("#008A3A" if number > 1e-12 else
+                       ("#1565C0" if number < -1e-12 else "#1F2937")))
+            else:
+                label.setStyleSheet(
+                    "font-size:13px;font-weight:600;color:#1F2937;")
+
+    def _export_spin_population_csv(self):
+        result = self._spin_population_result
+        atoms = result.get("atoms") if isinstance(result, dict) else None
+        if not isinstance(atoms, list) or not atoms:
+            QMessageBox.warning(
+                self, self._tr("msg_title_hint"),
+                self._tr("spin_pop_need_result"))
+            return
+        work_dir = os.path.dirname(
+            str(result.get("log_path") or result.get("source_path") or ""))
+        if not work_dir:
+            work_dir = os.getcwd()
+        stem = os.path.splitext(os.path.basename(
+            str(result.get("source_path") or "spin")))[0] or "spin"
+        path, _ = QFileDialog.getSaveFileName(
+            self, self._tr("spin_pop_export"),
+            os.path.join(work_dir, stem + "_spin_population.csv"),
+            "CSV (*.csv)")
+        if not path:
+            return
+        try:
+            import csv
+            with open(path, "w", newline="", encoding="utf-8-sig") as handle:
+                writer = csv.writer(handle)
+                writer.writerow([
+                    self._tr("spin_pop_col_atom"),
+                    self._tr("spin_pop_col_element"),
+                    self._tr("spin_pop_col_signed"),
+                    self._tr("spin_pop_col_magnitude"),
+                    self._tr("spin_pop_col_share"),
+                ])
+                for atom in atoms:
+                    if not isinstance(atom, dict):
+                        continue
+                    value = float(atom.get("value") or 0.0)
+                    writer.writerow([
+                        atom.get("index", ""),
+                        atom.get("element", ""),
+                        "%.10g" % value,
+                        "%.10g" % abs(value),
+                        "" if atom.get("percent_abs") is None
+                        else "%.8g" % float(atom.get("percent_abs")),
+                    ])
+            self._append_log(
+                f"[Spin population] CSV saved: {path}" if self._lang == "en"
+                else f"[自旋布居] CSV 已保存：{path}")
+        except Exception as exc:
+            QMessageBox.warning(
+                self, self._tr("msg_title_error"),
+                f"CSV: {exc}")
 
     def _build_render_params_panel(self):
         self.grp_render = SciFiGroupBox("")
@@ -1870,9 +2430,12 @@ class OrbitalVisApp(QMainWindow):
         self.var_style.setIconSize(QtCore.QSize(30, 13))
         self.var_style.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.var_style.setMaximumWidth(480)
-        for name in backend.STYLES:
+        for name, style_entry in backend.STYLES.items():
             icon = self._make_style_icon(backend.STYLES[name])
             self.var_style.addItem(icon, f"  {name}")
+            self.var_style.setItemData(
+                self.var_style.count() - 1,
+                str(style_entry.get("desc") or ""), Qt.ToolTipRole)
         # 默认样式 = sob-art（STYLES 第一个键不是 sob-art，需显式定位）
         _idx = self.var_style.findText("  sob-art")
         self.var_style.setCurrentIndex(_idx if _idx >= 0 else 0)
@@ -2575,6 +3138,11 @@ class OrbitalVisApp(QMainWindow):
                 self.esm_panel.shutdown()
             except Exception:
                 pass
+        if getattr(self, "microkinetics_panel", None) is not None:
+            try:
+                self.microkinetics_panel.shutdown()
+            except Exception:
+                pass
         if getattr(self, "ircsplit_panel", None) is not None:
             try:
                 self.ircsplit_panel.shutdown()
@@ -2608,6 +3176,11 @@ class OrbitalVisApp(QMainWindow):
         if getattr(self, "xtb_panel", None) is not None:
             try:
                 self.xtb_panel.shutdown()
+            except Exception:
+                pass
+        if getattr(self, "gaussian_panel", None) is not None:
+            try:
+                self.gaussian_panel.shutdown()
             except Exception:
                 pass
         # 5) 停掉自旋密度后台线程（cancel_check 使 Multiwfn 快速退出）
@@ -2682,13 +3255,14 @@ class OrbitalVisApp(QMainWindow):
                     self.mpp_panel.set_lang(i18n._CURRENT_LANG)
                 except Exception:
                     pass
-        # 后加入的面板（IRC / DI / ASM / ESM / IRC 拆分 / CUB 叠加 / 晶体）
+        # 后加入的面板（IRC / DI / ASM / ESM / 微观动力学 / IRC 拆分 / CUB 叠加 / 晶体）
         for _name in ("irc_panel", "di_panel", "asm_irc_panel", "esm_panel",
-                      "ircsplit_panel", "cub_stack_panel", "crystal_panel",
+                      "microkinetics_panel", "ircsplit_panel", "cub_stack_panel", "crystal_panel",
                       "crystal_bar", "surfproj_panel", "steric_panel",
                       "xtb_panel", "aicd_panel", "spectrum_panel",
                       "dos_panel", "edd_panel", "library_panel",
-                      "lmo_panel", "ow_fukui_panel", "orca_panel"):
+                      "lmo_panel", "ow_fukui_panel", "orca_panel",
+                      "gaussian_panel"):
             _panel = getattr(self, _name, None)
             if _panel is not None and hasattr(_panel, "set_lang"):
                 try:
@@ -2754,7 +3328,8 @@ class OrbitalVisApp(QMainWindow):
         self._sync_right_tab_bar()
 
     # 纯数据/能量分析页面：不需要左侧 OpenGL 画布，隐藏后右栏占满
-    _NO_CANVAS_KEYS = ("tab_esm", "tab_asm_irc", "tab_dos", "tab_di")
+    _NO_CANVAS_KEYS = ("tab_esm", "tab_microkinetics", "tab_asm_irc",
+                        "tab_dos", "tab_di")
 
     def _on_tab_changed(self, index):
         """切换右侧页面：同步导航高亮，并按页面需要显示/隐藏左侧画布。"""
@@ -2792,6 +3367,13 @@ class OrbitalVisApp(QMainWindow):
         if key == "tab_orca" and getattr(self, "orca_panel", None) is not None:
             try:
                 self.orca_panel.sync_from_canvas()
+            except Exception:
+                pass
+        # 高斯页：同样在进入时同步画布结构（并认领 gjf 的电荷/多重度）
+        if (key == "tab_gaussian"
+                and getattr(self, "gaussian_panel", None) is not None):
+            try:
+                self.gaussian_panel.sync_from_canvas()
             except Exception:
                 pass
 
@@ -3003,6 +3585,29 @@ class OrbitalVisApp(QMainWindow):
             self.combo_orbit_grid.setItemText(1, self._tr("orbit_grid_2"))
             self.combo_orbit_grid.setItemText(2, self._tr("orbit_grid_3"))
             self.combo_orbit_grid.setToolTip(self._tr("orbit_grid_tip"))
+        if hasattr(self, "spin_population_group"):
+            spin_tab = self.orbital_tabs.indexOf(self.spin_population_page)
+            if spin_tab >= 0:
+                self.orbital_tabs.setTabText(
+                    spin_tab, self._tr("spin_pop_tab"))
+            self.spin_population_group.setTitle(self._tr("spin_pop_title"))
+            self.lbl_spin_population_hint.setText(self._tr("spin_pop_hint"))
+            self.spin_population_table.setHorizontalHeaderLabels([
+                self._tr("spin_pop_col_atom"),
+                self._tr("spin_pop_col_element"),
+                self._tr("spin_pop_col_signed"),
+                self._tr("spin_pop_col_magnitude"),
+                self._tr("spin_pop_col_share"),
+            ])
+            self.btn_spin_population_export.setText(
+                self._tr("spin_pop_export"))
+            self.btn_spin_population_export.setToolTip(
+                self._tr("spin_pop_export_tip"))
+            for caption, label_key in (
+                    self.spin_population_metric_captions.values()):
+                caption.setText(self._tr(label_key))
+            self._refresh_spin_population_table()
+            self._refresh_spin_population_summary()
 
         # VMD 控制台标题
         if hasattr(self, "_vmd_content"):
@@ -3177,16 +3782,17 @@ class OrbitalVisApp(QMainWindow):
         return QIcon(pm)
 
     def _setup_log_dock(self):
-        """把运行日志放在画布正下方：一个可折叠的控制台（不是右侧页签）。
+        """把运行日志放在画布正下方：可拖动调高、可折叠的控制台（不是右侧页签）。
 
         这块区域原来是画布底部的「一键样式 + 显示 + 导出」卡片（302px，7 行
         22 个控件），已经压成 42px 工具条（见 ``studio_canvas_bar``），省出来的
         高度给日志用：144px 正好十来行，报错、Multiwfn 输出、进度都能一眼看到，
         不用切页，也不会把右侧参数面板顶掉。
 
-        布局是「左栏竖排 + 画布 stretch=1」，所以窗口变高时多出来的高度全归
-        画布，日志保持固定高度；担心挡画布就点右上角「▾」收起，只留 26px 的
-        标题条。
+        布局是「左栏竖排 + 画布 stretch=1」。日志与画布之间插了一条 9px 的
+        ``_LogDockGrip``：上下拖动改日志高度（双击回 144px），右端就是折叠
+        按钮 ``▾`` —— 以前它挂在标题条里，装了 ``RunLogConsole`` 之后标题只剩
+        空白，箭头看着像悬在画布里（用户 2026-11-21 反馈）。
         """
         from PyQt5.QtWidgets import QToolButton
 
@@ -3220,12 +3826,22 @@ class OrbitalVisApp(QMainWindow):
 
         self._log_clear_btn = _mk_btn(self._tr("log_dock_clear"),
                                       self._tr("log_dock_clear"))
-        self._log_toggle_btn = _mk_btn("▾", self._tr("log_dock_collapse"))
+        # 折叠按钮：自绘细箭头（与画布工具条同一套箭头语言），放到拖动条右端
+        self._log_toggle_btn = _DockChevronButton()
+        self._log_toggle_btn.setToolTip(self._tr("log_dock_collapse"))
         self._log_clear_btn.clicked.connect(self._clear_log_text)
-        self._log_toggle_btn.clicked.connect(self._toggle_log_dock)
+        # 注意：QToolButton.clicked 会带一个 checked=False 参数，直接连
+        # ``_toggle_log_dock`` 会把 False 当成 collapsed → 永远「展开」，
+        # 点箭头看起来毫无反应（2026-11-21 定位到的就是这个）。
+        self._log_toggle_btn.clicked.connect(
+            lambda _checked=False: self._toggle_log_dock())
+
+        # 折叠按钮从标题条挪到拖动条右端（见类注释：它是面板边缘控件）
+        hl.removeWidget(self._log_toggle_btn)
 
         lay.addWidget(head)
         lay.addWidget(self.log_text, stretch=1)
+        self._log_dock_head = head
 
         # 段落默认左对齐：启动时那段诗词是按 AlignHCenter 写进同一个文档的，
         # 块格式会被后面的 insertBlock 继承，日志整块跟着居中。
@@ -3240,16 +3856,82 @@ class OrbitalVisApp(QMainWindow):
         self.log_dock = dock
         self._log_body_h = 144
         self._log_collapsed = False
+        self._log_drag_base = None
         self.log_text.setFixedHeight(self._log_body_h)
+
+        # ── 画布 / 日志之间的拖动条 ──
+        grip = _LogDockGrip()
+        gl = QHBoxLayout(grip)
+        gl.setContentsMargins(2, 0, 4, 0)
+        gl.setSpacing(0)
+        gl.addStretch(1)
+        gl.addWidget(self._log_toggle_btn)
+        self._log_grip = grip
+        grip.dragStarted.connect(self._on_log_grip_start)
+        grip.dragMoved.connect(self._on_log_grip_move)
+        grip.dragFinished.connect(self._on_log_grip_end)
+        grip.resetRequested.connect(self._reset_log_height)
 
         parent = getattr(self, "_left_widget", None)
         p_lay = parent.layout() if parent is not None else None
         if p_lay is not None:
             p_lay.addWidget(dock)
+            p_lay.insertWidget(p_lay.indexOf(dock), grip)
         else:                      # 极端兜底：挂到画布容器里，至少不丢
             cv = self.grp_canvas.layout() if getattr(self, "grp_canvas", None) else None
             if cv is not None:
+                cv.addWidget(grip)
                 cv.addWidget(dock)
+
+    # ── 日志高度：拖动 / 复位 / 收起 ─────────────────────────────────────
+    _LOG_MIN_H = 56
+    _LOG_MAX_H = 560
+
+    def _log_height_limits(self):
+        """(最小, 最大) 正文高度：上限跟着窗口走，别让日志把画布挤没。"""
+        try:
+            win_h = max(400, int(self.height()))
+        except Exception:
+            win_h = 800
+        return self._LOG_MIN_H, min(self._LOG_MAX_H, int(win_h * 0.62))
+
+    def _apply_log_body_height(self, h):
+        """把正文高度限制到合法区间并应用（拖动与复位共用）。"""
+        lo, hi = self._log_height_limits()
+        try:
+            h = max(lo, min(int(h), hi))
+        except Exception:
+            h = self._log_body_h
+        self._log_body_h = h
+        try:
+            self.log_text.setFixedHeight(h)
+        except Exception:
+            pass
+        return h
+
+    def _on_log_grip_start(self):
+        # 以**当前实际高度**为基准：首次布局后正文高度未必等于 _log_body_h
+        # （RunLogConsole 会让它撑满，实测 179 ≠ 144），否则第一次拖动会跳一格。
+        try:
+            cur = int(self.log_text.height())
+        except Exception:
+            cur = 0
+        self._log_drag_base = cur if cur > 0 else self._log_body_h
+
+    def _on_log_grip_move(self, dy):
+        if self._log_drag_base is None:
+            self._log_drag_base = self._log_body_h
+        if getattr(self, "_log_collapsed", False):
+            self._toggle_log_dock(False)      # 收起状态下往上拖 = 直接展开
+        self._apply_log_body_height(self._log_drag_base + int(dy))
+
+    def _on_log_grip_end(self):
+        self._log_drag_base = None
+
+    def _reset_log_height(self):
+        if getattr(self, "_log_collapsed", False):
+            self._toggle_log_dock(False)
+        self._apply_log_body_height(144)
 
     def _clear_log_text(self):
         """清空运行日志（只清显示，不动任何计算状态）。"""
@@ -3271,20 +3953,47 @@ class OrbitalVisApp(QMainWindow):
             pass
 
     def _toggle_log_dock(self, collapsed=None):
-        """收起 / 展开日志区：收起后画布拿回那 144px。"""
+        """收起 / 展开日志区：收起后画布拿回日志那一段高度。
+
+        注意：``log_text`` 会被 ``reference_shell`` 摘进 ``RunLogConsole`` 的
+        页签里 —— 只藏 ``log_text`` 的话页签容器还占着高度，点 ``▾`` 看起来
+        「什么都没发生」（2026-11-21 反馈）。所以这里连页签容器一起藏。
+        """
         if not getattr(self, "log_text", None):
             return
         want = (not self._log_collapsed) if collapsed is None else bool(collapsed)
         self._log_collapsed = want
-        self.log_text.setVisible(not want)
-        if not want:
-            self.log_text.setFixedHeight(self._log_body_h)
+        body = getattr(self, "_ref_log_console", None)
+        if body is not None:
+            try:
+                body.setVisible(not want)
+            except Exception:
+                pass
         try:
-            self._log_toggle_btn.setText("▸" if want else "▾")
-            self._log_toggle_btn.setToolTip(
+            self.log_text.setVisible(not want)
+        except Exception:
+            pass
+        if not want:
+            self._apply_log_body_height(getattr(self, "_log_body_h", 144) or 144)
+        try:
+            btn = self._log_toggle_btn
+            if hasattr(btn, "set_collapsed"):
+                btn.set_collapsed(want)          # 自绘箭头：收起后朝上
+            else:
+                btn.setText("▴" if want else "▾")
+            btn.setToolTip(
                 self._tr("log_dock_expand" if want else "log_dock_collapse"))
         except Exception:
             pass
+        grip = getattr(self, "_log_grip", None)
+        if grip is not None:
+            try:
+                # 收起后变成一条带「运行日志」标题的面板头；仍可从这里拖回来
+                grip.set_title(self._tr("log_dock_title"))
+                grip.set_collapsed(want)
+                grip.setVisible(True)
+            except Exception:
+                pass
 
     def _append_log(self, msg):
         """追加运行日志 — 纯 QTextCursor + QTextCharFormat，不使用 HTML。"""
@@ -3716,6 +4425,8 @@ class OrbitalVisApp(QMainWindow):
 
     def _fill_orbital_table(self, fchk_path):
         """解析 fchk 并填充轨道表格（闭壳层单表，开壳层 α/β 双 tab）。"""
+        if hasattr(self, "_clear_spin_population_result"):
+            self._clear_spin_population_result()
         try:
             info = parse_fchk_mo_info(fchk_path)
         except Exception as e:
@@ -3775,8 +4486,10 @@ class OrbitalVisApp(QMainWindow):
         # ── 开壳层：创建并填充 β 表 ──
         if is_open and beta_rows:
             self.orbital_table_beta = self._make_orbital_table()
-            self.orbital_tabs.addTab(self.orbital_table_beta,
-                                     i18n.tr("tab_beta"))
+            spin_index = self.orbital_tabs.indexOf(self.spin_population_page)
+            self.orbital_tabs.insertTab(
+                spin_index if spin_index >= 0 else self.orbital_tabs.count(),
+                self.orbital_table_beta, i18n.tr("tab_beta"))
             self._populate_table(self.orbital_table_beta, beta_rows, is_open, n_b, orb_sign=-1)
 
         # 提示 tab（假标签）始终固定到最右端
@@ -3853,7 +4566,7 @@ class OrbitalVisApp(QMainWindow):
     def _on_table_orbital_clicked(self, row, _col):
         """双击轨道表格行 → 从 UserRole 取轨道编号并预览。"""
         table = self.orbital_tabs.currentWidget()
-        if not table:
+        if not isinstance(table, QTableWidget):
             return
         it = table.item(row, 0)
         if not it:
@@ -3876,7 +4589,9 @@ class OrbitalVisApp(QMainWindow):
     def _vmd_visualize_selected(self):
         """从表格获取选中轨道并在 VMD 中可视化。"""
         table = self.orbital_tabs.currentWidget()
-        if not table:
+        if not isinstance(table, QTableWidget):
+            QMessageBox.warning(self, self._tr("msg_title_hint"),
+                                self._tr("msg_select_orbital_first"))
             return
         row = table.currentRow()
         if row < 0:
@@ -3901,7 +4616,8 @@ class OrbitalVisApp(QMainWindow):
           送到 VMD（画布侧已满足），即"VMD+画布"组合功能，无需重新生成。
         """
         table = self.orbital_tabs.currentWidget()
-        row = table.currentRow() if table else -1
+        row = (table.currentRow()
+               if isinstance(table, QTableWidget) else -1)
         if row >= 0:
             it = table.item(row, 0)
             if it:
@@ -4759,19 +5475,26 @@ class OrbitalVisApp(QMainWindow):
 
         from PyQt5.QtWidgets import QMessageBox
 
-        from molstudio.core.atomic_orbital import build_orbital_cube
+        from molstudio.core.atomic_orbital import (
+            MIN_ISOVALUE, build_orbital_cube,
+        )
 
         if not self._canvas_ready():
             self._append_log("[电子结构库] 画布尚未就绪，无法生成等值面")
             return
         try:
-            iso = max(0.005, min(float(iso), 0.5))
+            iso = max(MIN_ISOVALUE, min(float(iso), 0.5))
             quality = str(quality) if quality in ("low", "medium", "high") \
                 else "medium"
             out_dir = os.path.join(tempfile.gettempdir(), "molstudio_orbitals")
             os.makedirs(out_dir, exist_ok=True)
             path = os.path.join(out_dir, "%s_%s.cub" % (spec.id, quality))
-            info = build_orbital_cube(path, spec, quality, iso_hint=True)
+            # cube 按 iso **下限** 预留外扩量：iso 越小、瓣伸得越远（f 轨道在
+            # 0.005 时约 2.0 倍，3d 约 1.8 倍，杂化约 1.7 倍）。这样用户先在
+            # 本页生成、之后再到画布面板把 iso 继续调小，也不会把瓣尖切掉；
+            # 若只按当前 iso 外扩，画布上再调小就会重新截断。
+            info = build_orbital_cube(path, spec, quality, iso_hint=True,
+                                      iso=MIN_ISOVALUE)
         except Exception as e:                               # noqa: BLE001
             self._append_log("[电子结构库] 轨道求值失败：%s" % e)
             QMessageBox.warning(
@@ -4781,13 +5504,27 @@ class OrbitalVisApp(QMainWindow):
             return
 
         self._current_cubes = [path]
+        self._library_orbital_cube = path
+        self._library_orbital_spec = spec.id
         self._push_cubes_to_canvas([path], auto_load=True, iso=iso)
+        # 原子轨道是纯标量场：画布上若还留着上一个分子，球棍会和等值面叠在
+        # 一起，而「导出轨道 3D」写出的 .glb 只有等值面 —— 屏幕与文件对不上。
+        # set_molecule([]) 只清原子 / 键，不动刚载入的 cube 与等值面。
+        try:
+            self.cub_canvas.set_molecule([])
+        except Exception:                                     # noqa: BLE001
+            pass
         self._apply_orbital_phase_style()
+        extent_note = ""
+        if info["extent"] > info["base_extent"] * 1.01:
+            extent_note = "，已按 iso 下限 %.3f 外扩自 %.0f" % (
+                MIN_ISOVALUE, info["base_extent"])
         self._append_log(
-            "[电子结构库] %s  %s | %s 网格 %d³ | iso=%.3f | "
+            "[电子结构库] %s  %s | %s 网格 %d³（半边长 %.1f a₀%s）| iso=%.3f | "
             "峰值 %.4g a.u.（场已按峰值归一化，形状不变）"
             % (spec.display_name(self._lang), spec.group_label(self._lang),
-               quality, info["n_grid"], iso, info["psi_max"]))
+               quality, info["n_grid"], info["extent"], extent_note,
+               iso, info["psi_max"]))
 
     #: 电子结构库的相位配色，与列表缩略图严格同一套（蓝 = ψ>0，橙 = ψ<0），
     #: 学生看图例和看画布是同一个颜色约定。
@@ -5081,18 +5818,20 @@ class OrbitalVisApp(QMainWindow):
         return surfaces, legend
 
     def _ppt3d_report(self, path, options, surfaces, legend, cell_box,
-                      source=""):
-        note = "晶胞边框：%s" % ("已包含" if cell_box else "未包含")
+                      source="", note=None):
+        if note is None:
+            note = "晶胞边框：%s" % ("已包含" if cell_box else "未包含")
+        detail = "；".join(part for part in (note, source) if part)
         legend_note = ("\n静电势色标图：\n%s" % legend) if legend else ""
         self._append_log(
-            "[PPT 3D] 已导出：%s（%s，等值面 %d 层%s）" %
-            (path, note, len(surfaces), source))
+            "[PPT 3D] 已导出：%s（%s；等值面 %d 层）" %
+            (path, detail, len(surfaces)))
         QMessageBox.information(
             self, "PPT 3D",
-            "已导出：\n%s\n\n%s%s；含 %d 个等值面/叠加层。%s\n\n"
+            "已导出：\n%s\n\n%s；含 %d 个等值面/叠加层。%s\n\n"
             "PowerPoint 365：插入 → 3D 模型 → 此设备，选择该 .glb 文件。"
             "插入后可拖动旋转，也能用「转盘」动画或「平滑」切换让它转起来。"
-            % (path, note, source, len(surfaces), legend_note))
+            % (path, detail, len(surfaces), legend_note))
 
     def _library_export_molecule(self, entry, options):
         from molstudio.core.molecule_library import molecule_path
@@ -5173,10 +5912,206 @@ class OrbitalVisApp(QMainWindow):
             path, options, surfaces, legend, cell_box,
             "来源：晶体结构库 %d×%d×%d" % reps)
 
+    @staticmethod
+    def _canvas_orbital_style(glw, apply_flip=True):
+        """画布上当前轨道等值面的相位色 / 不透明度 / 粗糙度。
+
+        返回 ``(pos_rgb255, neg_rgb255, opacity, roughness)``；画布没有在显示
+        轨道（分子、ESP、或没有画布）时返回 ``None``，调用方回退到库内默认
+        蓝 / 橙。这样用户在画布上改色轮、相位方案、换一键样式或拖透明度之后，
+        导出的 .glb 会跟着变，而不是永远用写死的教学配色。
+
+        相位色取 ``glw._pc/_nc``（色轮 / 相位方案 / 样式最终都写到这里）。
+        「翻转相位」只改 ``_orbital_flipped`` 并交换表面的实际颜色，**不会**
+        交换 ``_pc/_nc``；``apply_flip`` 为真且画布只有一条轨道时把翻转补上。
+        画布上是另一条轨道时不要套用它的翻转（那是那条轨道的相位状态）。
+        """
+        if glw is None:
+            return None
+        if getattr(glw, "_surf_vcolor", False):
+            return None                      # ESP / IGMH 顶点色表面，不是轨道
+        recs = getattr(glw, "_orbital_recs", None) or []
+        if not recs:
+            return None                      # 画布上不是轨道场景
+        try:
+            pos = tuple(float(c) for c in glw._pc[:3])
+            neg = tuple(float(c) for c in glw._nc[:3])
+        except (AttributeError, TypeError, ValueError):
+            return None
+        flips = getattr(glw, "_orbital_flipped", None) or []
+        if apply_flip and len(recs) == 1 and flips and flips[0]:
+            pos, neg = neg, pos
+        sp = getattr(glw, "_sp", None) or {}
+        try:
+            opacity = max(0.0, min(1.0, float(sp.get("opacity", 1.0))))
+        except (AttributeError, TypeError, ValueError):
+            opacity = 1.0
+        try:
+            roughness = max(0.03, min(1.0, float(sp.get("roughness", 0.52))))
+        except (AttributeError, TypeError, ValueError):
+            roughness = 0.52
+
+        def _to255(colour):
+            return tuple(int(round(max(0.0, min(1.0, c)) * 255.0))
+                         for c in colour)
+
+        return _to255(pos), _to255(neg), opacity, roughness
+
+    def _library_export_orbital(self, spec, iso=0.08, quality="medium",
+                                options=None):
+        """结构库「电子结构」：把当前原子 / 杂化轨道等值面写成 .glb。
+
+        这条链路**不经过画布**。轨道 cube 不带原子（NATOMS = 0），画布上的
+        等值面又是在 ``spec.extent`` 处被切开的 —— 断口靠双面渲染遮住，屏幕上
+        看不出来，写进 PowerPoint 就是一个破洞。这里用同一套解析波函数在
+        **放大到闭合**的网格上重新抽面（与库内缩略图同一个函数），只导出
+        正 / 负相位两层。
+
+        配色 / 透明度 / 粗糙度 / 初始视角**跟随画布当前状态**（见
+        :meth:`_canvas_orbital_style`）；画布尚未显示轨道时用库内默认蓝 / 橙。
+        """
+        import numpy as np
+        from dataclasses import replace
+
+        from molstudio.core.atomic_orbital import QUALITY_LEVELS
+        from molstudio.core.molecule_export import (
+            export_glb, orbital_surface_layers,
+        )
+        from molstudio.core.ppt3d_options import Ppt3dOptions
+        from molstudio.core.surface_projection import camera_rotation
+        from molstudio.ui.electronic_library_view import default_view_matrix
+
+        path = self._ppt3d_save_path(spec.id)
+        if not path:
+            return
+        iso = float(spec.iso_hint if iso is None else iso)
+        opts = options if isinstance(options, Ppt3dOptions) else Ppt3dOptions()
+        if not opts.include_surfaces:
+            # 等值面就是这个模型本身：设置里的「包含画布等值面」不能把它关掉
+            opts = replace(opts, include_surfaces=True)
+
+        glw = getattr(getattr(self, "cub_canvas", None), "glw", None)
+        cubes = getattr(self, "_current_cubes", None) or []
+        same_scene = bool(
+            cubes and cubes[0] == getattr(self, "_library_orbital_cube", None)
+            and getattr(self, "_library_orbital_spec", None) == spec.id)
+        style = self._canvas_orbital_style(glw, apply_flip=same_scene)
+        pos_rgb, neg_rgb = self.ORBITAL_PHASE_POS, self.ORBITAL_PHASE_NEG
+        opacity, roughness = 1.0, 0.52
+        rotation = default_view_matrix(spec)
+        if style is not None:
+            pos_rgb, neg_rgb, opacity, roughness = style
+            # 「保留当前视角」在轨道场景里就是用户转到的那个角度。若相机仍
+            # 停在库内默认的等轴测视角（多数情况），继续用 default_view_matrix
+            # —— 它给杂化轨道做了 _straighten 纠偏，初始构图比正对瓣轴好。
+            # 只有用户真的转过视角时才改用画布相机。
+            try:
+                live = camera_rotation(glw)
+                if live is not None and not np.allclose(
+                        live, default_view_matrix(None), atol=1e-3):
+                    rotation = live
+            except Exception:                                 # noqa: BLE001
+                pass
+        try:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                layers = orbital_surface_layers(
+                    spec, iso=iso, quality=quality,
+                    pos_rgb=pos_rgb, neg_rgb=neg_rgb,
+                    opacity=opacity, roughness=roughness)
+                kwargs = opts.apply_to({
+                    "view_rotation": rotation,
+                    "surfaces": layers,
+                }, [])
+                export_glb(path, [], np.zeros((0, 3)),
+                           title=spec.display_name(self._lang), **kwargs)
+            finally:
+                QApplication.restoreOverrideCursor()
+        except Exception as exc:                              # noqa: BLE001
+            QMessageBox.warning(
+                self, "PPT 3D",
+                ("轨道导出失败：%s" if self._lang == "zh" else
+                 "Orbital export failed: %s") % exc)
+            return
+        note = "轨道：%s（%s）· iso=%.3f · 网格 %s³" % (
+            spec.display_name(self._lang), spec.group_label(self._lang),
+            float(iso),
+            QUALITY_LEVELS.get(str(quality), QUALITY_LEVELS["medium"]))
+        if style is not None:
+            note += " · 配色 / 透明度取当前画布"
+        self._ppt3d_report(path, opts, layers, None, None,
+                           "来源：电子结构库", note=note)
+
+    def _export_canvas_surfaces_ppt3d(self):
+        """Export the visible canvas isosurfaces without requiring atoms."""
+        import numpy as np
+        from dataclasses import replace
+
+        from molstudio.core.molecule_export import (
+            export_glb, surface_layers_from_canvas,
+        )
+        from molstudio.ui.ppt3d_options_widget import Ppt3dExportDialog
+
+        glw = getattr(getattr(self, "cub_canvas", None), "glw", None)
+        surfaces = surface_layers_from_canvas(glw)
+        if not surfaces:
+            QMessageBox.information(
+                self, "PPT 3D",
+                "当前画布没有可导出的等值面。"
+                if self._lang == "zh" else
+                "The canvas has no isosurface to export.")
+            return
+
+        options = Ppt3dExportDialog.get_options(
+            self, self._lang, None, False)
+        if options is None:
+            return
+        # A surface-only scene is the model, so this option cannot disable it.
+        if not options.include_surfaces:
+            options = replace(options, include_surfaces=True)
+
+        current = self.var_path.text().strip()
+        stem = (os.path.splitext(os.path.basename(current))[0]
+                if current else "canvas_orbital")
+        start_dir = (os.path.dirname(current)
+                     if current and os.path.isfile(current)
+                     else os.path.expanduser("~/Desktop"))
+        path = self._ppt3d_save_path(stem, start_dir)
+        if not path:
+            return
+
+        base = self._ppt3d_canvas_options([])
+        base["surfaces"] = surfaces
+        kwargs = options.apply_to(base, [])
+        try:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                export_glb(path, [], np.zeros((0, 3)),
+                           title=stem, **kwargs)
+            finally:
+                QApplication.restoreOverrideCursor()
+        except Exception as exc:                              # noqa: BLE001
+            QMessageBox.warning(
+                self, "PPT 3D",
+                ("轨道 GLB 导出失败：%s" if self._lang == "zh" else
+                 "Orbital GLB export failed: %s") % exc)
+            return
+        legend = self._write_ppt3d_esp_legend(path, glw, surfaces)
+        self._ppt3d_report(
+            path, options, surfaces, legend, None, "来源：当前画布等值面",
+            note="已导出当前可见的正 / 负相位网格")
+
     def _export_current_ppt3d(self):
         """工具栏 PPT 3D：先确认导出参数（含晶胞边框），再写出 GLB。"""
         got = self._get_canvas_structure()
         if not got:
+            glw = getattr(getattr(self, "cub_canvas", None), "glw", None)
+            if glw is not None and (
+                    getattr(glw, "_pos_surf", None) is not None
+                    or getattr(glw, "_neg_surf", None) is not None):
+                # Surface-only cube (NATOMS=0) is a valid PPT 3D model too.
+                self._export_canvas_surfaces_ppt3d()
+                return
             QMessageBox.information(
                 self, "PPT 3D",
                 "请先在画布中载入一个分子结构。"
@@ -5376,6 +6311,9 @@ class OrbitalVisApp(QMainWindow):
         """Parse fchk/cub/log atoms and display in MolCanvas."""
         if not path or not os.path.isfile(path):
             return
+        # 记下当前结构文件：ORCA 页据此读 gjf 里的电荷/多重度、把输出目录
+        # 放到文件同级（不需要用户再选一次文件）。
+        self._last_structure_path = path
         # 载入新分子时清空电荷分析状态与左侧画布上的电荷着色 / 键级选中
         if getattr(self, "charge_panel", None) is not None:
             # ChargeBondPanel.reset_view_state 会同时清空电荷着色与键级选中
@@ -5551,9 +6489,14 @@ class OrbitalVisApp(QMainWindow):
                     syms, xyz = got
                     if syms:
                         return list(syms), np.asarray(xyz, dtype=float)
+                # GL 画布可用但当前场景没有分子（例如「电子结构库」的解析
+                # 轨道 cube）：这就是用户眼前的场景，**不能**再回退到隐藏的
+                # MolCanvas 原子表 —— 那是上一个分子，会把旧球棍当成当前
+                # 结构（工具栏 PPT 3D、位阻地图等都会跟着错）。
+                return None
             except Exception:                                 # noqa: BLE001
                 pass
-        # 回退：MolCanvas 原子表
+        # 回退：MolCanvas 原子表（仅 GL 画布不可用时）
         atoms = getattr(self, "mol_canvas", None)
         atoms = getattr(atoms, "atoms", None) or []
         symbols, coords = [], []

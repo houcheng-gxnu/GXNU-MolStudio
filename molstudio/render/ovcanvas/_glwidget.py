@@ -724,6 +724,81 @@ uniform vec3  u_HemiTop;        // 天顶色（N_world 朝上）
 uniform vec3  u_HemiBottom;     // 地面色（N_world 朝下）
 uniform float u_HemiIntensity;  // 强度
 uniform mat3  u_NormalToWorld;  // 视图空间法线 → 世界空间法线（视图旋转的转置）
+// ── 解析环境反射（IBL-lite）────────────────────────────────────
+// 用几个"柔光箱"叶瓣逼近预过滤环境图：粗糙度越大叶瓣越宽、峰值越低。
+// 不引入 cubemap / BRDF LUT，GLSL 330 即可；u_EnvOn=0 时完全不起作用。
+uniform int   u_EnvOn;
+uniform int   u_EnvSoftbox; // 1 = 长条柔光箱反射（Softbox Gloss）
+uniform float u_EnvStr;      // 总强度
+uniform float u_EnvF0;       // 基础反射率（电介质 0.04，亮漆可 0.08~0.12）
+uniform vec3  u_EnvAmb;      // 环境底色
+uniform vec3  u_EnvKey,  u_EnvKeyCol;
+uniform vec3  u_EnvFill, u_EnvFillCol;
+uniform vec3  u_EnvRim,  u_EnvRimCol;
+
+// 软边椭圆 / 超椭圆反射斑：n = 2 → 正椭圆；n → 大 逐步趋近圆角矩形。
+// 与 lp_soft_box 的区别是"到中心的距离"是径向的，所以高光不会是方块。
+float lp_soft_oval(vec2 q, vec2 size, float soft, float n_pow) {
+    vec2 a = abs(q) / max(size, vec2(1e-4));
+    float d = pow(pow(a.x, n_pow) + pow(a.y, n_pow), 1.0 / n_pow);
+    return 1.0 - smoothstep(max(1.0 - soft, 0.02), 1.0, d);
+}
+
+vec3 lp_env(vec3 d, float rough) {
+    float r = clamp(rough, 0.02, 1.0);
+    if (u_EnvSoftbox != 0) {
+        // A broad elliptical overhead softbox with a narrower hot strip.
+        // This is the same reflection grammar used by the standalone demo:
+        // the wide ellipse reads as a curved softbox, the inner ellipse as a
+        // physical specular streak rather than a rectangular white smear.
+        d = normalize(d);
+        float gloss = clamp(1.0 - r * 5.5, 0.0, 1.0);
+        vec3 k = normalize(u_EnvKey);
+        vec3 helper = abs(k.y) > 0.90 ? vec3(0.0, 0.0, 1.0)
+                                      : vec3(0.0, 1.0, 0.0);
+        vec3 kx = normalize(cross(helper, k));
+        vec3 ky = normalize(cross(k, kx));
+        float facing = max(dot(d, k), 0.10);
+        vec2 uv = vec2(dot(d, kx), dot(d, ky)) / facing;
+
+        vec2 q = uv - vec2(-0.10, 0.10);
+        vec2 outer_size = mix(vec2(0.98, 0.60), vec2(0.78, 0.50), gloss);
+        float outer_soft = mix(0.36, 0.20, gloss);
+        // 椭圆距离场：没有 x/y 盒积形成的直边和方角。
+        float outer = lp_soft_oval(q, outer_size, outer_soft, 2.0);
+
+        vec2 qc = uv - vec2(0.02, 0.23);
+        // 扁椭圆：横纵比仍是长条，但两端是圆的，不再是"一道白杠"。
+        float core = lp_soft_oval(qc, vec2(0.60, 0.145), 0.46, 2.0);
+
+        vec3 f = normalize(u_EnvFill);
+        float fill_face = max(dot(d, f), 0.0);
+        float fill_sheet = pow(fill_face, mix(7.0, 18.0, gloss));
+        float catchlight = pow(fill_face, mix(35.0, 120.0, gloss));
+
+        vec3 rim = normalize(u_EnvRim);
+        float rim_lobe = pow(max(dot(d, rim), 0.0),
+                             mix(7.0, 24.0, gloss));
+
+        vec3 c = u_EnvAmb;
+        // Keep the reflection readable but let the saturated phase colour
+        // remain visible through it.  A physically glossy surface can have a
+        // bright core, but the earlier coefficients bleached most of the lobe.
+        c += u_EnvKeyCol  * outer      * 0.55;
+        c += u_EnvKeyCol  * core       * 1.32;
+        c += u_EnvFillCol * fill_sheet * 0.16;
+        c += u_EnvFillCol * catchlight * 2.00;
+        c += u_EnvRimCol  * rim_lobe   * 0.34;
+        return c;
+    }
+    float p = 1.0 / max(r * r * 1.7 + 0.03, 0.02);
+    vec3 c = u_EnvAmb;
+    c += u_EnvKeyCol  * pow(max(dot(d, u_EnvKey),  0.0), p)       * 9.0;
+    c += u_EnvFillCol * pow(max(dot(d, u_EnvFill), 0.0), p * 6.0) * 2.2;
+    c += u_EnvRimCol  * pow(max(dot(d, u_EnvRim),  0.0), p * 9.0) * 2.0;
+    return c;
+}
+
 uniform float u_FogBias;       // 深度雾化偏移
 uniform float u_FogWidth;      // 深度雾化强度（0 = 关闭雾化）
 uniform vec3  u_FogColor;      // 雾化终色（= 背景色，深色背景下不会变白）
@@ -904,6 +979,19 @@ vec4 shade_base_color(bool two_sided) {
         float glow = (i == 0) ? u_Glows.x : (i == 1) ? u_Glows.y
                      : (i == 2) ? u_Glows.z : u_Glows.w;
         color += light_contrib(N, L, intensity, glow);
+    }
+
+
+    // 环境反射（默认关）：球面/等值面上出现"成形"的柔光箱高光
+    if (u_EnvOn != 0) {
+        // 法线/视线都在视图空间，先转世界空间再采样，环境才不会跟着分子转
+        vec3 Vv = vec3(0.0, 0.0, 1.0);              // 正交投影：视线恒为 +Z
+        float NoV = max(dot(N, Vv), 1e-3);
+        vec3 Nw = normalize(u_NormalToWorld * N);
+        vec3 Vw = normalize(u_NormalToWorld * Vv);
+        vec3 Rw = reflect(-Vw, Nw);
+        vec3 Fe = vec3(u_EnvF0) + (vec3(1.0) - vec3(u_EnvF0)) * pow(1.0 - NoV, 5.0);
+        color.rgb += lp_env(Rw, u_Roughness) * Fe * u_EnvStr;
     }
 
     // 背面调暗：双面材质（轨道等值面）的背向片元整体压暗，内壁比外壁暗 →
@@ -1406,21 +1494,20 @@ float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 vec4 fetch(vec2 uv) { return texture(uScene, uv); }
 
 void main() {
-    // ── 1. 降采样：倍率 >1 时按 3×3 盒式平均还原出 1× 像素 ──
+    // ── 1. 降采样：倍率 >1 时按 4×4 盒式平均还原出 1× 像素 ──
     vec4 c;
     if (uScale > 1.01) {
-        vec2 t = uTexel * 0.5 * uScale;      // 覆盖源像素的足迹半径
         vec4 s = vec4(0.0);
-        s += fetch(vUv + vec2(-t.x, -t.y));
-        s += fetch(vUv + vec2( 0.0, -t.y));
-        s += fetch(vUv + vec2( t.x, -t.y));
-        s += fetch(vUv + vec2(-t.x,  0.0));
-        s += fetch(vUv);
-        s += fetch(vUv + vec2( t.x,  0.0));
-        s += fetch(vUv + vec2(-t.x,  t.y));
-        s += fetch(vUv + vec2( 0.0,  t.y));
-        s += fetch(vUv + vec2( t.x,  t.y));
-        c = s / 9.0;
+        // 16 个中心对齐的 box taps.  3×3 在 3× 超采样下每个输出像素只采
+        // 9 个源点，斜轮廓仍会留下规则阶梯；4×4 覆盖更均匀，且成本只发生
+        // 在全屏后处理 pass，不增加几何/光照 pass 的光线计算。
+        for (int j = 0; j < 4; j++) {
+            for (int i = 0; i < 4; i++) {
+                vec2 o = (vec2(float(i), float(j)) + 0.5) / 4.0 - 0.5;
+                s += fetch(vUv + uTexel * o * uScale);
+            }
+        }
+        c = s / 16.0;
     } else {
         c = fetch(vUv);
     }
@@ -2570,11 +2657,23 @@ def style_params(surface_mat, style=None):
         'ambient': 0.0,
         'spec_color': (1.0, 1.0, 1.0),
         'spec_mul': 1.0,
+        # 等值面独立镜面倍率；原子仍使用 spec_mul。透明瓣的正反两面都会
+        # 接受直接光，倍率过高时一个原子周围会出现两个亮点。
+        'orb_spec_mul': 1.0,
         'roughness': 0.45,   # GGX 微表面粗糙度（0.03..1，越小越镜面）
         'coat_roughness': 0.10,   # Clear-coat 清漆层粗糙度（尖锐）
         'coat_strength': 0.80,    # Clear-coat 清漆层强度
         'sss_strength': 0.0,      # 次表面散射强度（0=关闭，走标准 Lambert）
         'back_dim': 0.8,          # 等值面背面调暗系数（1.0=关，内壁更暗→体积感）
+        'env_on': 0,              # 环境反射开关（0=关，旧观感逐位不变）
+        # 0=三个圆形 IBL-lite 叶瓣；1=长条柔光箱反射（Softbox Gloss）
+        'env_softbox': 0,
+        'env_str': 1.0,
+        'env_f0': 0.04,
+        'env_amb': (0.10, 0.10, 0.12),
+        'env_key_dir': (0.40, 0.60, 0.70), 'env_key_col': (1.0, 1.0, 1.0),
+        'env_fill_dir': (-0.40, -0.30, 0.60), 'env_fill_col': (0.35, 0.40, 0.50),
+        'env_rim_dir': (0.20, -0.50, -0.80), 'env_rim_col': (0.50, 0.50, 0.60),
         'fx': 0,
         'fx_strength': 0.0,
         'fx_color': (1.0, 1.0, 1.0),
@@ -3914,7 +4013,9 @@ class CubGLWidget(QOpenGLWidget):
         self._bond_thinning = BOND_THINNING_DEFAULT  # midpoint narrowing factor (1.0 = no waist)
 
         # 景深雾化（远处向背景色淡出）开关，默认开启
-        self._fade_enabled = True
+        # 景深雾化默认关闭。所有一键样式也显式写 fade=false；用户仍可在
+        # 「背景与后处理 → 景深雾化」中手动开启。
+        self._fade_enabled = False
         # Bond radius factor — dual-threshold for solid / dashed / no-bond
         self._bond_rf_tight = 1.0   # ≤ this → solid bond
         self._bond_rf_loose = 1.3   # ≤ this → dashed bond; > this → no bond
@@ -3948,6 +4049,9 @@ class CubGLWidget(QOpenGLWidget):
         self._light_glow = 1.0                    # 光晕大小（1=默认；>1 更大更散）
         self._light_glows = [1.0, 1.0, 1.0, 1.0]  # 每盏灯独立光晕（u_Glows）
         self._style_name = None                  # last isosurface style name
+        # 最近一次「出图观感」预设 key（不是等值面风格）；由 _panel 写入，
+        # compact bar 用它点亮 Softbox 这类观感型一键按钮。
+        self._active_look_key = ""
         # Gloss preset (overrides a_reg/o_reg after style build)
         self._gloss = _GLOSS_DEFAULT
         # 镜面高光模型：0 = Blinn-Phong 双瓣（经典），1 = GGX 微表面（默认）
@@ -4005,7 +4109,7 @@ class CubGLWidget(QOpenGLWidget):
         # 实时 QSurfaceFormat 是 samples=0（无 MSAA），轨道剪影/瓣交界全是锯齿，
         # 故整帧先渲到放大的离屏目标再降采样。默认开；老机器可在面板关掉。
         self._post_on = True
-        self._post_scale = 1.5     # 1.0 / 1.5 / 2.0（1.0 时只做边缘暗化）
+        self._post_scale = 1.5     # 1.0 / 1.5 / 2.0 / 3.0（1.0 时只做边缘暗化）
         # 默认只留抗锯齿。暗角/色调映射是**全局**效果（压背景、降对比），
         # 用户反馈"画布变灰、分子没变化"，故一律默认关；想用再开。
         self._post_edge = 0.0      # 边缘暗化强度（0 = 关）
@@ -4813,6 +4917,8 @@ class CubGLWidget(QOpenGLWidget):
         s = STYLES.get(name)
         if not s:
             return
+        # 显式切换等值面风格后，上一套出图观感的快捷高亮不再成立。
+        self._active_look_key = ""
         self._style_name = name
         sm = s.get('surface_mat')
         if sm:
@@ -5679,9 +5785,9 @@ class CubGLWidget(QOpenGLWidget):
         self.set_orb_outline(False)
         # 等值面 alpha 回到"受光照调制"的默认观感（半透明样式的基准）
         self.set_orb_alpha_mod(1.0)
-        # 景深雾化默认开启。重置样式时恢复开启，用户仍可用面板开关关闭；
-        # FogWidth 保留用户调过的强度，不因切换样式而被覆盖。
-        self.set_fade_enabled(True)
+        # 雾化默认关闭；重置样式也不主动开启。FogWidth 保留用户调过的
+        # 强度，用户手动打开开关后仍可恢复原来的强度。
+        self.set_fade_enabled(False)
         # 等值面不透明度回到默认（ESP 顶点色表面除外：不透明度归 ESP 面板管）
         if not self._surf_vcolor:
             self._sp['opacity'] = float(_RENDER_DEFAULTS.get('OrbitalOpacity', 1.0))
@@ -5764,11 +5870,26 @@ class CubGLWidget(QOpenGLWidget):
             "spec_model": int(getattr(self, "_spec_model", 1)),
             "matcap": self.matcap(),
             "roughness": float(self._sp.get('roughness', 0.45)),
+            "orb_spec_mul": float(self._sp.get('orb_spec_mul', 1.0)),
+        "orb_roughness": self._sp.get('orb_roughness'),
+        "atom_roughness": self._sp.get('atom_roughness'),
+        "bond_roughness": self._sp.get('bond_roughness'),
             "coat_roughness": float(self._sp.get('coat_roughness', 0.10)),
             "coat_strength": float(self._sp.get('coat_strength', 0.80)),
             "sss_strength": float(self._sp.get('sss_strength', 0.0)),
             "soft_term": float(getattr(self, "_soft_term", 0.0)),
             "back_dim": float(self._sp.get('back_dim', 0.8)),
+        "env_on": int(self._sp.get('env_on', 0)),
+        "env_softbox": int(self._sp.get('env_softbox', 0)),
+        "env_str": float(self._sp.get('env_str', 1.0)),
+        "env_f0": float(self._sp.get('env_f0', 0.04)),
+        "env_amb": list(self._sp.get('env_amb', (0.10, 0.10, 0.12))),
+        "env_key_dir": list(self._sp.get('env_key_dir', (0.40, 0.60, 0.70))),
+        "env_key_col": list(self._sp.get('env_key_col', (1.0, 1.0, 1.0))),
+        "env_fill_dir": list(self._sp.get('env_fill_dir', (-0.40, -0.30, 0.60))),
+        "env_fill_col": list(self._sp.get('env_fill_col', (0.35, 0.40, 0.50))),
+        "env_rim_dir": list(self._sp.get('env_rim_dir', (0.20, -0.50, -0.80))),
+        "env_rim_col": list(self._sp.get('env_rim_col', (0.50, 0.50, 0.60))),
             # 色彩空间（B 方案）：False = sRGB 直通（默认）
             "linear_space": bool(getattr(self, "_linear_space", False)),
             # 半球环境光
@@ -5956,6 +6077,16 @@ class CubGLWidget(QOpenGLWidget):
             self.set_matcap(str(st["matcap"]))
         if "roughness" in st:
             self.set_roughness(float(st["roughness"]))
+        if "orb_spec_mul" in st:
+            self._sp['orb_spec_mul'] = max(
+                0.0, min(4.0, float(st["orb_spec_mul"])))
+        for _rk in ("orb_roughness", "atom_roughness", "bond_roughness"):
+            if _rk in st:
+                _v = st[_rk]
+                if _v is None:
+                    self._sp.pop(_rk, None)
+                else:
+                    self._sp[_rk] = max(0.03, min(1.0, float(_v)))
         if "coat_roughness" in st:
             self.set_coat_roughness(float(st["coat_roughness"]))
         if "coat_strength" in st:
@@ -5966,6 +6097,19 @@ class CubGLWidget(QOpenGLWidget):
             self.set_soft_term(float(st["soft_term"]))
         if "back_dim" in st:
             self.set_back_dim(float(st["back_dim"]))
+        if "env_on" in st:
+            self._sp['env_on'] = 1 if st["env_on"] else 0
+        if "env_softbox" in st:
+            self._sp['env_softbox'] = 1 if st["env_softbox"] else 0
+        for _ek in ("env_str", "env_f0"):
+            if _ek in st:
+                self._sp[_ek] = float(st[_ek])
+        for _ek in ("env_amb", "env_key_dir", "env_key_col",
+                    "env_fill_dir", "env_fill_col",
+                    "env_rim_dir", "env_rim_col"):
+            if _ek in st:
+                v = st[_ek]
+                self._sp[_ek] = tuple(float(x) for x in v)
         if "linear_space" in st:
             self.set_linear_space(bool(st["linear_space"]))
         # 半球环境光：字段缺失时各参数为 None = 保持原值，故可无条件调用
@@ -6134,7 +6278,7 @@ class CubGLWidget(QOpenGLWidget):
         """实时后处理开关与参数（任一为 None 表示不改）。
 
         enabled:   总开关（关 = 与改动前逐位一致的直出路径，零开销）
-        scale:     超采样倍率 1.0 / 1.5 / 2.0
+        scale:     超采样倍率 1.0 / 1.5 / 2.0 / 3.0
         edge:      边缘暗化强度 0..0.8（0 = 关）
         radius:    暗化采样半径（目标像素）1..5：1 = 细轮廓线，3~4 = 柔和阴影
         tone:      色调映射强度 0..1（ACES filmic；0 = 关）
@@ -6146,7 +6290,7 @@ class CubGLWidget(QOpenGLWidget):
         if enabled is not None:
             self._post_on = bool(enabled)
         if scale is not None:
-            self._post_scale = max(1.0, min(2.0, float(scale)))
+            self._post_scale = max(1.0, min(3.0, float(scale)))
         if edge is not None:
             self._post_edge = max(0.0, min(0.8, float(edge)))
         if radius is not None:
@@ -10579,8 +10723,19 @@ class CubGLWidget(QOpenGLWidget):
         # 原子/键/范德华外壳也共用本函数，它们始终取 1 —— 它们的 alpha 由
         # DiffuseColor.a 直接给定（原子恒为 1），不受影响。
         glUniform1f(glGetUniformLocation(prog, 'u_AlphaMod'), 1.0)
-        glUniform1f(glGetUniformLocation(prog, 'u_Roughness'),
-                    float(self._sp.get('roughness', 0.30)))
+        # 粗糙度：默认一个全局值；若样式显式给了 orb_/atom_/bond_roughness，
+        # 则按程序分别取。三个键缺省时与旧行为逐位一致。
+        _rough = float(self._sp.get('roughness', 0.30))
+        _rov = None
+        if prog == getattr(self, '_prog_orb', None):
+            _rov = self._sp.get('orb_roughness')
+        elif prog == getattr(self, '_prog_bond', None):
+            _rov = self._sp.get('bond_roughness')
+        elif prog == getattr(self, '_prog_atom', None):
+            _rov = self._sp.get('atom_roughness')
+        if _rov is not None:
+            _rough = float(_rov)
+        glUniform1f(glGetUniformLocation(prog, 'u_Roughness'), _rough)
         glUniform1f(glGetUniformLocation(prog, 'u_CoatRoughness'),
                     float(self._sp.get('coat_roughness', 0.10)))
         glUniform1f(glGetUniformLocation(prog, 'u_CoatStrength'),
@@ -10596,6 +10751,29 @@ class CubGLWidget(QOpenGLWidget):
         # 等值面背面调暗：默认 0.8（1.0 = 关闭）
         glUniform1f(glGetUniformLocation(prog, 'u_BackDim'),
                     float(self._sp.get('back_dim', 0.8)))
+        # 环境反射（IBL-lite）：默认全关，样式显式打开才生效
+        glUniform1i(glGetUniformLocation(prog, 'u_EnvOn'),
+                    1 if self._sp.get('env_on') else 0)
+        glUniform1i(glGetUniformLocation(prog, 'u_EnvSoftbox'),
+                    1 if self._sp.get('env_softbox') else 0)
+        glUniform1f(glGetUniformLocation(prog, 'u_EnvStr'),
+                    float(self._sp.get('env_str', 1.0)))
+        glUniform1f(glGetUniformLocation(prog, 'u_EnvF0'),
+                    float(self._sp.get('env_f0', 0.04)))
+        glUniform3f(glGetUniformLocation(prog, 'u_EnvAmb'),
+                    *self._sp.get('env_amb', (0.10, 0.10, 0.12)))
+        glUniform3f(glGetUniformLocation(prog, 'u_EnvKey'),
+                    *self._sp.get('env_key_dir', (0.4, 0.6, 0.7)))
+        glUniform3f(glGetUniformLocation(prog, 'u_EnvKeyCol'),
+                    *self._sp.get('env_key_col', (1.0, 1.0, 1.0)))
+        glUniform3f(glGetUniformLocation(prog, 'u_EnvFill'),
+                    *self._sp.get('env_fill_dir', (-0.4, -0.3, 0.6)))
+        glUniform3f(glGetUniformLocation(prog, 'u_EnvFillCol'),
+                    *self._sp.get('env_fill_col', (0.35, 0.40, 0.50)))
+        glUniform3f(glGetUniformLocation(prog, 'u_EnvRim'),
+                    *self._sp.get('env_rim_dir', (0.2, -0.5, -0.8)))
+        glUniform3f(glGetUniformLocation(prog, 'u_EnvRimCol'),
+                    *self._sp.get('env_rim_col', (0.5, 0.5, 0.6)))
         # 半球环境光（Hemisphere Lighting）
         glUniform1i(glGetUniformLocation(prog, 'u_HemiEnabled'),
                     1 if getattr(self, '_hemi_enabled', False) else 0)
@@ -10642,7 +10820,7 @@ class CubGLWidget(QOpenGLWidget):
             diffuse=(1.0, 1.0, 1.0, sp['opacity']),
             ambient=sp.get('ambient', 0.0),
             spec_color=sp.get('spec_color', (1.0, 1.0, 1.0)),
-            spec_mul=sp.get('spec_mul', 1.0),
+            spec_mul=sp.get('orb_spec_mul', sp.get('spec_mul', 1.0)),
             fx=sp.get('fx', 0),
             fx_strength=sp.get('fx_strength', 0.0),
             fx_color=sp.get('fx_color', (1.0, 1.0, 1.0)),

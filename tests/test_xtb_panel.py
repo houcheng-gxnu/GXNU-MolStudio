@@ -26,7 +26,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_QPA_FONTDIR", r"C:\Windows\Fonts")
 
 from PyQt5.QtWidgets import (                                   # noqa: E402
-    QApplication, QComboBox, QTableWidget, QWidget,
+    QApplication, QComboBox, QGridLayout, QTableWidget, QWidget,
 )
 from PyQt5.QtGui import QShowEvent                              # noqa: E402
 
@@ -398,6 +398,8 @@ def test_run_with_synthetic_result(harness, app, monkeypatch, tmp_path):
     assert panel.btn_export_xyz.isEnabled()
     assert "完成" in panel.lbl_status.text()
     assert any("fake: running" in line for line in harness.logs)
+    # 面板内也有实时输出窗口，与主窗口日志同步刷新
+    assert "fake: running" in panel.log_view.toPlainText()
     assert calls and calls[0]["method"] == "gfn2"
 
     # 结束后可再次运行
@@ -405,6 +407,101 @@ def test_run_with_synthetic_result(harness, app, monkeypatch, tmp_path):
     assert wait_until(app, lambda: panel._worker is None
                       and len(calls) == 2, 15)
     assert panel.btn_run.isEnabled()
+
+
+def test_log_view_streams_clears_and_copies(harness, app):
+    """运行输出窗口：逐行追加、可清空/复制、只保留最近的行。"""
+    panel = harness.panel
+    panel._log("line-1")
+    panel._log("line-2")
+    assert panel.log_view.isReadOnly()
+    assert "line-1" in panel.log_view.toPlainText()
+    assert "line-2" in panel.log_view.toPlainText()
+    # 主窗口日志照旧收到，两边内容一致
+    assert harness.logs[-2:] == ["line-1", "line-2"]
+    assert panel.log_view.maximumBlockCount() == 3000
+
+    panel._copy_log()
+    assert "line-2" in QApplication.clipboard().text()
+
+    panel._clear_log()
+    assert panel.log_view.toPlainText() == ""
+    assert panel.tabs.tabText(1) == _TR["zh"]["tab_log"]
+
+
+def test_start_clears_previous_run_output(harness, app, monkeypatch, tmp_path):
+    panel = _prepare_synthetic_run(harness, tmp_path)
+    use_fake_run(monkeypatch, fake_fast_run)
+    panel._log("stale output from an old run")
+    panel.btn_run.click()
+    assert wait_until(app, lambda: panel._worker is None
+                      and panel._result is not None, 15)
+    text = panel.log_view.toPlainText()
+    assert "fake: running" in text
+    assert "stale output" not in text
+
+
+def test_layout_matches_orca_tabs_and_order(harness):
+    """右栏版面对齐 ORCA 页：结构 → 计算设置 → 按钮 → 进度 → 状态 → 三页签。"""
+    panel = harness.panel
+    assert [panel.tabs.tabText(i) for i in range(panel.tabs.count())] == [
+        _TR["zh"]["tab_preview"], _TR["zh"]["tab_log"],
+        _TR["zh"]["tab_result"]]
+    assert panel.tabs.currentIndex() == 0
+    # 进度条与 ORCA 页一样是细条、初始 0
+    assert panel.progress.maximumHeight() == 6
+    assert panel.progress.value() == 0
+    # 结构区：来源文字在按钮上面
+    src_lay = panel.grp_source.layout()
+    assert src_lay.itemAt(0).widget() is panel.lbl_source
+    # 按钮行：左侧生成输入 / 复制命令，右侧停止 / 运行
+    row = panel.layout().itemAt(2).layout()
+    assert row.itemAt(0).widget() is panel.btn_preview
+    assert row.itemAt(1).widget() is panel.btn_copy_cmd
+    assert row.itemAt(3).widget() is panel.btn_cancel
+    assert row.itemAt(4).widget() is panel.btn_run
+    # 计算设置是两列表单（标签 + 控件），不再是散行
+    grid = panel.grp_calc.layout()
+    assert isinstance(grid, QGridLayout)
+    assert grid.itemAtPosition(0, 0).widget() is panel.lbl_method
+    assert grid.itemAtPosition(0, 1).widget() is panel.cmb_method
+    assert grid.itemAtPosition(0, 2).widget() is panel.lbl_job
+    assert grid.itemAtPosition(0, 3).widget() is panel.cmb_job
+
+
+def test_input_preview_shows_command_and_xyz(harness, app):
+    panel = harness.panel
+    panel.edit_exe.setText("xtb.exe")
+    panel._refresh_preview()
+    text = panel.preview.toPlainText()
+    assert _TR["zh"]["preview_cmd"] in text
+    assert "xtb.exe" in text and "--gfn 2" in text
+    assert _TR["zh"]["preview_xyz"] in text
+    assert "3" in text.splitlines()          # 原子数行
+    assert "O " in text and "H " in text
+    # 切到预览页签会按当前参数重建
+    panel.tabs.setCurrentIndex(0)
+    app.processEvents()
+    assert panel.preview.toPlainText().strip()
+
+
+def test_copy_command_copies_command_line(harness):
+    panel = harness.panel
+    panel.edit_exe.setText("xtb.exe")
+    panel._copy_command()
+    copied = QApplication.clipboard().text()
+    assert "xtb.exe" in copied and "--gfn 2" in copied
+
+
+def test_run_switches_to_log_then_result_tab(harness, app, monkeypatch, tmp_path):
+    panel = _prepare_synthetic_run(harness, tmp_path)
+    use_fake_run(monkeypatch, fake_fast_run)
+    panel.tabs.setCurrentIndex(0)
+    panel.btn_run.click()
+    assert wait_until(app, lambda: panel._worker is None
+                      and panel._result is not None, 15)
+    assert panel.tabs.currentIndex() == 2          # 成功后停在结果摘要
+    assert panel.progress.value() == 100
 
 
 def test_run_disables_parameters_and_cancel(harness, app, monkeypatch, tmp_path):

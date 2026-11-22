@@ -16,11 +16,17 @@ from molstudio.core.multiwfn_lmo import (
     COMPOSITION_METHODS,
     DEFAULT_SETTINGS,
     LMO_METHODS,
+    LOBA_DEFAULT_SETTINGS,
     build_sequence,
+    build_loba_sequence,
     gen_lmo_cube,
+    parse_fchk_atoms,
+    parse_fragment_spec,
     parse_lmocen,
+    parse_loba_output,
     parse_lmo_output,
     run_localization,
+    run_loba,
     settings_summary,
 )
 
@@ -283,6 +289,21 @@ OPEN_LMOCEN_TEXT = """\
  Alpha LMO    14: Bq    23, X,Y,Z:   -3.1733    1.1029   -0.0000 Bohr
  Beta LMO      1: Bq    24, X,Y,Z:   -2.2653   -0.4069    0.0000 Bohr
  Beta LMO     12: Bq    35, X,Y,Z:    2.1468   -1.5702    1.1197 Bohr
+"""
+
+LOBA_TEXT = """\
+ Input percentage threshold to determine oxidation states (50 is commonly used)
+ Input "m" will determine oxidation states by assigning electron(s) in each orbital to the atom of maximal contribution, which corresponds to modified LOBA (mLOBA)
+ Input -1 can define fragment, current: Undefined
+ Input 0 can exit
+ Oxidation state of atom   1(Fe):  3
+ Oxidation state of atom   2(C ) :  2
+ Oxidation state of atom   3(C ) :  2
+ Oxidation state of atom   4(N ) : -3
+ Oxidation state of atom   5(N ) : -3
+ The sum of oxidation states:  -3
+ Input percentage threshold to determine oxidation states (50 is commonly used)
+ Oxidation state of the fragment:  -1
 """
 
 
@@ -571,6 +592,68 @@ def test_settings_summary_zh_en():
     assert "Foster" in en and "occupied only" in en
 
 
+# ───────────────────────────── LOBA / mLOBA ─────────────────────────────
+
+def test_loba_parse_atoms_sum_and_fragment():
+    result = parse_loba_output(LOBA_TEXT)
+    assert [atom["index"] for atom in result["atoms"]] == [1, 2, 3, 4, 5]
+    assert result["atoms"][0] == {
+        "index": 1, "element": "Fe", "oxidation_state": 3.0}
+    assert result["atoms"][3]["oxidation_state"] == -3.0
+    assert result["sum"] == -3.0
+    assert result["fragment_oxidation_state"] == -1.0
+    assert result["warnings"] == []
+
+
+def test_loba_parse_empty_or_weird_never_raises():
+    for text in ("", "not LOBA output\n", "forrtl: severe (59)"):
+        result = parse_loba_output(text)
+        assert result["atoms"] == []
+        assert isinstance(result["warnings"], list)
+        assert result["warnings"]
+
+
+def test_loba_sequence_loba_mloba_and_fragment():
+    assert build_loba_sequence(LOBA_DEFAULT_SETTINGS) == (
+        "\n8\n100\n50\n0\n-10\nq\n")
+    assert build_loba_sequence({
+        "method": "loba", "threshold": 70, "fragment": "1-3,5"
+    }) == "\n8\n100\n-1\n1-3,5\n70\n0\n-10\nq\n"
+    assert build_loba_sequence({"method": "mloba"}) == (
+        "\n8\n100\nm\n0\n-10\nq\n")
+    assert build_loba_sequence({
+        "method": "mloba", "fragment": "1-3"
+    }) == "\n8\n100\n-1\n1-3\nm\n0\n-10\nq\n"
+
+
+def test_parse_fragment_spec_normalizes_and_validates():
+    assert parse_fragment_spec("1, 3-5, 4, 9") == "1,3-5,9"
+    assert parse_fragment_spec("1，3–5") == "1,3-5"
+    assert parse_fragment_spec("") == ""
+    assert parse_fragment_spec("1-3", n_atoms=3) == "1-3"
+    with pytest.raises(ValueError, match="从 1"):
+        parse_fragment_spec("0-2")
+    with pytest.raises(ValueError, match="起点"):
+        parse_fragment_spec("5-2")
+    with pytest.raises(ValueError, match="超出"):
+        parse_fragment_spec("1-4", n_atoms=3)
+
+
+def test_parse_fchk_atoms_and_charge(tmp_path):
+    path = tmp_path / "sample.fch"
+    path.write_text(
+        "Number of atoms                            I                6\n"
+        "Charge                                     I               -2\n"
+        "Atomic numbers                             I   N=           6\n"
+        "           6           8           5           1           1           1\n",
+        encoding="utf-8")
+    info = parse_fchk_atoms(str(path))
+    assert info["n_atoms"] == 6
+    assert info["charge"] == -2
+    assert info["atomic_numbers"] == [6, 8, 5, 1, 1, 1]
+    assert info["elements"] == ["C", "O", "B", "H", "H", "H"]
+
+
 # ───────────────────────── run_localization 校验路径 ─────────────────────────
 
 def test_run_localization_missing_fchk_raises():
@@ -605,6 +688,37 @@ def test_run_localization_cancel_before_start_returns_not_ok(tmp_path):
     assert res["energies"] == []
 
 
+# ───────────────────────── run_loba 校验路径 ─────────────────────────
+
+def test_run_loba_missing_fchk_raises():
+    with pytest.raises(RuntimeError, match="找不到 LMO"):
+        run_loba(str(os.path.join("no_such_dir", "x_LMO.fch")),
+                 sys.executable)
+
+
+def test_run_loba_missing_exe_raises(tmp_path):
+    fchk = tmp_path / "mol_LMO.fch"
+    fchk.write_text(
+        "Number of atoms                            I                1\n"
+        "Charge                                     I                0\n"
+        "Atomic numbers                             I   N=           1\n"
+        "           6\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="找不到 Multiwfn"):
+        run_loba(str(fchk), str(tmp_path / "nope.exe"))
+
+
+def test_run_loba_validates_fragment_against_atom_count(tmp_path):
+    fchk = tmp_path / "mol_LMO.fch"
+    fchk.write_text(
+        "Number of atoms                            I                1\n"
+        "Charge                                     I                0\n"
+        "Atomic numbers                             I   N=           1\n"
+        "           6\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="片段"):
+        run_loba(str(fchk), sys.executable,
+                 {"fragment": "1-2"})
+
+
 # ───────────────────────────── live 集成测试（可选）─────────────────────────
 
 @pytest.mark.skipif(
@@ -623,6 +737,26 @@ def test_live_run_localization_occupied_with_energies(tmp_path):
     assert (tmp_path / "butadiene_ish_LMO.fch").is_file()
     assert (tmp_path / "butadiene_ish_LMO.log").is_file()
     assert result["lmo_fch"].endswith("butadiene_ish_LMO.fch")
+
+
+_LIVE_LOBA_FCH = (r"D:\OrbitalViewer 5.3\_dev\tmp\lmo_probe\new.fch")
+
+
+@pytest.mark.skipif(
+    not os.path.exists(_MW_EXE) or not os.path.exists(_LIVE_LOBA_FCH),
+    reason="Multiwfn/localized sample unavailable")
+def test_live_run_loba_with_fragment(tmp_path):
+    result = run_loba(
+        _LIVE_LOBA_FCH, _MW_EXE,
+        {"method": "loba", "threshold": 50, "fragment": "1-3"},
+        out_dir=str(tmp_path), timeout=120)
+
+    assert result["ok"], result["error"]
+    assert len(result["atoms"]) == 6
+    assert result["sum"] == pytest.approx(8.0)
+    assert result["fragment_oxidation_state"] == pytest.approx(-3.0)
+    assert result["net_charge"] == 0
+    assert (tmp_path / "new_LOBA.log").is_file()
 
 
 # gen_lmo_cube 的输入校验不需要真的跑 Multiwfn

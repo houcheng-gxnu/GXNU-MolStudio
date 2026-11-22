@@ -189,6 +189,34 @@ def save_config(multiwfn, vmd, tachyon, gaussian=None):
 # 避免多处各写一份而悄悄漏掉 RWG/BWG。
 VMD_CMAP_METHODS = ("RGB", "BGR", "RWB", "BWR", "RWG", "BWG")
 
+
+def _vmd_light_tcl(style, reset=False):
+    """生成 VMD 灯光 TCL。
+
+    VMD 的四盏灯可用 ``light N pos {x y z}`` 指定主光方向，这比只发
+    ``light N on/off`` 更能复现画布的无环境光棚拍布光。没有声明
+    ``light_positions`` 的旧样式统一恢复 ``pos default``，避免从 Softbox
+    切回 sob-art 后残留在旧方向。
+    """
+    lines = []
+    if reset:
+        lines.extend("light %d off" % i for i in range(4))
+    lines.extend("light %d pos default" % i for i in range(4))
+    for index, state in style.get("lights", {}).items():
+        lines.append("light %s %s" % (index, state))
+    positions = style.get("light_positions") or []
+    if isinstance(positions, dict):
+        positions = [positions.get(str(i), positions.get(i))
+                     for i in range(4)]
+    for index, position in enumerate(list(positions)[:4]):
+        if not position or len(position) < 3:
+            continue
+        x, y, z = (float(position[0]), float(position[1]),
+                   float(position[2]))
+        lines.append("light %d pos {%.6f %.6f %.6f}" % (index, x, y, z))
+    return "\n".join(lines) + "\n"
+
+
 STYLES = {
     "ultra-glass": {
         "desc": "Ice Crystal, Ultra-Transparent Glass (冰晶透澈)",
@@ -219,6 +247,42 @@ STYLES = {
         "atom_cpk": "0.600000 0.400000 30.000000 30.000000",
         "atom_mat": [0.0, 0.65, 0.5, 0.53, 0.15, 1.0, 2.0, 0.3, 0.0],
         "c_color": "tan", "c_rgb": "0.700000 0.560000 0.360000",
+    },
+    "softbox": {
+        "desc": "Softbox Gloss, white studio, GaussView atoms, red/blue",
+        "tachyon_options": "-trans_vmd",
+        # MolStudio Softbox 画布观感的 VMD 近似：三盏大光晕棚拍灯，
+        # 主光左上、补光右中、轮廓光后背；第四盏关闭。
+        "lights": {"0": "on", "1": "on", "2": "on", "3": "off"},
+        "light_positions": [
+            [-0.58, 0.70, 0.58],
+            [0.80, 0.18, 0.42],
+            [0.08, -0.50, -0.86],
+            [0.0, 0.0, 1.0],
+        ],
+        "shadows": "off", "ao": "on",
+        "aoambient": "0.72", "aodirect": "0.30",
+        # 低粗糙度 GGX 在 VMD 材质中近似为：低 ambient、高 specular、
+        # 中高 shininess。轨道略透明，原子和键保持实体。
+        "surface_mat": [0.08, 0.62, 1.05, 0.82, 0.0, 0.94, 0.0, 0.0, 1.0],
+        "surface_mat_b": [0.08, 0.62, 1.05, 0.82, 0.0, 0.94, 0.0, 0.0, 1.0],
+        "pos_color": [31, 0.86, 0.035, 0.075],
+        "neg_color": [32, 0.035, 0.105, 0.80],
+        # 相对 sob-art 略大的原子球与更细的键；VMD CPK 参数是
+        # 原子半径倍率、键半径、球/键分辨率。
+        "atom_cpk": "0.650000 0.290000 30.000000 30.000000",
+        # GLSL 实时预览的高光比 Tachyon 更集中；把 shininess 从 0.78 降到
+        # 0.50 并提高 specular，使不放大也能看见柔光箱主光点。
+        # VMD 1.9.3 导出的 Tachyon .dat 会把 material mirror 写进
+        # Tachyon 的 Specular 字段，因此 mirror 不能像画布那样设成 0；
+        # 0.20 是同时兼顾实时预览与 Tachyon 成图、不会洗白的值。
+        "atom_mat": [0.08, 0.62, 1.0, 0.50, 0.20, 1.0, 0.0, 0.0, 0.0],
+        "bond_mat": [0.14, 0.70, 0.68, 0.62, 0.0, 1.0, 0.0, 0.0, 0.0],
+        # GaussView 元素配色：其余元素来自共享 ATOM_COLORS（101+ 周期表），
+        # 碳使用 gview_color.tcl 的 #8E8E8E。不要再覆写成 Softbox 画布的深灰，
+        # 否则 VMD 球棍会和 MolStudio 的 GaussView 配色轴不一致。
+        "c_color": "gray", "c_rgb": "0.556900 0.556900 0.556900",
+        "display_distance": "-7.6",
     },
     # ── vcube sob-esp0 / sob-esp1：ESP（静电势）映射样式 ───────────────────
     # 源文件是 .mstl（maps style），与前面 .stl 的区别在于等值面不是相位配色，
@@ -1711,9 +1775,7 @@ def _gen_multi_orbital_tcl(cube_files, isovalues, base_style_name, shade_mode="f
 
     s = STYLES.get(base_style_name, STYLES["sob-art"])
 
-    light_lines = ""
-    for k, v in s["lights"].items():
-        light_lines += f"light {k} {v}\n"
+    light_lines = _vmd_light_tcl(s)
 
     if shade_mode == "medium":
         shadow_on = True
@@ -1793,8 +1855,8 @@ mol modselect 0 top "{h_sel_str}"
 mol new {cube_name} type cube first 0 last 0 step 1 waitfor all
 # Atoms
 mol modstyle 0 top CPK {s['atom_cpk']}
-mol modmaterial 0 top _stl_atom
 {atom_mat_lines}
+mol modmaterial 0 top _stl_atom
 mol modcolor 0 top Element
 {ATOM_COLORS}
 color Element C {s['c_color']}
@@ -2012,9 +2074,7 @@ def _style_tcl_mol(mol_name, style_name="sob-art", representation="CPK",
     """Generate VMD TCL for molecule-only visualization (XYZ file, no isosurface)."""
     s = STYLES.get(style_name, STYLES["sob-art"])
 
-    light_lines = ""
-    for k, v in s["lights"].items():
-        light_lines += f"light {k} {v}\n"
+    light_lines = _vmd_light_tcl(s)
 
     if shade_mode == "medium":
         shadow_on, ao_on = True, False
@@ -2099,10 +2159,10 @@ display rendermode GLSL
 mol new {{{mol_name}}} type xyz first 0 last 0 step 1 waitfor all
 
 mol modstyle 0 top {rep_style}
-mol modmaterial 0 top {rep_material}
 mol modcolor 0 top Element
 {atom_mat_lines}
 {bond_mat_lines}
+mol modmaterial 0 top {rep_material}
 {ATOM_COLORS}
 color Element C {s['c_color']}
 color change rgb {s['c_color']} {s['c_rgb']}
@@ -2467,8 +2527,7 @@ def _live_style_tcl(style_name, shade_mode="full", n_mols=1,
                     if atom_cpk else "")
 
     # lights (first reset all 4, then set what style wants) and shadows/ao
-    light_reset = "\n".join(f"light {k} off" for k in range(4)) + "\n"
-    light_set = "\n".join(f"light {k} {v}" for k, v in s["lights"].items()) + "\n"
+    light_tcl = _vmd_light_tcl(s, reset=True)
 
     if shade_mode == "medium":
         shadow_on, ao_on = True, False
@@ -2494,7 +2553,7 @@ def _live_style_tcl(style_name, shade_mode="full", n_mols=1,
     tcl = f"""if {{[info proc _apply_live_style] ne ""}} {{rename _apply_live_style ""}}
 proc _apply_live_style {{}} {{
 # Lights + shadows
-{light_reset}{light_set}{shadow_tcl}
+{light_tcl}{shadow_tcl}
 # Materials
 {body}# Surface colors
 {pos_rep_color}{neg_rep_color}# ESP volume coloring (color scale + range)
@@ -2518,8 +2577,7 @@ def _live_style_tcl_mol(style_name, shade_mode="full"):
     s = STYLES.get(style_name, STYLES["sob-art"])
 
     # lights
-    light_reset = "\n".join(f"light {k} off" for k in range(4)) + "\n"
-    light_set = "\n".join(f"light {k} {v}" for k, v in s["lights"].items()) + "\n"
+    light_tcl = _vmd_light_tcl(s, reset=True)
 
     # shadows / ao
     if shade_mode == "medium":
@@ -2549,7 +2607,7 @@ def _live_style_tcl_mol(style_name, shade_mode="full"):
     tcl = f"""if {{[info proc _apply_live_style] ne ""}} {{rename _apply_live_style ""}}
 proc _apply_live_style {{}} {{
 # Lights + shadows
-{light_reset}{light_set}{shadow_tcl}
+{light_tcl}{shadow_tcl}
 # Atom material
 {atom_tcl}# Remap atom rep
 mol modmaterial 0 top _stl_atom
@@ -2572,9 +2630,7 @@ def _style_tcl(cube_name, isovalue, style_name, shade_mode="full", keep_h_indice
     s = STYLES.get(style_name, STYLES["sob-art"])
 
     # Lighting
-    light_lines = ""
-    for k, v in s["lights"].items():
-        light_lines += f"light {k} {v}\n"
+    light_lines = _vmd_light_tcl(s)
 
     # Shadows/AO: shade_mode overrides style defaults
     if shade_mode == "medium":
@@ -2658,8 +2714,8 @@ mol new {cube_name} type cube first 0 last 0 step 1 waitfor all
 
 # Atoms
 mol modstyle 0 top CPK {s['atom_cpk']}
-mol modmaterial 0 top _stl_atom
 {atom_mat_lines}
+mol modmaterial 0 top _stl_atom
 mol modcolor 0 top Element
 {ATOM_COLORS}
 color Element C {s['c_color']}
@@ -2728,7 +2784,7 @@ puts "==========================================="
 # IGMH 专用 VMD 场景脚本 —— 逐字照搬自 IGMH-V4 (igmh_v6_source._style_tcl)
 # 保证 δg 等值面着色（sl2r BGR）与参考实现完全一致
 # ═══════════════════════════════════════════════════════════════
-_IGMH_SCENE_TPL = 'color Display Background white\naxes location Off\ndisplay depthcue off\ndisplay projection Orthographic\ndisplay rendermode GLSL\n\nlight 0 on\nlight 1 on\nlight 2 off\nlight 3 on\n\ndisplay shadows off\ndisplay ambientocclusion off\ndisplay aoambient 0.8\ndisplay aodirect 0.3\n\n\n# ── 加载：sl2r 先加载（dataset 0），dg_inter 后加载（dataset 1）──\nmol new {color_vol} type cube first 0 last 0 step 1 waitfor all\nmol addfile {vol} type cube first 0 last 0 step 1 waitfor all\n\n# 删除 sl2r 的默认 VDW rep\nmol delrep 0 top\n\n# rep 0: CPK 原子（坐标来自 {color_vol}）\nmol representation CPK 0.600000 0.400000 30.000000 30.000000\nmol addrep top\nmol modstyle 0 top CPK 0.600000 0.400000 30.000000 30.000000\nmol modmaterial 0 top _stl_atom\nif {[lsearch [material list] _stl_atom] < 0} {material add _stl_atom}\nmaterial change ambient _stl_atom 0.0\nmaterial change diffuse _stl_atom 0.65\nmaterial change specular _stl_atom 0.5\nmaterial change shininess _stl_atom 0.53\nmaterial change mirror _stl_atom 0.15\nmaterial change opacity _stl_atom 1.0\nmaterial change outline _stl_atom 2.0\nmaterial change outlinewidth _stl_atom 0.3\n\nmol modcolor 0 top Element\nset _igmh_atom_cpk "0.600000 0.400000 30.000000 30.000000"\ncolor Element C tan\ncolor change rgb tan 0.700000 0.560000 0.360000\ncolor Element H white\ncolor Element S yellow\ncolor change rgb 4  1.000000 0.800000 0.000000\ncolor Element F yellow2\ncolor change rgb 17 0.800000 1.000000 0.000000\ncolor Element Cl yellow3\ncolor change rgb 18 0.500000 1.000000 0.000000\ncolor Element Br magenta2\ncolor change rgb 28 0.600000 0.100000 0.000000\ncolor Element I magenta\ncolor change rgb 27 0.700000 0.000000 0.700000\ncolor Element B pink\ncolor change rgb 9   1.000000 0.400000 0.800000\ncolor Element P red2\ncolor change rgb 29  1.000000 0.400000 0.000000\n\n# 金属元素 GaussView 配色 (ColorID = 原子序数 + 100)\ncolor change rgb 103 0.8000 0.4863 1.0000\ncolor change rgb 104 0.8000 1.0000 0.0000\ncolor change rgb 111 0.6667 0.3569 0.9490\ncolor change rgb 112 0.6980 0.8000 0.0000\ncolor change rgb 113 0.8196 0.6471 0.6471\ncolor change rgb 119 0.5569 0.2471 0.8275\ncolor change rgb 120 0.6000 0.6000 0.0000\ncolor change rgb 121 0.8980 0.8980 0.8863\ncolor change rgb 122 0.7490 0.7569 0.7765\ncolor change rgb 123 0.6471 0.6471 0.6667\ncolor change rgb 124 0.5373 0.6000 0.7765\ncolor change rgb 125 0.6078 0.4784 0.7765\ncolor change rgb 126 0.4980 0.4784 0.7765\ncolor change rgb 127 0.3569 0.4275 1.0000\ncolor change rgb 128 0.3569 0.4784 0.7569\ncolor change rgb 129 1.0000 0.4784 0.3765\ncolor change rgb 130 0.4863 0.4980 0.6863\ncolor change rgb 131 0.7569 0.5569 0.5569\ncolor change rgb 137 0.4392 0.1765 0.6863\ncolor change rgb 138 0.4980 0.4000 0.0000\ncolor change rgb 139 0.5765 0.9882 1.0000\ncolor change rgb 140 0.5765 0.8784 0.8784\ncolor change rgb 141 0.4471 0.7569 0.7882\ncolor change rgb 142 0.3294 0.7098 0.7098\ncolor change rgb 143 0.2275 0.6196 0.6588\ncolor change rgb 144 0.1373 0.5569 0.5882\ncolor change rgb 145 0.0392 0.4863 0.5490\ncolor change rgb 146 0.0000 0.4078 0.5176\ncolor change rgb 147 0.6000 0.7765 1.0000\ncolor change rgb 148 1.0000 0.8471 0.5569\ncolor change rgb 149 0.6471 0.4588 0.4471\ncolor change rgb 150 0.4000 0.4980 0.4980\ncolor change rgb 151 0.6196 0.3882 0.7098\ncolor change rgb 155 0.3373 0.0863 0.5569\ncolor change rgb 156 0.4000 0.2000 0.0000\ncolor change rgb 157 0.4392 0.8667 1.0000\ncolor change rgb 158 1.0000 1.0000 0.7765\ncolor change rgb 159 0.8471 1.0000 0.7765\ncolor change rgb 160 0.7765 1.0000 0.7765\ncolor change rgb 161 0.6392 1.0000 0.7765\ncolor change rgb 162 0.5569 1.0000 0.7765\ncolor change rgb 163 0.3765 1.0000 0.7765\ncolor change rgb 164 0.2667 1.0000 0.7765\ncolor change rgb 165 0.1882 1.0000 0.7765\ncolor change rgb 166 0.1176 1.0000 0.7098\ncolor change rgb 167 0.0000 1.0000 0.7098\ncolor change rgb 168 0.0000 0.8980 0.4588\ncolor change rgb 169 0.0000 0.8275 0.3176\ncolor change rgb 170 0.0000 0.7490 0.2196\ncolor change rgb 171 0.0000 0.6667 0.1373\ncolor change rgb 172 0.2980 0.7569 1.0000\ncolor change rgb 173 0.2980 0.6471 1.0000\ncolor change rgb 174 0.1490 0.5765 0.8392\ncolor change rgb 175 0.1490 0.4863 0.6667\ncolor change rgb 176 0.1490 0.4000 0.5882\ncolor change rgb 177 0.0863 0.3294 0.5294\ncolor change rgb 178 0.0863 0.3569 0.5569\ncolor change rgb 179 1.0000 0.8196 0.1373\ncolor change rgb 180 0.7098 0.7098 0.7569\ncolor change rgb 181 0.6471 0.3294 0.2980\ncolor change rgb 182 0.3373 0.3490 0.3765\ncolor change rgb 183 0.6196 0.3098 0.7098\ncolor change rgb 184 0.6667 0.3569 0.0000\ncolor change rgb 187 0.2588 0.0000 0.4000\ncolor change rgb 188 0.2980 0.0980 0.0000\ncolor change rgb 189 0.4392 0.6667 0.9765\ncolor change rgb 190 0.0000 0.7294 1.0000\ncolor change rgb 191 0.0000 0.6275 1.0000\ncolor change rgb 192 0.0000 0.5569 1.0000\ncolor change rgb 193 0.0000 0.4980 0.9490\ncolor change rgb 194 0.0000 0.4196 0.9490\ncolor change rgb 195 0.3294 0.3569 0.9490\ncolor change rgb 196 0.4667 0.3569 0.8863\ncolor change rgb 197 0.5373 0.3686 0.8863\ncolor change rgb 198 0.6275 0.2078 0.8275\ncolor change rgb 199 0.6588 0.1686 0.7765\ncolor change rgb 200 0.6980 0.1176 0.7294\ncolor change rgb 201 0.6980 0.0471 0.6471\ncolor change rgb 202 0.7373 0.0471 0.5294\ncolor change rgb 203 0.7765 0.0000 0.4000\ncolor change rgb 204 1.0000 0.4980 0.4980\ncolor change rgb 205 0.8980 0.4000 0.4000\ncolor change rgb 206 0.8000 0.2980 0.2980\ncolor change rgb 207 0.6980 0.2000 0.2000\ncolor change rgb 208 0.6000 0.0980 0.0980\ncolor change rgb 209 0.5490 0.0000 0.0000\ncolor change rgb 210 0.4980 0.0000 0.0000\ncolor change rgb 211 0.4471 0.0000 0.0000\ncolor Element Li 103\ncolor Element Be 104\ncolor Element Na 111\ncolor Element Mg 112\ncolor Element Al 113\ncolor Element K 119\ncolor Element Ca 120\ncolor Element Sc 121\ncolor Element Ti 122\ncolor Element V 123\ncolor Element Cr 124\ncolor Element Mn 125\ncolor Element Fe 126\ncolor Element Co 127\ncolor Element Ni 128\ncolor Element Cu 129\ncolor Element Zn 130\ncolor Element Ga 131\ncolor Element Rb 137\ncolor Element Sr 138\ncolor Element Y 139\ncolor Element Zr 140\ncolor Element Nb 141\ncolor Element Mo 142\ncolor Element Tc 143\ncolor Element Ru 144\ncolor Element Rh 145\ncolor Element Pd 146\ncolor Element Ag 147\ncolor Element Cd 148\ncolor Element In 149\ncolor Element Sn 150\ncolor Element Sb 151\ncolor Element Cs 155\ncolor Element Ba 156\ncolor Element La 157\ncolor Element Ce 158\ncolor Element Pr 159\ncolor Element Nd 160\ncolor Element Pm 161\ncolor Element Sm 162\ncolor Element Eu 163\ncolor Element Gd 164\ncolor Element Tb 165\ncolor Element Dy 166\ncolor Element Ho 167\ncolor Element Er 168\ncolor Element Tm 169\ncolor Element Yb 170\ncolor Element Lu 171\ncolor Element Hf 172\ncolor Element Ta 173\ncolor Element W 174\ncolor Element Re 175\ncolor Element Os 176\ncolor Element Ir 177\ncolor Element Pt 178\ncolor Element Au 179\ncolor Element Hg 180\ncolor Element Tl 181\ncolor Element Pb 182\ncolor Element Bi 183\ncolor Element Po 184\ncolor Element Fr 187\ncolor Element Ra 188\ncolor Element Ac 189\ncolor Element Th 190\ncolor Element Pa 191\ncolor Element U 192\ncolor Element Np 193\ncolor Element Pu 194\ncolor Element Am 195\ncolor Element Cm 196\ncolor Element Bk 197\ncolor Element Cf 198\ncolor Element Es 199\ncolor Element Fm 200\ncolor Element Md 201\ncolor Element No 202\ncolor Element Lr 203\ncolor Element Rf 204\ncolor Element Db 205\ncolor Element Sg 206\ncolor Element Bh 207\ncolor Element Hs 208\ncolor Element Mt 209\ncolor Element Ds 210\ncolor Element Rg 211\n\n# rep 1: dg_inter 的 δg 等值面，颜色由 sl2r 值映射\n#   Isosurface {iso} 1 0 0 1 1  → 只画正值等值面\n#   mol color Volume 0              → 颜色映射 dataset 0 (sl2r) 的值\n#   scaleminmax -0.05 0.05          → 色标范围\n#   BGR 色标: 蓝=负(吸引), 绿=弱, 红=正(排斥)\nmol representation Isosurface {iso} 1 0 0 1 1\nmol color Volume 0\nmol addrep top\nmol scaleminmax top 1 -0.05 0.05\ncolor scale method BGR\nif {[lsearch [material list] _igmh_surf] < 0} {material add _igmh_surf}\nmaterial change ambient _igmh_surf 0.1\nmaterial change diffuse _igmh_surf 0.6\nmaterial change specular _igmh_surf 1.0\nmaterial change shininess _igmh_surf 1.0\nmaterial change mirror _igmh_surf 0.0\nmaterial change opacity _igmh_surf 0.75\nmaterial change outline _igmh_surf 0.0\nmaterial change outlinewidth _igmh_surf 0.0\n\nmol modmaterial 1 top _igmh_surf\n\ndisplay distance -8.0\ndisplay height 10\n'
+_IGMH_SCENE_TPL = 'color Display Background white\naxes location Off\ndisplay depthcue off\ndisplay projection Orthographic\ndisplay rendermode GLSL\n\nlight 0 on\nlight 1 on\nlight 2 off\nlight 3 on\n\ndisplay shadows off\ndisplay ambientocclusion off\ndisplay aoambient 0.8\ndisplay aodirect 0.3\n\n\n# ── 加载：sl2r 先加载（dataset 0），dg_inter 后加载（dataset 1）──\nmol new {color_vol} type cube first 0 last 0 step 1 waitfor all\nmol addfile {vol} type cube first 0 last 0 step 1 waitfor all\n\n# 删除 sl2r 的默认 VDW rep\nmol delrep 0 top\n\n# rep 0: CPK 原子（坐标来自 {color_vol}）\nmol representation CPK 0.600000 0.400000 30.000000 30.000000\nmol addrep top\nmol modstyle 0 top CPK 0.600000 0.400000 30.000000 30.000000\nif {[lsearch [material list] _stl_atom] < 0} {material add _stl_atom}\nmaterial change ambient _stl_atom 0.0\nmaterial change diffuse _stl_atom 0.65\nmaterial change specular _stl_atom 0.5\nmaterial change shininess _stl_atom 0.53\nmaterial change mirror _stl_atom 0.15\nmaterial change opacity _stl_atom 1.0\nmaterial change outline _stl_atom 2.0\nmaterial change outlinewidth _stl_atom 0.3\nmol modmaterial 0 top _stl_atom\n\nmol modcolor 0 top Element\nset _igmh_atom_cpk "0.600000 0.400000 30.000000 30.000000"\ncolor Element C tan\ncolor change rgb tan 0.700000 0.560000 0.360000\ncolor Element H white\ncolor Element S yellow\ncolor change rgb 4  1.000000 0.800000 0.000000\ncolor Element F yellow2\ncolor change rgb 17 0.800000 1.000000 0.000000\ncolor Element Cl yellow3\ncolor change rgb 18 0.500000 1.000000 0.000000\ncolor Element Br magenta2\ncolor change rgb 28 0.600000 0.100000 0.000000\ncolor Element I magenta\ncolor change rgb 27 0.700000 0.000000 0.700000\ncolor Element B pink\ncolor change rgb 9   1.000000 0.400000 0.800000\ncolor Element P red2\ncolor change rgb 29  1.000000 0.400000 0.000000\n\n# 金属元素 GaussView 配色 (ColorID = 原子序数 + 100)\ncolor change rgb 103 0.8000 0.4863 1.0000\ncolor change rgb 104 0.8000 1.0000 0.0000\ncolor change rgb 111 0.6667 0.3569 0.9490\ncolor change rgb 112 0.6980 0.8000 0.0000\ncolor change rgb 113 0.8196 0.6471 0.6471\ncolor change rgb 119 0.5569 0.2471 0.8275\ncolor change rgb 120 0.6000 0.6000 0.0000\ncolor change rgb 121 0.8980 0.8980 0.8863\ncolor change rgb 122 0.7490 0.7569 0.7765\ncolor change rgb 123 0.6471 0.6471 0.6667\ncolor change rgb 124 0.5373 0.6000 0.7765\ncolor change rgb 125 0.6078 0.4784 0.7765\ncolor change rgb 126 0.4980 0.4784 0.7765\ncolor change rgb 127 0.3569 0.4275 1.0000\ncolor change rgb 128 0.3569 0.4784 0.7569\ncolor change rgb 129 1.0000 0.4784 0.3765\ncolor change rgb 130 0.4863 0.4980 0.6863\ncolor change rgb 131 0.7569 0.5569 0.5569\ncolor change rgb 137 0.4392 0.1765 0.6863\ncolor change rgb 138 0.4980 0.4000 0.0000\ncolor change rgb 139 0.5765 0.9882 1.0000\ncolor change rgb 140 0.5765 0.8784 0.8784\ncolor change rgb 141 0.4471 0.7569 0.7882\ncolor change rgb 142 0.3294 0.7098 0.7098\ncolor change rgb 143 0.2275 0.6196 0.6588\ncolor change rgb 144 0.1373 0.5569 0.5882\ncolor change rgb 145 0.0392 0.4863 0.5490\ncolor change rgb 146 0.0000 0.4078 0.5176\ncolor change rgb 147 0.6000 0.7765 1.0000\ncolor change rgb 148 1.0000 0.8471 0.5569\ncolor change rgb 149 0.6471 0.4588 0.4471\ncolor change rgb 150 0.4000 0.4980 0.4980\ncolor change rgb 151 0.6196 0.3882 0.7098\ncolor change rgb 155 0.3373 0.0863 0.5569\ncolor change rgb 156 0.4000 0.2000 0.0000\ncolor change rgb 157 0.4392 0.8667 1.0000\ncolor change rgb 158 1.0000 1.0000 0.7765\ncolor change rgb 159 0.8471 1.0000 0.7765\ncolor change rgb 160 0.7765 1.0000 0.7765\ncolor change rgb 161 0.6392 1.0000 0.7765\ncolor change rgb 162 0.5569 1.0000 0.7765\ncolor change rgb 163 0.3765 1.0000 0.7765\ncolor change rgb 164 0.2667 1.0000 0.7765\ncolor change rgb 165 0.1882 1.0000 0.7765\ncolor change rgb 166 0.1176 1.0000 0.7098\ncolor change rgb 167 0.0000 1.0000 0.7098\ncolor change rgb 168 0.0000 0.8980 0.4588\ncolor change rgb 169 0.0000 0.8275 0.3176\ncolor change rgb 170 0.0000 0.7490 0.2196\ncolor change rgb 171 0.0000 0.6667 0.1373\ncolor change rgb 172 0.2980 0.7569 1.0000\ncolor change rgb 173 0.2980 0.6471 1.0000\ncolor change rgb 174 0.1490 0.5765 0.8392\ncolor change rgb 175 0.1490 0.4863 0.6667\ncolor change rgb 176 0.1490 0.4000 0.5882\ncolor change rgb 177 0.0863 0.3294 0.5294\ncolor change rgb 178 0.0863 0.3569 0.5569\ncolor change rgb 179 1.0000 0.8196 0.1373\ncolor change rgb 180 0.7098 0.7098 0.7569\ncolor change rgb 181 0.6471 0.3294 0.2980\ncolor change rgb 182 0.3373 0.3490 0.3765\ncolor change rgb 183 0.6196 0.3098 0.7098\ncolor change rgb 184 0.6667 0.3569 0.0000\ncolor change rgb 187 0.2588 0.0000 0.4000\ncolor change rgb 188 0.2980 0.0980 0.0000\ncolor change rgb 189 0.4392 0.6667 0.9765\ncolor change rgb 190 0.0000 0.7294 1.0000\ncolor change rgb 191 0.0000 0.6275 1.0000\ncolor change rgb 192 0.0000 0.5569 1.0000\ncolor change rgb 193 0.0000 0.4980 0.9490\ncolor change rgb 194 0.0000 0.4196 0.9490\ncolor change rgb 195 0.3294 0.3569 0.9490\ncolor change rgb 196 0.4667 0.3569 0.8863\ncolor change rgb 197 0.5373 0.3686 0.8863\ncolor change rgb 198 0.6275 0.2078 0.8275\ncolor change rgb 199 0.6588 0.1686 0.7765\ncolor change rgb 200 0.6980 0.1176 0.7294\ncolor change rgb 201 0.6980 0.0471 0.6471\ncolor change rgb 202 0.7373 0.0471 0.5294\ncolor change rgb 203 0.7765 0.0000 0.4000\ncolor change rgb 204 1.0000 0.4980 0.4980\ncolor change rgb 205 0.8980 0.4000 0.4000\ncolor change rgb 206 0.8000 0.2980 0.2980\ncolor change rgb 207 0.6980 0.2000 0.2000\ncolor change rgb 208 0.6000 0.0980 0.0980\ncolor change rgb 209 0.5490 0.0000 0.0000\ncolor change rgb 210 0.4980 0.0000 0.0000\ncolor change rgb 211 0.4471 0.0000 0.0000\ncolor Element Li 103\ncolor Element Be 104\ncolor Element Na 111\ncolor Element Mg 112\ncolor Element Al 113\ncolor Element K 119\ncolor Element Ca 120\ncolor Element Sc 121\ncolor Element Ti 122\ncolor Element V 123\ncolor Element Cr 124\ncolor Element Mn 125\ncolor Element Fe 126\ncolor Element Co 127\ncolor Element Ni 128\ncolor Element Cu 129\ncolor Element Zn 130\ncolor Element Ga 131\ncolor Element Rb 137\ncolor Element Sr 138\ncolor Element Y 139\ncolor Element Zr 140\ncolor Element Nb 141\ncolor Element Mo 142\ncolor Element Tc 143\ncolor Element Ru 144\ncolor Element Rh 145\ncolor Element Pd 146\ncolor Element Ag 147\ncolor Element Cd 148\ncolor Element In 149\ncolor Element Sn 150\ncolor Element Sb 151\ncolor Element Cs 155\ncolor Element Ba 156\ncolor Element La 157\ncolor Element Ce 158\ncolor Element Pr 159\ncolor Element Nd 160\ncolor Element Pm 161\ncolor Element Sm 162\ncolor Element Eu 163\ncolor Element Gd 164\ncolor Element Tb 165\ncolor Element Dy 166\ncolor Element Ho 167\ncolor Element Er 168\ncolor Element Tm 169\ncolor Element Yb 170\ncolor Element Lu 171\ncolor Element Hf 172\ncolor Element Ta 173\ncolor Element W 174\ncolor Element Re 175\ncolor Element Os 176\ncolor Element Ir 177\ncolor Element Pt 178\ncolor Element Au 179\ncolor Element Hg 180\ncolor Element Tl 181\ncolor Element Pb 182\ncolor Element Bi 183\ncolor Element Po 184\ncolor Element Fr 187\ncolor Element Ra 188\ncolor Element Ac 189\ncolor Element Th 190\ncolor Element Pa 191\ncolor Element U 192\ncolor Element Np 193\ncolor Element Pu 194\ncolor Element Am 195\ncolor Element Cm 196\ncolor Element Bk 197\ncolor Element Cf 198\ncolor Element Es 199\ncolor Element Fm 200\ncolor Element Md 201\ncolor Element No 202\ncolor Element Lr 203\ncolor Element Rf 204\ncolor Element Db 205\ncolor Element Sg 206\ncolor Element Bh 207\ncolor Element Hs 208\ncolor Element Mt 209\ncolor Element Ds 210\ncolor Element Rg 211\n\n# rep 1: dg_inter 的 δg 等值面，颜色由 sl2r 值映射\n#   Isosurface {iso} 1 0 0 1 1  → 只画正值等值面\n#   mol color Volume 0              → 颜色映射 dataset 0 (sl2r) 的值\n#   scaleminmax -0.05 0.05          → 色标范围\n#   BGR 色标: 蓝=负(吸引), 绿=弱, 红=正(排斥)\nmol representation Isosurface {iso} 1 0 0 1 1\nmol color Volume 0\nmol addrep top\nmol scaleminmax top 1 -0.05 0.05\ncolor scale method BGR\nif {[lsearch [material list] _igmh_surf] < 0} {material add _igmh_surf}\nmaterial change ambient _igmh_surf 0.1\nmaterial change diffuse _igmh_surf 0.6\nmaterial change specular _igmh_surf 1.0\nmaterial change shininess _igmh_surf 1.0\nmaterial change mirror _igmh_surf 0.0\nmaterial change opacity _igmh_surf 0.75\nmaterial change outline _igmh_surf 0.0\nmaterial change outlinewidth _igmh_surf 0.0\n\nmol modmaterial 1 top _igmh_surf\n\ndisplay distance -8.0\ndisplay height 10\n'
 
 
 def _igmh_scene_tcl(scene, style_name="sob-art", shade_mode="full"):
@@ -2793,7 +2849,7 @@ def _scene_tcl(scene, style_name="sob-art", shade_mode="full"):
     s = STYLES.get(style_name, STYLES["sob-art"])
 
     # Lighting / shadows（与 _style_tcl 一致）
-    light_lines = "".join(f"light {k} {v}\n" for k, v in s["lights"].items())
+    light_lines = _vmd_light_tcl(s)
     if shade_mode == "medium":
         shadow_on, ao_on = True, False
     elif shade_mode == "noshadow":
@@ -3694,13 +3750,27 @@ def gen_spin_cube(fchk_path, multiwfn_exe=None, work_dir=None, grid_quality=3,
             raise RuntimeError("cube 导出超时")
         emit("自旋密度 cube 导出完成")
 
-        # 6) 文件稳定性检查（3 次采样大小不变）
+        # 6) 快速文件稳定性检查。
+        # 旧实现即使已看到 "Done!" 仍固定等待 3 s，使每次自旋密度都无谓地慢
+        # 3 秒。这里连续 3 次、每次 50 ms 看到同一非零大小即可，既避免读到
+        # 半成品，又把正常等待缩短到约 0.1 s；最多仍保护性等待 1.5 s。
         cube_src = os.path.join(ascii_dir, "spindensity.cub")
-        sizes = []
-        for _ in range(6):
-            sizes.append(os.path.getsize(cube_src) if os.path.exists(cube_src) else -1)
-            time.sleep(0.5)
-        if not sizes or sizes[0] <= 0 or len(set(sizes)) != 1:
+        last_size = -1
+        stable_count = 0
+        for _ in range(30):
+            try:
+                size = os.path.getsize(cube_src) if os.path.exists(cube_src) else -1
+            except OSError:
+                size = -1
+            if size > 0 and size == last_size:
+                stable_count += 1
+                if stable_count >= 3:
+                    break
+            else:
+                stable_count = 0
+            last_size = size
+            time.sleep(0.05)
+        if last_size <= 0 or stable_count < 3:
             raise RuntimeError("cube 文件不稳定或未生成")
     except Exception as e:
         if log_func:

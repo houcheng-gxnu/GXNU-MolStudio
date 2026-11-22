@@ -7,7 +7,7 @@ energy_span_panel.py — Energetic Span Model 跨循环催化能量分析面板�
   2. 自动识别 TDI（决速中间体）/ TDTS（决速过渡态）
   3. 计算能量跨度 δE 与周转频率 TOF
   4. matplotlib 台阶式能量剖面图：双循环、跨度箭头、数值/名称标注
-  5. 导出 PNG / SVG / PDF，配置持久化
+  5. 导出 PNG / SVG / PDF / ChemDraw CDXML，配置持久化
 
 核心公式：
   δE  = max( G[TDTS] - G[TDI] )（跨循环时加 ΔG_cycle）
@@ -34,6 +34,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor
 
+from molstudio.core.energy_cdxml import write_energy_diagram_cdxml
 from molstudio.ui.file_dialogs import save_file
 
 # ── 配色（沿用原工具，与面板风格协调） ──
@@ -267,6 +268,15 @@ _LANG_EXTRA = {
     "图例字号:": "Legend size:",
     "标签字号:": "Label size:",
     "线条粗细:": "Line width:",
+    "台阶宽度:": "State span:",
+    "数值小数:": "Decimals:",
+    "CDXML 对象:": "CDXML objects:",
+    "线条 (Line)": "Lines",
+    "化学键 (Bond)": "Bonds",
+    "连接线:": "Link:",
+    "实线": "Solid",
+    "虚线": "Dashed",
+    "纵轴标签:": "Y-axis label:",
     "网格线": "Grid lines",
     "图例": "Legend",
     "标签": "Labels",
@@ -280,7 +290,19 @@ _LANG_EXTRA = {
     "导出 PNG": "Export PNG",
     "导出 PDF": "Export PDF",
     "导出 SVG": "Export SVG",
+    "导出 ChemDraw (.cdxml)": "Export ChemDraw (.cdxml)",
     "↺ 重置": "↺ Reset",
+    "每个能量态水平线所占的横向宽度。数值越大，连接线越陡。":
+        "Horizontal width occupied by each energy level's step line; "
+        "larger values make the connectors steeper.",
+    "线条模式：背景线不会断开；化学键模式：端点处会自然留出小间隙，"
+    "便于表现线条的前后层次。只影响 CDXML 文件。":
+        "Lines: background lines stay continuous. Bonds: a small gap is left at "
+        "each end so crossings read clearly. Affects CDXML output only.",
+    "例如：Free energy (kcal/mol)": "e.g. Free energy (kcal/mol)",
+    "生成可用 ChemDraw 打开的可编辑能量剖面，线条、标签和数值均可继续调整。":
+        "Write an editable energy profile that ChemDraw can open; lines, labels "
+        "and values stay adjustable.",
 }
 
 
@@ -343,8 +365,8 @@ class EnergySpanPanel(QWidget):
         # 输入框/按钮也走全局 QSS。
         grp = QGroupBox("Energetic Span Model 设置")
         gl = QGridLayout(grp)
-        gl.setContentsMargins(10, 8, 10, 10)
-        gl.setHorizontalSpacing(10)
+        gl.setContentsMargins(8, 8, 8, 10)
+        gl.setHorizontalSpacing(8)
         gl.setVerticalSpacing(6)
 
         # ── 物种数据区 ──
@@ -425,6 +447,52 @@ class EnergySpanPanel(QWidget):
         self.spin_ts.valueChanged.connect(self._on_setting_change)
         gl.addWidget(self.spin_ts, 7, 1)
 
+        gl.addWidget(QLabel("台阶宽度:"), 8, 0)
+        self.spin_span = QDoubleSpinBox()
+        self.spin_span.setRange(0.10, 1.0)
+        self.spin_span.setSingleStep(0.05)
+        self.spin_span.setValue(0.6)
+        self.spin_span.setMaximumWidth(80)
+        self.spin_span.setToolTip(
+            "每个能量态水平线所占的横向宽度。数值越大，连接线越陡。"
+        )
+        self.spin_span.valueChanged.connect(self._on_setting_change)
+        gl.addWidget(self.spin_span, 8, 1)
+
+        gl.addWidget(QLabel("数值小数:"), 8, 2)
+        self.spin_decimals = QSpinBox()
+        self.spin_decimals.setRange(0, 3)
+        self.spin_decimals.setValue(1)
+        self.spin_decimals.setMaximumWidth(80)
+        self.spin_decimals.valueChanged.connect(self._on_setting_change)
+        gl.addWidget(self.spin_decimals, 8, 3)
+
+        gl.addWidget(QLabel("CDXML 对象:"), 9, 0)
+        self.combo_cdx_objects = QComboBox()
+        self.combo_cdx_objects.addItem("线条 (Line)", "lines")
+        self.combo_cdx_objects.addItem("化学键 (Bond)", "bonds")
+        self.combo_cdx_objects.setToolTip(
+            "线条模式：背景线不会断开；化学键模式：端点处会自然留出小间隙，"
+            "便于表现线条的前后层次。只影响 CDXML 文件。"
+        )
+        self.combo_cdx_objects.currentIndexChanged.connect(
+            self._on_setting_change)
+        gl.addWidget(self.combo_cdx_objects, 9, 1, 1, 3)
+
+        gl.addWidget(QLabel("连接线:"), 10, 0)
+        self.combo_link_style = QComboBox()
+        self.combo_link_style.addItem("实线", "solid")
+        self.combo_link_style.addItem("虚线", "dashed")
+        self.combo_link_style.currentIndexChanged.connect(
+            self._on_setting_change)
+        gl.addWidget(self.combo_link_style, 10, 1, 1, 3)
+
+        gl.addWidget(QLabel("纵轴标签:"), 11, 0)
+        self.txt_ylabel = QLineEdit("ΔG (kcal/mol)")
+        self.txt_ylabel.setPlaceholderText("例如：Free energy (kcal/mol)")
+        self.txt_ylabel.textChanged.connect(self._on_setting_change)
+        gl.addWidget(self.txt_ylabel, 11, 1, 1, 3)
+
         chk_row = QHBoxLayout()
         self.chk_values = QCheckBox("数值")
         self.chk_values.setChecked(True)
@@ -447,17 +515,17 @@ class EnergySpanPanel(QWidget):
         # 158px）：那样会把这两列的最小宽度顶到 ~300px，整张卡的最小宽度随之
         # 涨到 589px —— 右侧视口只有 ~460px 且横向滚动条是关的，右边那截
         # （导出 SVG / PDF）就永远点不到。占满 4 列后列宽由其它行决定。
-        gl.addLayout(chk_row, 8, 0, 1, 4)
+        gl.addLayout(chk_row, 12, 0, 1, 4)
 
         # ── 计算结果 ──
         sep2 = QFrame()
         sep2.setFrameShape(QFrame.HLine)
         sep2.setStyleSheet("color:#E2E8F0;")
-        gl.addWidget(sep2, 9, 0, 1, 4)
+        gl.addWidget(sep2, 13, 0, 1, 4)
 
         lbl_res = QLabel("计算结果")
         lbl_res.setStyleSheet("font-weight:bold;color:#1E293B;")
-        gl.addWidget(lbl_res, 10, 0, 1, 4)
+        gl.addWidget(lbl_res, 14, 0, 1, 4)
 
         self._result_labels = {}
         result_rows = [
@@ -469,7 +537,7 @@ class EnergySpanPanel(QWidget):
             ("cycle2", "循环2数据"),
         ]
         for i, (key, txt) in enumerate(result_rows):
-            r = 11 + i
+            r = 15 + i
             l = QLabel(txt)
             l.setStyleSheet("color:#64748B;")
             # 标签跨前 2 列、数值跨后 2 列：原来是「标签独占第 0 列」，而
@@ -486,7 +554,7 @@ class EnergySpanPanel(QWidget):
         sep3 = QFrame()
         sep3.setFrameShape(QFrame.HLine)
         sep3.setStyleSheet("color:#E2E8F0;")
-        gl.addWidget(sep3, 17, 0, 1, 4)
+        gl.addWidget(sep3, 21, 0, 1, 4)
 
         # 第一行：主操作（计算 + 重置）。按钮走主题默认尺寸/圆角，主按钮用
         # 全站统一的 PrimaryBtn（#1565C0），不再挂自定义靛蓝样式。
@@ -500,7 +568,7 @@ class EnergySpanPanel(QWidget):
         btn_reset.clicked.connect(self._do_reset)
         act.addWidget(btn_reset)
         act.addStretch(1)
-        gl.addLayout(act, 18, 0, 1, 4)
+        gl.addLayout(act, 22, 0, 1, 4)
 
         # 第二行：导出（三种格式并排）。必须拆成两行 —— 右侧卡片视口只有
         # ~460px，五个按钮挤一行会把「导出 SVG / PDF」顶出可视区，而横向滚动
@@ -520,7 +588,18 @@ class EnergySpanPanel(QWidget):
         self.btn_pdf.setEnabled(False)
         act_exp.addWidget(self.btn_pdf)
         act_exp.addStretch(1)
-        gl.addLayout(act_exp, 19, 0, 1, 4)
+        gl.addLayout(act_exp, 23, 0, 1, 4)
+
+        # CDXML 是 ChemDraw 的原生 XML 矢量对象格式，不是图片包装。
+        # 单独占一行，方便在较窄的右侧卡片中点击，也明确区别于位图导出。
+        self.btn_cdxml = QPushButton("导出 ChemDraw (.cdxml)")
+        self.btn_cdxml.clicked.connect(self._export_cdxml)
+        self.btn_cdxml.setEnabled(False)
+        self.btn_cdxml.setToolTip(
+            "生成可用 ChemDraw 打开的可编辑能量剖面，"
+            "线条、标签和数值均可继续调整。"
+        )
+        gl.addWidget(self.btn_cdxml, 24, 0, 1, 4)
 
         # 右侧设置卡片包一层纵向滚动区，防止矮窗口下内容被截断
         right_scroll = QScrollArea()
@@ -607,7 +686,8 @@ class EnergySpanPanel(QWidget):
             self._draw(species, self.result)
 
             self.badge_label.setText("δE = %.1f kcal/mol" % self.result["deltaE"])
-            for b in (self.btn_png, self.btn_svg, self.btn_pdf):
+            for b in (self.btn_png, self.btn_svg, self.btn_pdf,
+                      self.btn_cdxml):
                 b.setEnabled(True)
             self._log("ESM: δE = %.2f kcal/mol, TOF = %.2e s⁻¹, TDI=%s, TDTS=%s"
                       % (self.result["deltaE"], self.result["TOF"],
@@ -627,7 +707,7 @@ class EnergySpanPanel(QWidget):
         self.badge_label.setText("")
         for key in self._result_labels:
             self._result_labels[key].setText("—")
-        for b in (self.btn_png, self.btn_svg, self.btn_pdf):
+        for b in (self.btn_png, self.btn_svg, self.btn_pdf, self.btn_cdxml):
             b.setEnabled(False)
 
     def _display_results(self, result, species):
@@ -715,11 +795,13 @@ class EnergySpanPanel(QWidget):
         y_min = min_y - y_pad
         y_max = max_y + y_pad
 
-        step_w = 0.6
+        step_w = self.spin_span.value()
         half = step_w / 2
         cycle1_len = len(paths[0]['data'])
         lw = self.spin_lw.value()
         tag_size = self.spin_ts.value()
+        value_format = "%." + str(self.spin_decimals.value()) + "f"
+        link_style = self.combo_link_style.currentData()
 
         for path_idx, path in enumerate(paths):
             color = path['color']
@@ -732,7 +814,8 @@ class EnergySpanPanel(QWidget):
                 ax.plot([x_pos - half, x_pos + half], [pt['G'], pt['G']],
                         color=color, linewidth=lw)
                 if self.chk_values.isChecked():
-                    ax.text(x_pos, pt['G'] + y_pad * 0.05, "%.1f" % pt['G'],
+                    ax.text(x_pos, pt['G'] + y_pad * 0.05,
+                            value_format % pt['G'],
                             ha='center', va='bottom', fontsize=tag_size - 2,
                             color=color, fontweight='bold')
                 if self.chk_tags.isChecked() and pt['name']:
@@ -745,7 +828,8 @@ class EnergySpanPanel(QWidget):
                 x2 = i + 1 + x_offset
                 ax.plot([x1 + half, x2 - half],
                         [pts[i]['G'], pts[i + 1]['G']],
-                        color=color, linewidth=lw * 0.7)
+                        color=color, linewidth=lw * 0.7,
+                        linestyle='--' if link_style == 'dashed' else '-')
 
         # 能量跨度箭头
         if self.chk_span.isChecked():
@@ -782,7 +866,8 @@ class EnergySpanPanel(QWidget):
         ax.spines['right'].set_visible(False)
         if self.chk_grid.isChecked():
             ax.grid(True, axis='y', color='#d1d5db', linestyle='--')
-        ax.set_ylabel('ΔG (kcal/mol)', fontsize=12, fontweight='bold')
+        ax.set_ylabel(self.txt_ylabel.text().strip() or 'ΔG (kcal/mol)',
+                      fontsize=12, fontweight='bold')
         ax.set_xlabel('Reaction Coordinate', fontsize=12, fontweight='bold')
         ax.set_xticks([])
         fig.subplots_adjust(left=0.10, right=0.97, top=0.95, bottom=0.10)
@@ -810,6 +895,46 @@ class EnergySpanPanel(QWidget):
         QMessageBox.information(self, "导出成功",
                                 "已保存至:\n%s\n\n格式: %s" % (path, fmt.upper()))
 
+    def _export_cdxml(self):
+        if self.result is None or not self.species_data:
+            QMessageBox.information(self, "提示", "请先计算并绘图")
+            return
+        fname = "energy_span_%s.cdxml" % (
+            __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
+        )
+        path, _ = save_file(
+            self, "导出 ChemDraw 文件", fname,
+            "ChemDraw XML (*.cdxml);;All Files (*)"
+        )
+        if not path:
+            return
+        try:
+            path = write_energy_diagram_cdxml(
+                path,
+                self.species_data,
+                self.result,
+                show_values=self.chk_values.isChecked(),
+                show_tags=self.chk_tags.isChecked(),
+                show_grid=self.chk_grid.isChecked(),
+                show_span=self.chk_span.isChecked(),
+                line_width=self.spin_lw.value(),
+                tag_size=self.spin_ts.value(),
+                state_span=self.spin_span.value(),
+                value_decimals=self.spin_decimals.value(),
+                y_label=self.txt_ylabel.text().strip() or "ΔG (kcal/mol)",
+                chemdraw_objects=self.combo_cdx_objects.currentData(),
+                link_style=self.combo_link_style.currentData(),
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "导出失败", str(e))
+            return
+        self._log("ESM: 已导出 ChemDraw CDXML：%s" % path)
+        QMessageBox.information(
+            self, "导出成功",
+            "已保存至:\n%s\n\n可直接用 ChemDraw 打开；"
+            "图中的线条、标签和数值均为可编辑对象。" % path
+        )
+
     # ── 配置持久化 ──
     def _settings_path(self):
         # 与 fchk_orbital.ini 同级：源码运行放仓库根目录，打包后放 exe 同目录
@@ -829,6 +954,20 @@ class EnergySpanPanel(QWidget):
                         float(cfg["esm"].get("line_width", "3.0")))
                     self.spin_ts.setValue(
                         int(cfg["esm"].get("tag_size", "12")))
+                    self.spin_span.setValue(
+                        float(cfg["esm"].get("state_span", "0.6")))
+                    self.spin_decimals.setValue(
+                        int(cfg["esm"].get("value_decimals", "1")))
+                    self.txt_ylabel.setText(
+                        cfg["esm"].get("y_label", "ΔG (kcal/mol)"))
+                    object_index = self.combo_cdx_objects.findData(
+                        cfg["esm"].get("chemdraw_objects", "lines"))
+                    self.combo_cdx_objects.setCurrentIndex(
+                        object_index if object_index >= 0 else 0)
+                    link_index = self.combo_link_style.findData(
+                        cfg["esm"].get("link_style", "solid"))
+                    self.combo_link_style.setCurrentIndex(
+                        link_index if link_index >= 0 else 0)
                     self.chk_values.setChecked(
                         cfg["esm"].getboolean("show_values", True))
                     self.chk_tags.setChecked(
@@ -846,6 +985,11 @@ class EnergySpanPanel(QWidget):
             "temperature": self.txt_temp.text().strip() or "298.15",
             "line_width": str(self.spin_lw.value()),
             "tag_size": str(self.spin_ts.value()),
+            "state_span": str(self.spin_span.value()),
+            "value_decimals": str(self.spin_decimals.value()),
+            "y_label": self.txt_ylabel.text().strip() or "ΔG (kcal/mol)",
+            "chemdraw_objects": self.combo_cdx_objects.currentData(),
+            "link_style": self.combo_link_style.currentData(),
             "show_values": "1" if self.chk_values.isChecked() else "0",
             "show_tags": "1" if self.chk_tags.isChecked() else "0",
             "show_grid": "1" if self.chk_grid.isChecked() else "0",

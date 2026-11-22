@@ -6,17 +6,21 @@
 **左侧画布当前分子**，也可以直接打开 xyz / gjf / com / log / out 文件；优化后的
 结构可以一键送回画布。
 
-布局（右栏约 680 px，自上而下）：
+布局（右栏约 680 px，与 ORCA 页完全同构，自上而下）：
 
-* 结构来源：刷新画布结构 / 打开文件…，以及「画布：N 个原子」状态；
-* 计算设置：xTB 可执行文件、方法 / 任务、电荷 / 自旋、精度、溶剂化、并行、
-  输出开关、工作目录；job=scan 时展开 xcontrol 编辑框，job=ts 时给出提示；
-* 运行 / 停止 / 预览命令；
-* 结果区：总能量、gap / HOMO / LUMO / 偶极 / 梯度、频率与热化学、
-  原子电荷表、送回画布与 XYZ / GJF / JSON 导出；
-* 扫描结果：扫描步 - 相对能量小图 + 轨迹导出。
+* 结构：当前结构来源文字 +「刷新画布结构 / 打开文件…」；
+* 计算设置：标签 + 控件两列表单——方法 / 任务、电荷 / 未成对电子、精度 / 电子温度、
+  溶剂化 / 溶剂、并行核数 / 输出开关、额外参数，底部是工作目录与 xTB 可执行文件
+  两行；job=scan 时展开 xcontrol 编辑框，job=ts / g-xTB 溶剂化给提示；
+* 按钮行：生成输入 / 复制命令 …… 停止 / 运行 xTB；
+* 细进度条 + 状态行（与 ORCA 页一致）；
+* 页签：**输入预览**（命令 + input.xyz）/ **运行日志**（stdout/stderr 实时滚动，
+  可清空 / 复制，只保留最近 3000 行）/ **结果摘要**（总能量、gap / HOMO / LUMO /
+  偶极 / 梯度、频率与热化学、原子电荷表、送回画布与 XYZ / GJF / JSON 导出、
+  扫描曲线）。
 
-运行期同时写入 ``<workdir>/xtb.out``（引擎负责），日志逐行转发给主窗口。
+运行期同时写入 ``<workdir>/xtb.out``（引擎负责），日志既进本页的运行日志页签，
+也逐行转发给主窗口日志。
 本模块不 import OpenGL / ovcanvas，可在 ``QT_QPA_PLATFORM=offscreen`` 下构建、
 运行与截图。
 
@@ -48,9 +52,11 @@ from matplotlib.figure import Figure                               # noqa: E402
 from PyQt5.QtCore import QSize, Qt, QThread, QTimer, QUrl, pyqtSignal  # noqa: E402
 from PyQt5.QtGui import QDesktopServices, QFont                    # noqa: E402
 from PyQt5.QtWidgets import (                                     # noqa: E402
-    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QGridLayout,
-    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy,
-    QSpinBox, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
+    QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+    QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSizePolicy,
+    QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit,
+    QVBoxLayout, QWidget,
 )
 
 # ── 计算内核（另一份文件；导入失败时面板仍可构建，只是不能真正运行）──────
@@ -146,10 +152,15 @@ def settings_file() -> str:
 _TR = {
     "zh": {
         # 分组
-        "grp_source": "结构来源",
+        "grp_source": "结构",
         "grp_calc": "计算设置",
-        "grp_result": "计算结果",
         "grp_scan": "扫描结果",
+        "tab_preview": "输入预览",
+        "tab_log": "运行日志",
+        "tab_result": "结果摘要",
+        "preview_empty": "载入结构后这里显示 xTB 的输入与命令。",
+        "preview_cmd": "# 命令",
+        "preview_xyz": "# input.xyz",
         # 结构来源
         "btn_refresh": "刷新画布结构",
         "btn_open": "打开文件…",
@@ -188,13 +199,17 @@ _TR = {
         # 按钮
         "btn_run": "运行 xTB",
         "btn_cancel": "停止",
-        "btn_preview": "预览命令",
+        "btn_preview": "生成输入",
+        "btn_copy_cmd": "复制命令",
         "btn_to_canvas": "送回画布",
         "btn_export_xyz": "导出 XYZ…",
         "btn_export_gjf": "导出 GJF…",
         "btn_export_json": "导出 JSON…",
         "btn_open_workdir": "打开工作目录",
         "btn_export_scan": "导出扫描轨迹 XYZ…",
+        "btn_log_clear": "清空输出",
+        "btn_log_copy": "复制输出",
+        "ph_log": "xTB 的输出会在这里实时滚动…",
         # 结果文字
         "energy_none": "E = —",
         "energy_fmt": "E = {e} Eh",
@@ -230,6 +245,8 @@ _TR = {
         "st_saved": "已保存：{path}",
         "st_preview": "命令已写入日志。",
         "st_sent_canvas": "已送回画布：{n} 个原子。",
+        "st_log_copied": "运行输出已复制到剪贴板。",
+        "st_cmd_copied": "命令已复制到剪贴板。",
         "st_scan_saved": "已导出扫描轨迹：{n} 帧。",
         "st_load_ok": "已载入 {n} 个原子。",
         "st_open_fail": "载入结构失败：{err}",
@@ -267,13 +284,16 @@ _TR = {
         "tip_detect": "按保存路径、XTB_EXE 环境变量、PATH、常见安装位置查找 xTB",
         "tip_run": "在后台运行 xTB，主界面不会卡住",
         "tip_cancel": "请求停止当前计算（会终止 xTB 进程）",
-        "tip_preview": "只构造并显示命令，不真正运行",
         "tip_to_canvas": "把优化后（或扫描末帧）结构送回左侧画布",
         "tip_export_xyz": "导出结构为 XYZ（优先优化后坐标）",
         "tip_export_gjf": "导出 Gaussian 输入文件（含电荷与多重度）",
         "tip_export_json": "导出本次计算的完整 JSON 摘要",
         "tip_open_workdir": "在文件管理器中打开本次计算的工作目录",
         "tip_scan_export": "把每一帧写成多帧 XYZ 轨迹",
+        "tip_log_clear": "清空运行输出窗口（不影响已写入的 xtb.out）",
+        "tip_log_copy": "把运行输出复制到剪贴板",
+        "tip_copy_cmd": "复制将要执行的 xTB 命令行",
+        "tip_preview": "按当前参数生成输入并刷新「输入预览」",
         "tip_parallel": "xTB 并行核数（--parallel）",
         "tip_extra": "拆分后附加到命令末尾的额外参数",
         "tip_workdir": "基目录：每次运行都会在其下新建独立的时间戳子目录（避免旧产物污染）；留空用默认位置",
@@ -285,10 +305,15 @@ _TR = {
     },
     "en": {
         # Groups
-        "grp_source": "Structure source",
+        "grp_source": "Structure",
         "grp_calc": "Calculation settings",
-        "grp_result": "Results",
         "grp_scan": "Scan results",
+        "tab_preview": "Input preview",
+        "tab_log": "Run log",
+        "tab_result": "Result summary",
+        "preview_empty": "Load a structure to preview the xTB input and command.",
+        "preview_cmd": "# command",
+        "preview_xyz": "# input.xyz",
         # Structure source
         "btn_refresh": "Refresh from canvas",
         "btn_open": "Open file…",
@@ -329,13 +354,17 @@ _TR = {
         # Buttons
         "btn_run": "Run xTB",
         "btn_cancel": "Stop",
-        "btn_preview": "Preview command",
+        "btn_preview": "Build input",
+        "btn_copy_cmd": "Copy command",
         "btn_to_canvas": "Send to canvas",
         "btn_export_xyz": "Export XYZ…",
         "btn_export_gjf": "Export GJF…",
         "btn_export_json": "Export JSON…",
         "btn_open_workdir": "Open work folder",
         "btn_export_scan": "Export scan trajectory XYZ…",
+        "btn_log_clear": "Clear output",
+        "btn_log_copy": "Copy output",
+        "ph_log": "xTB output streams here while the job runs…",
         # Result text
         "energy_none": "E = —",
         "energy_fmt": "E = {e} Eh",
@@ -371,6 +400,8 @@ _TR = {
         "st_saved": "Saved: {path}",
         "st_preview": "Command written to the log.",
         "st_sent_canvas": "Sent {n} atoms to the canvas.",
+        "st_log_copied": "Run output copied to the clipboard.",
+        "st_cmd_copied": "Command copied to the clipboard.",
         "st_scan_saved": "Exported {n} scan frames.",
         "st_load_ok": "Loaded {n} atoms.",
         "st_open_fail": "Failed to load structure: {err}",
@@ -408,13 +439,16 @@ _TR = {
         "tip_detect": "Search saved path, XTB_EXE, PATH and common install locations",
         "tip_run": "Run xTB in the background without blocking the UI",
         "tip_cancel": "Request cancellation (terminates the xTB process)",
-        "tip_preview": "Build and show the command without running it",
+        "tip_preview": "Build the input from the current settings and refresh the preview tab",
+        "tip_copy_cmd": "Copy the xTB command line that will be executed",
         "tip_to_canvas": "Send the optimized (or last scan) structure to the canvas",
         "tip_export_xyz": "Export the structure as XYZ (optimized coordinates first)",
         "tip_export_gjf": "Export a Gaussian input with charge and multiplicity",
         "tip_export_json": "Export a complete JSON summary of this calculation",
         "tip_open_workdir": "Open this calculation's work folder in the file manager",
         "tip_scan_export": "Write every frame as a multi-frame XYZ trajectory",
+        "tip_log_clear": "Clear the run-output pane (xtb.out on disk is kept)",
+        "tip_log_copy": "Copy the run output to the clipboard",
         "tip_parallel": "xTB thread count (--parallel)",
         "tip_extra": "Extra arguments appended to the command after shell splitting",
         "tip_workdir": "Base folder: every run creates a fresh timestamped "
@@ -579,6 +613,7 @@ class XtbPanel(QWidget):
         self._update_result_labels()
         self._hide_scan()
         self._set_export_enabled(False)
+        self._refresh_preview()
 
         if not self.edit_exe.text().strip():
             self._set_status_i18n("st_engine_missing", "warn")
@@ -608,11 +643,14 @@ class XtbPanel(QWidget):
         self._render_status()
 
     def _apply_lang(self):
-        # 分组标题
+        # 分组标题 + 页签标题
         self.grp_source.setTitle(self._t("grp_source"))
         self.grp_calc.setTitle(self._t("grp_calc"))
-        self.grp_result.setTitle(self._t("grp_result"))
         self.grp_scan.setTitle(self._t("grp_scan"))
+        self.tabs.setTabText(0, self._t("tab_preview"))
+        self.tabs.setTabText(1, self._t("tab_log"))
+        self.tabs.setTabText(2, self._t("tab_result"))
+        self.preview.setPlaceholderText(self._t("preview_empty"))
 
         # 结构来源
         self.btn_refresh.setText(self._t("btn_refresh"))
@@ -670,6 +708,8 @@ class XtbPanel(QWidget):
         self.btn_cancel.setToolTip(self._t("tip_cancel"))
         self.btn_preview.setText(self._t("btn_preview"))
         self.btn_preview.setToolTip(self._t("tip_preview"))
+        self.btn_copy_cmd.setText(self._t("btn_copy_cmd"))
+        self.btn_copy_cmd.setToolTip(self._t("tip_copy_cmd"))
         self.btn_to_canvas.setText(self._t("btn_to_canvas"))
         self.btn_to_canvas.setToolTip(self._t("tip_to_canvas"))
         self.btn_export_xyz.setText(self._t("btn_export_xyz"))
@@ -682,6 +722,11 @@ class XtbPanel(QWidget):
         self.btn_open_workdir.setToolTip(self._t("tip_open_workdir"))
         self.btn_export_scan.setText(self._t("btn_export_scan"))
         self.btn_export_scan.setToolTip(self._t("tip_scan_export"))
+        self.btn_log_clear.setText(self._t("btn_log_clear"))
+        self.btn_log_clear.setToolTip(self._t("tip_log_clear"))
+        self.btn_log_copy.setText(self._t("btn_log_copy"))
+        self.btn_log_copy.setToolTip(self._t("tip_log_copy"))
+        self.log_view.setPlaceholderText(self._t("ph_log"))
 
         # 结果区静态文字 / 表头
         self.lbl_charges_title.setText(self._t("lbl_charges"))
@@ -709,27 +754,117 @@ class XtbPanel(QWidget):
 
     # ── UI 构建 ──────────────────────────────────────────────────────
     def _build_ui(self):
+        # 版面与 ORCA 页一致：结构 → 计算设置 → 按钮行 + 进度 → 状态 → 三页签
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(6)
+        root.setSpacing(8)
 
         root.addWidget(self._build_source_group())
         root.addWidget(self._build_calc_group())
         root.addLayout(self._build_action_row())
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(False)
+        self.progress.setMaximumHeight(6)
+        root.addWidget(self.progress)
 
         self.lbl_status = QLabel()
         self.lbl_status.setWordWrap(True)
         self.lbl_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
         root.addWidget(self.lbl_status)
 
-        root.addWidget(self._build_result_group())
-        root.addWidget(self._build_scan_group())
+        root.addWidget(self._build_tabs(), 1)
+
+    def _build_tabs(self):
+        """输入预览 / 运行日志 / 结果摘要（与 ORCA 页同样的三页签）。"""
+        self.tabs = QTabWidget()
+        self.tabs.setMinimumHeight(320)
+
+        self.preview = QPlainTextEdit()
+        self.preview.setReadOnly(True)
+        self.preview.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.preview.setStyleSheet(
+            "QPlainTextEdit{font-family:Consolas,'Courier New',monospace;"
+            "font-size:9pt;background:#FFFFFF;}")
+        self.tabs.addTab(self.preview, "")
+
+        self.tabs.addTab(self._build_log_page(), "")
+        self.tabs.addTab(self._build_result_page(), "")
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        try:
+            self.txt_xcontrol.textChanged.connect(self._on_xcontrol_changed)
+        except AttributeError:
+            pass
+        return self.tabs
+
+    def _on_xcontrol_changed(self):
+        # 只在看着「输入预览」时跟着改，避免后台反复重建文本
+        if self.tabs.currentIndex() == 0:
+            self._refresh_preview()
+
+    def _build_log_page(self):
+        page = QWidget()
+        gv = QVBoxLayout(page)
+        gv.setContentsMargins(0, 6, 0, 0)
+        gv.setSpacing(4)
+
+        self.log_view = QPlainTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setLineWrapMode(QPlainTextEdit.NoWrap)
+        # 长任务（优化 / 扫描）输出很多：只保留最近 3000 行，不无限吃内存
+        self.log_view.setMaximumBlockCount(3000)
+        self.log_view.setStyleSheet(
+            "QPlainTextEdit{font-family:Consolas,'Courier New',monospace;"
+            "font-size:8.5pt;background:#0E1726;color:#D7E2F0;"
+            "border:1px solid #1E2A44;}")
+        gv.addWidget(self.log_view, 1)
+
+        row = QHBoxLayout()
+        row.setSpacing(5)
+        self.btn_log_clear = QPushButton()
+        self.btn_log_clear.clicked.connect(self._clear_log)
+        self.btn_log_copy = QPushButton()
+        self.btn_log_copy.clicked.connect(self._copy_log)
+        row.addWidget(self.btn_log_clear)
+        row.addWidget(self.btn_log_copy)
+        row.addStretch(1)
+        gv.addLayout(row)
+        return page
+
+    def _build_result_page(self):
+        page = QWidget()
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(6)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet(
+            "QScrollArea{background:transparent;border:none;}")
+        content = QWidget()
+        lay = QVBoxLayout(content)
+        lay.setContentsMargins(6, 6, 6, 4)
+        lay.setSpacing(6)
+        lay.addWidget(self._build_result_group())
+        lay.addWidget(self._build_scan_group())
+        lay.addStretch(1)
+        scroll.setWidget(content)
+        outer.addWidget(scroll, 1)
+        return page
 
     def _build_source_group(self):
+        # 与 ORCA 页一致：先显示当前结构来源，再是「读画布 / 载入文件」两个按钮
         self.grp_source = QGroupBox()
         gv = QVBoxLayout(self.grp_source)
         gv.setContentsMargins(8, 4, 8, 4)
-        gv.setSpacing(3)
+        gv.setSpacing(5)
+
+        self.lbl_source = QLabel()
+        self.lbl_source.setWordWrap(True)
+        self.lbl_source.setStyleSheet("color:#5b6573;")
+        gv.addWidget(self.lbl_source)
 
         row = QHBoxLayout()
         row.setSpacing(6)
@@ -741,40 +876,15 @@ class XtbPanel(QWidget):
         row.addWidget(self.btn_open)
         row.addStretch(1)
         gv.addLayout(row)
-
-        self.lbl_source = QLabel()
-        self.lbl_source.setWordWrap(True)
-        self.lbl_source.setStyleSheet("color:#5b6573;")
-        gv.addWidget(self.lbl_source)
         return self.grp_source
 
     def _build_calc_group(self):
+        # 与 ORCA 页一致：标签 + 控件两列排布，工作目录 / 可执行文件放最下面
         self.grp_calc = QGroupBox()
-        gv = QVBoxLayout(self.grp_calc)
-        gv.setContentsMargins(8, 4, 8, 4)
-        gv.setSpacing(4)
-
-        # xTB 可执行文件
-        exe_row = QHBoxLayout()
-        exe_row.setSpacing(5)
-        self.lbl_exe = QLabel()
-        self.edit_exe = QLineEdit()
-        self.edit_exe.setMinimumWidth(120)
-        self.edit_exe.editingFinished.connect(self._on_edit_changed)
-        self.btn_browse_exe = QPushButton()
-        self.btn_browse_exe.clicked.connect(self._browse_executable)
-        self.btn_detect = QPushButton()
-        self.btn_detect.clicked.connect(self._detect_executable_clicked)
-        exe_row.addWidget(self.lbl_exe)
-        exe_row.addWidget(self.edit_exe, 1)
-        exe_row.addWidget(self.btn_browse_exe)
-        exe_row.addWidget(self.btn_detect)
-        gv.addLayout(exe_row)
-
-        g = QGridLayout()
-        g.setContentsMargins(0, 0, 0, 0)
-        g.setHorizontalSpacing(6)
-        g.setVerticalSpacing(3)
+        form = QGridLayout(self.grp_calc)
+        form.setContentsMargins(8, 14, 8, 8)
+        form.setHorizontalSpacing(8)
+        form.setVerticalSpacing(6)
 
         cpus = max(1, int(os.cpu_count() or 4))
         self.cmb_method = QComboBox()
@@ -848,45 +958,32 @@ class XtbPanel(QWidget):
             opts.addWidget(_w)
         opts.addStretch(1)
 
-        # 方法 / 任务各占一整行：英文任务名（Opt + Hessian (frequency)）较长，
-        # 并排两列会被省略号截断。
-        g.addWidget(self.lbl_method, 0, 0)
-        g.addWidget(self.cmb_method, 0, 1, 1, 3)
-        g.addWidget(self.lbl_job, 1, 0)
-        g.addWidget(self.cmb_job, 1, 1, 1, 3)
-        g.addWidget(self.lbl_charge, 2, 0)
-        g.addWidget(self.spn_charge, 2, 1)
-        g.addWidget(self.lbl_uhf, 2, 2)
-        g.addWidget(self.spn_uhf, 2, 3)
-        g.addWidget(self.lbl_acc, 3, 0)
-        g.addWidget(self.spn_acc, 3, 1)
-        g.addWidget(self.lbl_etemp, 3, 2)
-        g.addWidget(self.spn_etemp, 3, 3)
-        g.addWidget(self.lbl_solvation, 4, 0)
-        g.addWidget(self.cmb_solvation, 4, 1)
-        g.addWidget(self.lbl_solvent, 4, 2)
-        g.addWidget(self.cmb_solvent, 4, 3)
-        g.addWidget(self.lbl_parallel, 5, 0)
-        g.addWidget(self.spn_parallel, 5, 1)
-        g.addWidget(opts_host, 5, 2, 1, 2)
-        g.addWidget(self.lbl_extra, 6, 0)
+        form.addWidget(self.lbl_method, 0, 0)
+        form.addWidget(self.cmb_method, 0, 1)
+        form.addWidget(self.lbl_job, 0, 2)
+        form.addWidget(self.cmb_job, 0, 3)
+        form.addWidget(self.lbl_charge, 1, 0)
+        form.addWidget(self.spn_charge, 1, 1)
+        form.addWidget(self.lbl_uhf, 1, 2)
+        form.addWidget(self.spn_uhf, 1, 3)
+        form.addWidget(self.lbl_acc, 2, 0)
+        form.addWidget(self.spn_acc, 2, 1)
+        form.addWidget(self.lbl_etemp, 2, 2)
+        form.addWidget(self.spn_etemp, 2, 3)
+        form.addWidget(self.lbl_solvation, 3, 0)
+        form.addWidget(self.cmb_solvation, 3, 1)
+        form.addWidget(self.lbl_solvent, 3, 2)
+        form.addWidget(self.cmb_solvent, 3, 3)
+        form.addWidget(self.lbl_parallel, 4, 0)
+        form.addWidget(self.spn_parallel, 4, 1)
+        form.addWidget(opts_host, 4, 2, 1, 2)
+
         self.edit_extra = QLineEdit()
         self.edit_extra.editingFinished.connect(self._on_edit_changed)
-        g.addWidget(self.edit_extra, 6, 1, 1, 3)
-        g.setColumnStretch(1, 1)
-        g.setColumnStretch(2, 1)
-        g.setColumnStretch(3, 1)
-        gv.addLayout(g)
+        form.addWidget(self.lbl_extra, 5, 0)
+        form.addWidget(self.edit_extra, 5, 1, 1, 3)
 
-        self.lbl_gxtb_hint = QLabel()
-        self.lbl_gxtb_hint.setWordWrap(True)
-        self.lbl_gxtb_hint.setStyleSheet("color:#b07200;")
-        self.lbl_gxtb_hint.setVisible(False)
-        gv.addWidget(self.lbl_gxtb_hint)
-
-        # 工作目录
-        wd_row = QHBoxLayout()
-        wd_row.setSpacing(5)
+        # 工作目录：基目录 + 浏览 / 打开（同 ORCA 页的位置）
         self.edit_workdir = QLineEdit()
         self.edit_workdir.setMinimumWidth(120)
         self.edit_workdir.textEdited.connect(self._on_workdir_edited)
@@ -894,11 +991,43 @@ class XtbPanel(QWidget):
         self.btn_browse_dir.clicked.connect(self._browse_workdir)
         self.btn_open_dir = QPushButton()
         self.btn_open_dir.clicked.connect(self._open_workdir)
-        wd_row.addWidget(self.lbl_workdir)
-        wd_row.addWidget(self.edit_workdir, 1)
-        wd_row.addWidget(self.btn_browse_dir)
-        wd_row.addWidget(self.btn_open_dir)
-        gv.addLayout(wd_row)
+        wd_btns = QWidget()
+        wdb = QHBoxLayout(wd_btns)
+        wdb.setContentsMargins(0, 0, 0, 0)
+        wdb.setSpacing(5)
+        wdb.addWidget(self.btn_browse_dir)
+        wdb.addWidget(self.btn_open_dir)
+        form.addWidget(self.lbl_workdir, 6, 0)
+        form.addWidget(self.edit_workdir, 6, 1, 1, 2)
+        form.addWidget(wd_btns, 6, 3)
+
+        # xTB 可执行文件（ORCA 页在同样位置显示 ORCA 路径，这里要能改）
+        self.lbl_exe = QLabel()
+        self.edit_exe = QLineEdit()
+        self.edit_exe.setMinimumWidth(120)
+        self.edit_exe.editingFinished.connect(self._on_edit_changed)
+        self.btn_browse_exe = QPushButton()
+        self.btn_browse_exe.clicked.connect(self._browse_executable)
+        self.btn_detect = QPushButton()
+        self.btn_detect.clicked.connect(self._detect_executable_clicked)
+        exe_btns = QWidget()
+        eb = QHBoxLayout(exe_btns)
+        eb.setContentsMargins(0, 0, 0, 0)
+        eb.setSpacing(5)
+        eb.addWidget(self.btn_browse_exe)
+        eb.addWidget(self.btn_detect)
+        form.addWidget(self.lbl_exe, 7, 0)
+        form.addWidget(self.edit_exe, 7, 1, 1, 2)
+        form.addWidget(exe_btns, 7, 3)
+
+        for col in (1, 3):
+            form.setColumnStretch(col, 1)
+
+        self.lbl_gxtb_hint = QLabel()
+        self.lbl_gxtb_hint.setWordWrap(True)
+        self.lbl_gxtb_hint.setStyleSheet("color:#b07200;")
+        self.lbl_gxtb_hint.setVisible(False)
+        form.addWidget(self.lbl_gxtb_hint, 8, 0, 1, 4)
 
         # job=scan 的 xcontrol 编辑区
         self.scan_box = QWidget()
@@ -918,13 +1047,13 @@ class XtbPanel(QWidget):
         sv.addWidget(self.txt_xcontrol)
         sv.addWidget(self.lbl_scan_hint)
         self.scan_box.setVisible(False)
-        gv.addWidget(self.scan_box)
+        form.addWidget(self.scan_box, 9, 0, 1, 4)
 
         self.lbl_ts_hint = QLabel()
         self.lbl_ts_hint.setWordWrap(True)
         self.lbl_ts_hint.setStyleSheet("color:#5b6573;")
         self.lbl_ts_hint.setVisible(False)
-        gv.addWidget(self.lbl_ts_hint)
+        form.addWidget(self.lbl_ts_hint, 10, 0, 1, 4)
 
         for _combo in (self.cmb_method, self.cmb_job, self.cmb_solvation,
                        self.cmb_solvent):
@@ -947,28 +1076,31 @@ class XtbPanel(QWidget):
         return self.grp_calc
 
     def _build_action_row(self):
+        # 与 ORCA 页一致：左侧「生成输入 / 复制命令」，右侧「停止 / 运行」
         row = QHBoxLayout()
         row.setSpacing(6)
-        self.btn_run = QPushButton()
-        self.btn_run.setDefault(True)
-        self.btn_run.setMinimumHeight(32)
-        self.btn_run.clicked.connect(self.start)
+        self.btn_preview = QPushButton()
+        self.btn_preview.clicked.connect(self._preview_command)
+        self.btn_copy_cmd = QPushButton()
+        self.btn_copy_cmd.clicked.connect(self._copy_command)
         self.btn_cancel = QPushButton()
-        self.btn_cancel.setMinimumHeight(32)
         self.btn_cancel.clicked.connect(self.cancel)
         self.btn_cancel.setEnabled(False)
-        self.btn_preview = QPushButton()
-        self.btn_preview.setMinimumHeight(32)
-        self.btn_preview.clicked.connect(self._preview_command)
-        row.addWidget(self.btn_run, 1)
-        row.addWidget(self.btn_cancel)
+        self.btn_run = QPushButton()
+        self.btn_run.setDefault(True)
+        self.btn_run.clicked.connect(self.start)
         row.addWidget(self.btn_preview)
+        row.addWidget(self.btn_copy_cmd)
+        row.addStretch(1)
+        row.addWidget(self.btn_cancel)
+        row.addWidget(self.btn_run)
         return row
 
     def _build_result_group(self):
-        self.grp_result = QGroupBox()
+        # 结果页签内不再套 GroupBox（ORCA 页的结果页同样是一整块内容）
+        self.grp_result = QWidget()
         g = QGridLayout(self.grp_result)
-        g.setContentsMargins(8, 6, 8, 6)
+        g.setContentsMargins(0, 0, 0, 0)
         g.setHorizontalSpacing(12)
         g.setVerticalSpacing(3)
 
@@ -1096,9 +1228,46 @@ class XtbPanel(QWidget):
         self.cmb_solvent.blockSignals(False)
 
     def _log(self, msg):
+        """写进本页「运行输出」窗口（实时滚动）并转发给主窗口日志。"""
+        text = str(msg)
+        self._append_log_view(text)
         if callable(self._log_func):
             try:
-                self._log_func(str(msg))
+                self._log_func(text)
+            except Exception:                                     # noqa: BLE001
+                pass
+
+    def _append_log_view(self, text):
+        view = getattr(self, "log_view", None)
+        if view is None:
+            return
+        bar = view.verticalScrollBar()
+        # 用户往上翻看历史时不要把他拽回底部；跟在末尾时才自动滚
+        follow = bar.value() >= bar.maximum() - 2
+        view.appendPlainText(str(text).rstrip("\r\n"))
+        if follow:
+            bar.setValue(bar.maximum())
+
+    def _clear_log(self):
+        view = getattr(self, "log_view", None)
+        if view is not None:
+            view.clear()
+
+    def _copy_log(self):
+        view = getattr(self, "log_view", None)
+        if view is None:
+            return
+        QApplication.clipboard().setText(view.toPlainText())
+        self._set_status_i18n("st_log_copied", "ok")
+
+    def _reveal_log(self):
+        """运行时把页签区滚到可见位置（右栏是 QScrollArea）。"""
+        area = self.parentWidget()
+        while area is not None and not isinstance(area, QScrollArea):
+            area = area.parentWidget()
+        if area is not None:
+            try:
+                area.ensureWidgetVisible(self.tabs, 0, 8)
             except Exception:                                     # noqa: BLE001
                 pass
 
@@ -1158,6 +1327,8 @@ class XtbPanel(QWidget):
     def showEvent(self, event):                                    # noqa: N802
         """切到本页时自动同步左侧画布（手动打开文件时保持文件优先）。"""
         super().showEvent(event)
+        if self.tabs.currentIndex() == 1:
+            self._fix_log_view()
         if self._busy() or self._source_kind == "file":
             return
         try:
@@ -1232,6 +1403,7 @@ class XtbPanel(QWidget):
         if changed:
             self._clear_result()
         self._refresh_source_label()
+        self._refresh_preview()
         self._set_status_i18n("st_load_ok", n=len(symbols))
         return True
 
@@ -1241,6 +1413,7 @@ class XtbPanel(QWidget):
         self._source_path = ""
         self._clear_result()
         self._refresh_source_label()
+        self._refresh_preview()
 
     def _clear_result(self):
         self._result = None
@@ -1445,12 +1618,14 @@ class XtbPanel(QWidget):
 
     def _on_method_changed(self, *_args):
         self._sync_gxtb_solvation()
+        self._refresh_preview()
         self._save_settings()
 
     def _on_solvation_changed(self, *_args):
         model = str(self.cmb_solvation.currentData() or "gas")
         self._fill_solvent_combo(model)
         self._sync_gxtb_solvation()
+        self._refresh_preview()
         self._save_settings()
 
     def _sync_job_widgets(self):
@@ -1460,6 +1635,7 @@ class XtbPanel(QWidget):
             self.lbl_ts_hint.setVisible(job == "ts")
         except AttributeError:
             pass
+        self._refresh_preview()
 
     def _sync_gxtb_solvation(self):
         gxtb = str(self.cmb_method.currentData() or "") == "gxtb"
@@ -1578,6 +1754,11 @@ class XtbPanel(QWidget):
         self._last_workdir = str(workdir)
         self._workdir_user_edited = False
 
+        # 本次运行从干净的日志页开始，并把页签区滚到可见处
+        self._clear_log()
+        self.tabs.setCurrentIndex(1)          # 运行日志
+        self._reveal_log()
+
         if params["method"] == "gxtb" and str(
                 self.cmb_solvation.currentData() or "gas") != "gas":
             self._log(self._t("log_warn", msg=self._t("hint_gxtb_solv")))
@@ -1623,6 +1804,85 @@ class XtbPanel(QWidget):
                 out.append(str(part))
         return " ".join(out)
 
+    # ── 输入预览 ─────────────────────────────────────────────────────
+    def _on_tab_changed(self, index):
+        index = int(index)
+        if index == 0:                 # 切到「输入预览」时按当前参数重建
+            self._refresh_preview()
+        elif index == 1:               # 切到「运行日志」时修一次滚动范围
+            self._fix_log_view()
+
+    def _fix_log_view(self):
+        """修正运行日志的滚动范围。
+
+        QPlainTextEdit 在隐藏页签里追加内容时，会把“可见行数”按隐藏时的小几何
+        算成 1 行，滚条范围于是变成“行数 − 1”；再切回来时若不发生 resize，
+        范围不会重算，表现就是最后一行卡在顶部、下面一片空白。这里抖一下尺寸
+        强制重排，并保持“原本就在末尾”的跟随状态。
+        """
+        view = getattr(self, "log_view", None)
+        if view is None:
+            return
+        bar = view.verticalScrollBar()
+        at_end = bar.value() >= bar.maximum() - 2
+        height = view.height()
+        if height > 2:
+            view.resize(view.width(), height + 1)
+            view.resize(view.width(), height - 1)
+        if at_end:
+            bar.setValue(bar.maximum())
+
+    def _preview_text(self):
+        """把「命令 + input.xyz（+ xcontrol）」拼成预览文本（不落盘）。"""
+        params = self._params()
+        lines = [self._t("preview_cmd"),
+                 self._command_text(params),
+                 "",
+                 self._t("preview_xyz")]
+        symbols = list(self._symbols or [])
+        coords = np.asarray(self._coords, dtype=float) if self._coords is not None \
+            else None
+        lines.append(str(len(symbols)))
+        lines.append("MolStudio xTB %s" % (
+            self.cmb_method.currentText() or params.get("method", "")))
+        if coords is not None:
+            for sym, (x, y, z) in zip(symbols, coords):
+                lines.append("%-2s %15.8f %15.8f %15.8f"
+                             % (str(sym), float(x), float(y), float(z)))
+        xc = ""
+        if str(params.get("job") or "") == "scan":
+            xc = self.txt_xcontrol.toPlainText().strip()
+        if xc:
+            lines.extend(["", "# xcontrol", xc])
+        return "\n".join(lines) + "\n"
+
+    def _refresh_preview(self):
+        view = getattr(self, "preview", None)
+        if view is None:
+            return
+        if not self._symbols or self._coords is None:
+            view.clear()
+            return
+        try:
+            text = self._preview_text()
+        except Exception as exc:                                  # noqa: BLE001
+            view.setPlainText("[preview error] %s" % exc)
+            return
+        view.setPlainText(text)
+
+    def _copy_command(self):
+        if not self._symbols or self._coords is None:
+            self._set_status_i18n("st_no_struct", "warn")
+            return
+        try:
+            cmd = self._command_text(self._params())
+        except Exception as exc:                                  # noqa: BLE001
+            self._set_status_i18n("st_invalid", "error", err=exc)
+            return
+        QApplication.clipboard().setText(cmd)
+        self._set_status_i18n("st_cmd_copied", "ok")
+        self._log(self._t("log_command", cmd=cmd))
+
     def _preview_command(self):
         if self._busy():
             return
@@ -1631,6 +1891,8 @@ class XtbPanel(QWidget):
             return
         params = self._params()
         text = self._command_text(params)
+        self._refresh_preview()
+        self.tabs.setCurrentIndex(0)
         self._log(self._t("log_command", cmd=text))
         self._set_status_i18n("st_preview", "ok")
 
@@ -1690,6 +1952,8 @@ class XtbPanel(QWidget):
             except Exception:                                  # noqa: BLE001
                 pass
         self._set_busy(False)
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
         elapsed = float(payload.get("elapsed") or
                         max(0.0, time.monotonic() - self._run_started))
 
@@ -1730,6 +1994,8 @@ class XtbPanel(QWidget):
                 self._log("  " + self._t("log_warn", msg=str(warning)))
             return
         self._display_result(result)
+        self.progress.setValue(100)
+        self.tabs.setCurrentIndex(2)          # 结果摘要
         energy = getattr(result, "energy", None)
         energy = getattr(result, "electronic_energy", None) if energy is None else energy
         self._set_status_i18n(
@@ -1748,11 +2014,16 @@ class XtbPanel(QWidget):
         self.btn_run.setEnabled(not busy)
         self.btn_cancel.setEnabled(busy)
         self.btn_preview.setEnabled(not busy)
+        self.btn_copy_cmd.setEnabled(not busy)
         self.btn_refresh.setEnabled(not busy)
         self.btn_open.setEnabled(not busy)
+        # 进度条：跑的时候走不定进度（与 ORCA 页一致），结束后归零
         if busy:
+            self.progress.setRange(0, 0)
+            self.progress.setValue(0)
             self._set_export_enabled(False)
         else:
+            self.progress.setRange(0, 100)
             self._set_export_enabled(self._result is not None)
             self._sync_gxtb_solvation()
             self._sync_job_widgets()

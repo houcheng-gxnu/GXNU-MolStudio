@@ -16,7 +16,7 @@ studio 界面（``main_window_studio``）要求把它换成一条 **≤44px** �
    ``cub._style_wrap``），在卡片的**原父布局位置**插入 ``QFrame#CanvasBar``，
    然后把卡片 ``hide()`` —— 画布底部只剩新的一条。
 2. 新工具条里 **不复制任何业务逻辑**，全部转发给原控件：
-   - **常用样式胶囊**：sob-art / HoukMol3d / 2D 平涂 / IQmol 四条件做成常显的
+   - **常用样式胶囊**：Softbox / sob-art / HoukMol3d / 2D 平涂做成常显的
      小胶囊，点一次就换风格（「一键样式」的本意）。当前样式高亮，初始值按画布
      ``glw._style_name`` 反查，认不出就按默认 sob-art。
    - 「样式 ▾」：其余五个一键样式 → ``QAction``，触发即 ``原按钮.click()``；
@@ -58,7 +58,8 @@ studio 界面（``main_window_studio``）要求把它换成一条 **≤44px** �
 
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QPointF, QRectF, QSize, Qt
+from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen
 from PyQt5.QtWidgets import (
     QAbstractButton,
     QCheckBox,
@@ -81,10 +82,10 @@ __all__ = ["install_compact_canvas_bar", "refresh_compact_canvas_bar"]
 
 # ── 尺寸常量（DSH 设计规范：控件 28/32，圆角 8/12，hover 只加浅底、不画蓝）──
 BAR_HEIGHT = 42          # ≤44px 的硬指标
-BAR_MARGINS = (12, 4, 12, 4)
+BAR_MARGINS = (10, 4, 10, 4)
 BAR_SPACING = 4
 
-#: 9 个一键样式按钮在 CubCanvasPanel 上的属性名（顺序 = 菜单顺序）
+#: 一键样式按钮在 CubCanvasPanel 上的属性名（顺序 = 菜单顺序）
 _STYLE_ATTRS = (
     "_style_sob_btn",
     "_style_ibo_btn",
@@ -95,15 +96,23 @@ _STYLE_ATTRS = (
     "_style_ms_btn",
     "_style_cv_btn",
     "_style_vesta_btn",
+    "_style_ref_btn",
+    "_style_lemon_btn",
 )
 #: 「显示」菜单里的 QCheckBox 属性名（顺序 = 菜单顺序）
 _CHECK_ATTRS = ("_hide_h_chk", "_lbl_idx_chk", "_lbl_sym_chk", "_transparent_chk")
 
 #: 常显在工具条最左侧的「常用样式」胶囊（按属性名认领，顺序 = 显示顺序）。
-#: 选这四条的依据：sob-art 是默认出图风格、HoukMol3d 是 PPT 3D 用、
-#: 2D 平涂是期刊插图、IQmol 是快速看结构。其余五条仍在「样式 ▾」里。
-_QUICK_STYLE_ATTRS = ("_style_sob_btn", "_style_hm3d_btn",
-                      "_style_hm2d_btn", "_style_iq_btn")
+#: Softbox 是本次参考图复刻的首选样式；其余三条保留原有高频入口。
+#: 全部样式仍可在「样式 ▾」里找到。
+_QUICK_STYLE_ATTRS = ("_style_ref_btn", "_style_sob_btn",
+                      "_style_hm3d_btn", "_style_hm2d_btn")
+
+#: 「出图观感」型快捷样式：按钮属性名 → CubGLWidget._active_look_key
+_LOOK_STYLE_ATTRS = {
+    "_style_ref_btn": "reference-gloss",
+    "_style_lemon_btn": "lemon-orbital",
+}
 
 #: 原卡片里没有实例属性的局部按钮，用文字认领（中英都要认，语言可切换）
 _SNAPSHOT_WORDS = ("截图", "Snapshot", "Snap")
@@ -116,57 +125,51 @@ _BAR_QSS = """
 QFrame#CanvasBar {
     background: #FFFFFF;
     border: none;
-    border-top: 1px solid #E6E6E6;
+    border-top: 1px solid #E8EBEF;
 }
 QFrame#CanvasBar QLabel {
-    color: #6B7280;
+    color: #7B8494;
     font-size: 9pt;
     padding: 0px 2px;
     background: transparent;
 }
+/* 工具条按钮：底/描边/图标/文字/箭头全部由 _MenuButton 自绘，
+   这里只留字体（其余 QSS 属性会对自绘内容造成双重样式）。 */
 QFrame#CanvasBar QToolButton#CanvasBarBtn {
     background: transparent;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    padding: 0px 7px;
-    min-height: 26px;
-    max-height: 28px;
-    color: #1F2937;
+    border: none;
     font-size: 9pt;
     font-weight: 500;
 }
-QFrame#CanvasBar QToolButton#CanvasBarBtn:hover {
-    background: #F2F3F4;
-}
-QFrame#CanvasBar QToolButton#CanvasBarBtn:pressed,
-QFrame#CanvasBar QToolButton#CanvasBarBtn:checked {
-    background: #EBEEF2;
-}
-QFrame#CanvasBar QToolButton#CanvasBarBtn::menu-indicator {
-    image: none;
-    width: 0px;
-    height: 0px;
-}
-/* 常用样式胶囊：一键样式仍然只点一次。选中态用浅蓝底 + 蓝描边，
+/* 常用样式胶囊：一键样式仍然只点一次。选中态用浅蓝底 + 淡蓝描边，
    不用实心蓝（经典蓝主题里实心蓝是"主按钮"，这里是状态不是动作）。 */
 QFrame#CanvasBar QToolButton#CanvasChip {
-    background: #FFFFFF;
-    border: 1px solid #E3E5E8;
-    border-radius: 7px;
-    padding: 0px 6px;
-    min-height: 24px;
+    background: #F5F7F9;
+    border: 1px solid #ECEFF3;
+    border-radius: 13px;
+    padding: 0px 9px;
+    min-height: 26px;
     max-height: 26px;
     color: #4B5563;
     font-size: 9pt;
 }
 QFrame#CanvasBar QToolButton#CanvasChip:hover {
-    background: #F2F3F4;
-    border-color: #D3D6DA;
+    background: #F5F8FB;
+    border-color: #D8DEE6;
+    color: #1F2937;
 }
 QFrame#CanvasBar QToolButton#CanvasChip[active="true"] {
-    background: #EAF2FC;
-    border-color: #8FB6E0;
-    color: #1F4E79;
+    background: #E9F2FE;
+    border-color: #C6DCF9;
+    color: #1B5FA8;
+    font-weight: 600;
+}
+/* 分组竖线（胶囊 | 样式·显示 | 导出） */
+QFrame#CanvasBarSep {
+    background: #E8EBEF;
+    border: none;
+    min-width: 1px;
+    max-width: 1px;
 }
 QFrame#CanvasBar QComboBox {
     background: #FFFFFF;
@@ -359,7 +362,11 @@ def _wrapper_box(widget, root):
 
 
 def _set_checked_blocked(widget, on: bool) -> None:
-    """改 checked 但不触发自己的信号（防双向同步回环）。"""
+    """改 checked 但不触发自己的信号（防双向同步回环）。
+
+    只用于**镜像**方向（原控件 → 菜单项）：菜单项的勾只是把原控件的状态画出来，
+    再去回写原控件就会回环。反方向（菜单项 → 原控件）必须用 :func:`_apply_check`。
+    """
     if widget is None:
         return
     try:
@@ -372,6 +379,167 @@ def _set_checked_blocked(widget, on: bool) -> None:
             widget.blockSignals(False)
     except Exception:
         pass
+
+
+def _apply_check(widget, on: bool) -> bool:
+    """把菜单项的勾选**真正应用**到原控件，并让原控件自己的信号走完。
+
+    这里不能复用 ``_set_checked_blocked``：原卡片的业务槽全都连在 ``toggled``
+    上（``_on_hide_hydrogens`` / ``_on_atom_label_idx`` / ``_on_atom_label_sym`` /
+    ``_on_measure_mode`` …）。截图 2026-11-21 的实测就是这么坏掉的——
+    ``act.toggled → _set_checked_blocked(chk, on)`` 只把 QCheckBox 的 checked
+    改了，信号被 block 掉，画布一点没变，菜单项看起来「完全没用」。
+    回环不会发生：原控件 ``toggled`` 回到菜单项那一侧用的仍是
+    ``_set_checked_blocked``，被 block 后不会再把状态推回来。
+    """
+    if widget is None:
+        return False
+    try:
+        want = bool(on)
+        if bool(widget.isChecked()) == want:
+            # 状态已经一致（典型：刚在菜单里刷新过勾），业务侧不需要再通知；
+            # 直接 setChecked 同一值不会发信号，也没必要硬造一次。
+            return True
+        widget.setChecked(want)
+        return True
+    except Exception:
+        return False
+
+
+# ══════════════════════════════════════════════════════════════════════════ #
+#  工具条按钮（图标 + 文字 + 自绘下拉箭头）
+# ══════════════════════════════════════════════════════════════════════════ #
+class _MenuButton(QToolButton):
+    """「图标 + 文字 + 下拉箭头」的工具条按钮，**内容全部自绘**。
+
+    为什么不用 QToolButton 默认的文字/图标排版：
+    - 默认排版里图标紧贴文字（中间 0px），中文小字下看起来像「👁显示」粘在一起；
+    - 字体里的 ``▾`` 粗细/基线随字体走，和 14px 线性图标对不齐，小字号下发脏；
+    - 默认 ``menu-indicator`` 的箭头是另一个风格的三角。
+
+    所以这里按固定栅格画：左内边距 10 → 图标 14 → 间距 6 → 文字 → 间距 8 →
+    箭头 7 → 右内边距 9；底/描边按 hover / pressed 手动画 9px 圆角。
+    QSS 只留字体（见 ``_BAR_QSS``）。
+    """
+
+    _PAD_L, _PAD_R = 9, 8
+    _ICON = 14
+    _GAP_ICON, _GAP_CHEV = 5, 7
+    _CHEV_W = 7
+    _RADIUS = 9
+
+    _TEXT = "#3D4654"
+    _TEXT_HOVER = "#1F2937"
+    _TEXT_DISABLED = "#B7BDC8"
+    _CHEV_NORMAL = "#8A93A2"
+    _CHEV_HOVER = "#4B5563"
+    _CHEV_DISABLED = "#C7CCD5"
+    _BG_HOVER = "#F4F6F8"
+    _BG_DOWN = "#EBEFF4"
+    _BORDER_HOVER = "#EAEDF1"
+    _BORDER_DOWN = "#E1E6ED"
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("CanvasBarBtn")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setPopupMode(QToolButton.InstantPopup)
+        self.setFocusPolicy(Qt.NoFocus)
+        self.setIconSize(QSize(self._ICON, self._ICON))
+        self.setFixedHeight(28)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        #: 给 main_window_studio 的「补 ▾」逻辑认：已经自绘箭头，别再塞字形
+        self._paints_own_chevron = True
+
+    # ── 尺寸 ────────────────────────────────────────────────────────────
+    def _has_icon(self) -> bool:
+        try:
+            return not self.icon().isNull()
+        except Exception:
+            return False
+
+    def sizeHint(self) -> QSize:
+        try:
+            fm = self.fontMetrics()
+            w = (self._PAD_L + self._PAD_R + self._GAP_CHEV + self._CHEV_W
+                 + fm.horizontalAdvance(self.text() or ""))
+            if self._has_icon():
+                w += self._ICON + self._GAP_ICON
+            return QSize(w, 28)
+        except Exception:
+            return super().sizeHint()
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    # ── 状态色 ──────────────────────────────────────────────────────────
+    def _is_hot(self) -> bool:
+        return self.underMouse() or self.isDown()
+
+    # ── 绘制 ────────────────────────────────────────────────────────────
+    def paintEvent(self, ev):
+        try:
+            p = QPainter(self)
+            p.setRenderHint(QPainter.Antialiasing, True)
+            p.setRenderHint(QPainter.TextAntialiasing, True)
+
+            rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+            if not self.isEnabled():
+                bg, border = QColor(Qt.transparent), QColor(Qt.transparent)
+            elif self.isDown():
+                bg, border = QColor(self._BG_DOWN), QColor(self._BORDER_DOWN)
+            elif self.underMouse():
+                bg, border = QColor(self._BG_HOVER), QColor(self._BORDER_HOVER)
+            else:
+                bg, border = QColor(Qt.transparent), QColor(Qt.transparent)
+            p.setPen(QPen(border, 1))
+            p.setBrush(bg)
+            p.drawRoundedRect(rect, self._RADIUS, self._RADIUS)
+
+            h = self.height()
+            x = self._PAD_L
+            if self._has_icon():
+                icon_rect = QRectF(x, (h - self._ICON) / 2.0, self._ICON, self._ICON)
+                self.icon().paint(p, icon_rect.toRect(), Qt.AlignCenter)
+                x += self._ICON + self._GAP_ICON
+
+            colour = (self._TEXT_DISABLED if not self.isEnabled()
+                      else (self._TEXT_HOVER if self._is_hot() else self._TEXT))
+            text_w = max(0.0, (self.width() - self._PAD_R - self._GAP_CHEV
+                               - self._CHEV_W) - x)
+            p.setPen(QColor(colour))
+            p.setFont(self.font())
+            fm = p.fontMetrics()
+            text = fm.elidedText(self.text() or "", Qt.ElideRight, int(text_w))
+            p.drawText(QRectF(x, 0, text_w, h),
+                       int(Qt.AlignLeft | Qt.AlignVCenter), text)
+
+            chev_col = (self._CHEV_DISABLED if not self.isEnabled()
+                        else (self._CHEV_HOVER if self._is_hot()
+                              else self._CHEV_NORMAL))
+            pen = QPen(QColor(chev_col), 1.5)
+            pen.setCapStyle(Qt.RoundCap)
+            pen.setJoinStyle(Qt.RoundJoin)
+            p.setPen(pen)
+            p.setBrush(Qt.NoBrush)
+            cx = self.width() - self._PAD_R - self._CHEV_W / 2.0
+            cy = h / 2.0
+            path = QPainterPath(QPointF(cx - 3.4, cy - 1.7))
+            path.lineTo(QPointF(cx, cy + 1.8))
+            path.lineTo(QPointF(cx + 3.4, cy - 1.7))
+            p.drawPath(path)
+            p.end()
+        except Exception:
+            pass
+
+    # ── hover 重绘 ──────────────────────────────────────────────────────
+    def enterEvent(self, ev):
+        super().enterEvent(ev)
+        self.update()
+
+    def leaveEvent(self, ev):
+        super().leaveEvent(ev)
+        self.update()
 
 
 # ══════════════════════════════════════════════════════════════════════════ #
@@ -413,6 +581,8 @@ class _CanvasBar(QFrame):
         self._chips = []               # [(胶囊按钮, 原样式按钮)]
         self._chip_fitting = False     # 收起/展开胶囊时防递归
         self._row_labels = []          # [(QLabel, 中文, 英文)] 菜单里的行标签
+        self._sep_after_chips = None   # 胶囊组与菜单组之间的竖线
+        self._group_seps_done = False
         # 从原卡片「搬走」的控件盒（安装失败时原样还回去）
         self._moved_boxes = []
 
@@ -459,6 +629,10 @@ class _CanvasBar(QFrame):
         except Exception:
             pass
         try:
+            self._add_group_seps()
+        except Exception:
+            pass
+        try:
             self._lay.addStretch(1)
         except Exception:
             pass
@@ -493,7 +667,7 @@ class _CanvasBar(QFrame):
         style_btns = parts.get("style_btns") or []
         if not style_btns:
             return
-        btn, menu = self._new_menu_btn("样式", "Style")
+        btn, menu = self._new_menu_btn("样式", "Style", "layers")
 
         for src in style_btns:
             text, tip = _widget_texts(src)
@@ -525,7 +699,7 @@ class _CanvasBar(QFrame):
         """把四条最常用的样式做成常显胶囊，插在工具条最左侧。
 
         样式菜单是二级入口（点两下），而「一键样式」的本意就是点一下就换；
-        所以常用的四条必须留在第一层。全部九条仍可在「样式 ▾」里找到。
+        所以常用的四条必须留在第一层。全部样式仍可在「样式 ▾」里找到。
         """
         style_btns = parts.get("style_btns") or []
         if not style_btns:
@@ -596,6 +770,18 @@ class _CanvasBar(QFrame):
         选中**，绝不退回去点亮第一个 —— 开箱样式是 ``ultra-glass``（不在四条
         常用胶囊里），退回去点亮 ``sob-art`` 会让屏幕上那个高亮说谎。
         """
+        # Softbox / Lemon 是「出图观感」而不是等值面风格，不能拿
+        # _style_name 比较。
+        # 出图观感激活时只点亮对应快捷项，避免底层等值面风格按钮同时亮起。
+        try:
+            active_look = str(getattr(self._cub.glw, "_active_look_key", ""))
+        except Exception:
+            active_look = ""
+        if active_look:
+            for attr, key in _LOOK_STYLE_ATTRS.items():
+                if src is _attr(self._cub, attr):
+                    return active_look == key
+            return False
         name = self._canvas_style_name()
         if name:
             try:
@@ -605,13 +791,10 @@ class _CanvasBar(QFrame):
         return src is self._active_style
 
     def _guess_active_style(self):
-        """按名字在九个样式按钮里找当前那一个；认不出返回 ``None``。"""
-        name = self._canvas_style_name()
-        if not name:
-            return None
+        """在全部样式按钮里找当前活跃项；认不出返回 ``None``。"""
         for _act, src in self._style_acts:
             try:
-                if _norm_name(_text(src)) == name:
+                if self._is_active(src):
                     return src
             except Exception:
                 continue
@@ -639,7 +822,10 @@ class _CanvasBar(QFrame):
             avail = self.width() - BAR_MARGINS[0] - BAR_MARGINS[2]
             menus = [b for b in (self._style_btn, self._display_btn,
                                 self._export_btn, self._more_btn) if b is not None]
+            # 分组竖线也占宽度（1px + 两侧 spacing），漏算会把导出按钮挤出窗口
+            seps = [w for w in (self._sep_after_chips,) if w is not None]
             need = sum(b.sizeHint().width() + BAR_SPACING for b in menus)
+            need += sum(BAR_SPACING + 1 for _ in seps)
             for chip, _src in self._chips:
                 try:
                     w = chip.sizeHint().width() + BAR_SPACING
@@ -649,6 +835,13 @@ class _CanvasBar(QFrame):
                         need += w
                 except RuntimeError:
                     continue
+            # 胶囊全收起时那条竖线没有意义，隐掉（否则左边凭空多一条线）
+            if self._sep_after_chips is not None:
+                try:
+                    self._sep_after_chips.setVisible(
+                        any(c.isVisible() for c, _s in self._chips))
+                except RuntimeError:
+                    pass
         finally:
             self._chip_fitting = False
 
@@ -691,7 +884,7 @@ class _CanvasBar(QFrame):
         keep_box = parts.get("keep_box")
         if not chks and keep_box is None:
             return
-        btn, menu = self._new_menu_btn("显示", "Display")
+        btn, menu = self._new_menu_btn("显示", "Display", "eye")
 
         for chk in chks:
             text, tip = _widget_texts(chk)
@@ -702,9 +895,14 @@ class _CanvasBar(QFrame):
             self._display_acts.append((act, chk))
 
             def _act_toggled(on, c=chk):
-                _set_checked_blocked(c, on)
+                # 菜单 → 原控件：必须放行原控件的 toggled，业务槽才会执行
+                _apply_check(c, on)
+                # 原控件的槽可能顺带改了别的开关（编号 / 元素符号互斥），
+                # 立刻把菜单勾同步回来，免得看到过期的勾。
+                self._refresh_display_menu()
 
             def _chk_toggled(on, a=act):
+                # 原控件 → 菜单：只镜像勾，不回写（否则回环）
                 _set_checked_blocked(a, on)
 
             act.toggled.connect(_act_toggled)
@@ -766,7 +964,7 @@ class _CanvasBar(QFrame):
         if not any((snap_btn, export_btn, export_cb, kind_cb,
                     measure_btn, measure_clear, sync_btn)):
             return
-        btn, menu = self._new_menu_btn("导出", "Export")
+        btn, menu = self._new_menu_btn("导出", "Export", "download")
         self._export_btn = btn
 
         # 截图 / 导出图片 —— 原按钮.click()（会走原保存对话框）。
@@ -785,13 +983,18 @@ class _CanvasBar(QFrame):
                     act.setCheckable(True)
                     self._fmt_acts.append((act, i))
                     act.triggered.connect(
-                        lambda _c=False, cb=export_cb, idx=i: self._choose_combo(cb, idx))
+                        lambda _c=False, cb=export_cb, idx=i:
+                        self._choose_combo(cb, idx))
+                # The export button changes 导出图片 ↔ 导出3D with the selected
+                # format.  Keep the menu action's text live while the menu is open.
+                export_cb.currentIndexChanged.connect(self._refresh_plain_acts)
             except Exception:
                 pass
 
         if export_btn is not None:
-            self._add_plain_action(menu, export_btn, _tr("导出图片", "Export Image"),
-                                   "导出图片", "Export Image")
+            # Source text is dynamic: it becomes 导出3D when the GLB format is
+            # selected.  Do not pin the menu action to the old image wording.
+            self._add_plain_action(menu, export_btn)
 
         # 测量：类型（距离/键角/二面角）+ 开关 + 清除
         if kind_cb is not None or measure_btn is not None or measure_clear is not None:
@@ -812,13 +1015,20 @@ class _CanvasBar(QFrame):
                 pass
         if measure_btn is not None:
             try:
+                # 类型（距离/键角/二面角）与「测量」开关之间拉一条线：
+                # 不然「测量」紧跟「二面角」，看着像第四个类型。
+                if kind_cb is not None:
+                    menu.addSeparator()
                 act = menu.addAction(_text(measure_btn) or _tr("测量", "Measure"))
                 act.setCheckable(True)
                 act.setChecked(bool(measure_btn.isChecked()))
                 self._measure_act = act
 
                 def _act_toggled(on, b=measure_btn):
-                    _set_checked_blocked(b, on)
+                    # 菜单 → 原按钮：放行 toggled，_on_measure_mode 才会真的
+                    # 把画布切进/切出测量模式（block 掉就等于没点）。
+                    _apply_check(b, on)
+                    self._refresh_export_menu()
 
                 def _btn_toggled(on, a=act):
                     _set_checked_blocked(a, on)
@@ -881,12 +1091,18 @@ class _CanvasBar(QFrame):
             except Exception:
                 pass
 
-    @staticmethod
-    def _choose_combo(combo, index: int) -> None:
+    def _choose_combo(self, combo, index: int) -> None:
+        """选格式 / 选测量类型：改原下拉，再把菜单里的勾按真实值重画。
+
+        ``QAction`` 的 checkable 是「点一次翻一次」，点已经选中的那一项会先把
+        勾去掉（下拉本身没变），菜单看起来像「一个都没选」。改完立刻按下拉的
+        currentIndex 重画，勾就始终是单选、且和原控件一致。
+        """
         try:
             combo.setCurrentIndex(index)
         except Exception:
             pass
+        self._refresh_export_menu()
 
     def _refresh_plain_acts(self) -> None:
         """菜单项文字/提示跟随原控件（截图/导出图片用自带中英对照）。"""
@@ -960,17 +1176,54 @@ class _CanvasBar(QFrame):
         menu.aboutToShow.connect(self._refresh_plain_acts)
 
     # ── 通用小件 ───────────────────────────────────────────────────────
-    def _new_menu_btn(self, zh: str, en: str):
-        """带 InstantPopup 菜单的 QToolButton（单点即展开）。"""
-        btn = QToolButton(self)
-        btn.setObjectName("CanvasBarBtn")
-        btn.setText(_tr(zh, en) + " ▾")
-        btn.setCursor(Qt.PointingHandCursor)
-        btn.setPopupMode(QToolButton.InstantPopup)
-        btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
+    def _add_group_seps(self) -> None:
+        """在「常用样式胶囊 | 样式·显示 | 导出」之间补 1px 竖线。
+
+        没有分组线时五个入口是一串等距的灰字，看不出哪几个是一组；一条 16px
+        高的浅灰竖线就能把「换样式」和「显示开关 / 导出」分开，成本也最低。
+        """
+        if self._group_seps_done:
+            return
+        self._group_seps_done = True
+
+        def _sep():
+            s = QFrame(self)
+            s.setObjectName("CanvasBarSep")
+            s.setFixedSize(1, 16)
+            s.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+            return s
+
+        if self._chips and self._style_btn is not None:
+            idx = self._lay.indexOf(self._style_btn)
+            if idx > 0:
+                self._sep_after_chips = _sep()
+                self._lay.insertWidget(idx, self._sep_after_chips)
+        if self._display_btn is not None and self._export_btn is not None:
+            idx = self._lay.indexOf(self._export_btn)
+            if idx > 0:
+                self._lay.insertWidget(idx, _sep())
+
+    def _new_menu_btn(self, zh: str, en: str, icon_kind: str = ""):
+        """带 InstantPopup 菜单的按钮：可选线性图标 + 文字 + 自绘箭头。"""
+        btn = _MenuButton(self)
+        btn.setText(_tr(zh, en))
+        if icon_kind:
+            try:
+                from molstudio.ui.ui_icons import make_icon
+
+                btn.setIcon(make_icon(icon_kind, "#5C6675", 14))
+            except Exception:
+                pass
         menu = QMenu(btn)
         menu.setObjectName("CanvasBarMenu")
         menu.setStyleSheet(_MENU_QSS)
+        # 每一项的说明都来自原控件的 tooltip，但 QMenu 默认不显示 tooltip。
+        # 菜单项只看名字容易误判（例如「透明背景」只在导出时生效、「保留 H 编号」
+        # 得先勾隐藏氢原子），所以把 tooltip 打开。
+        try:
+            menu.setToolTipsVisible(True)
+        except Exception:
+            pass
         btn.setMenu(menu)
         self._labels.append((btn, zh, en))
         return btn, menu
@@ -1010,8 +1263,19 @@ class _CanvasBar(QFrame):
         return moved
 
     def _add_section(self, menu, zh: str, en: str):
-        """菜单分组标题（切语言时跟着刷新）。"""
-        act = menu.addSection(_tr(zh, en))
+        """菜单分组标题（切语言时跟着刷新）。
+
+        这里**不能用** ``QMenu.addSection()``：本菜单的 QSS 给
+        ``::separator`` 定了 ``height: 1px``，section 也走这个子控件，标题
+        被压成一条 1px 线、文字整个消失（2026-11-21 实测截图：导出菜单里
+        「导出格式 / 测量 / 导出设置」三个标题全看不见，只剩一堆裸条目）。
+        改用禁用项，走 ``::item:disabled`` 的灰字，标题看得见也点不坏。
+        """
+        act = menu.addAction(_tr(zh, en))
+        try:
+            act.setEnabled(False)
+        except Exception:
+            pass
         self._sections.append((act, zh, en))
         return act
 
@@ -1031,7 +1295,8 @@ class _CanvasBar(QFrame):
         """刷新工具条按钮文字 + 所有菜单项（切语言后调一次即可）。"""
         for btn, zh, en in self._labels:
             try:
-                btn.setText(_tr(zh, en) + " ▾")
+                # 箭头是自绘的，文字里不再带 ▾
+                btn.setText(_tr(zh, en))
             except RuntimeError:
                 continue
         for act, zh, en in self._sections:
@@ -1100,8 +1365,9 @@ def _collect_style_buttons(cub, src_bar):
                 continue
     if out:
         return out
-    # 兜底（属性名变动/桩件）：按布局顺序取前 9 个 QPushButton
-    return [w for w in _ordered_widgets(src_bar) if isinstance(w, QPushButton)][:9]
+    # 兜底（属性名变动/桩件）：按布局顺序取对应数量的 QPushButton
+    return [w for w in _ordered_widgets(src_bar)
+            if isinstance(w, QPushButton)][:len(_STYLE_ATTRS)]
 
 
 def _collect_checkboxes(cub, src_bar):

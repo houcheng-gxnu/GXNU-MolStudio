@@ -27,8 +27,8 @@ import os
 import sys
 import time
 
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QIcon
+from PyQt5.QtCore import QEvent, QRectF, Qt, QTimer
+from PyQt5.QtGui import QColor, QIcon, QPainter, QPen
 from PyQt5.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy,
     QStatusBar, QToolButton, QVBoxLayout, QWidget,
@@ -145,6 +145,56 @@ class _RefTopBar(QFrame):
 
     def setTitle(self, *_args, **_kwargs):      # noqa: N802 - Qt 命名
         return None
+
+
+class _CardBorderOverlay(QWidget):
+    """卡片最上层的 1px 圆角描边（画布卡片专用）。
+
+    背景：``grp_canvas`` 是 QWidget + QSS（白色圆角 + 1px 描边），但里面的
+    GL 画布 / 工具条会把自己的白底画满子控件矩形，把父级的**左右两条描边
+    整条盖住**——实测卡片只剩上边一条线，左右边缘看不见，看起来就像"画布
+    超出了卡片范围"（2026-11-21 反馈）。
+
+    父级的 ``paintEvent`` 永远在子控件之前画，所以描边只能放在最上层：这是一块
+    覆盖整张卡片、不吃鼠标、只画 1px 圆角线的透明子控件；父级尺寸一变就跟着
+    重设几何并重新 ``raise_()``，保证它始终压在 GL 画布之上。
+    """
+
+    def __init__(self, parent, radius: int = 12, color: str = "#E5E9F0"):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setFocusPolicy(Qt.NoFocus)
+        self._radius = int(radius)
+        self._color = QColor(color)
+        self.setGeometry(parent.rect())
+        parent.installEventFilter(self)
+        # 本控件是在窗口 show() 之后才建的（延迟初始化），不会自动跟随父级显示
+        self.show()
+        self.raise_()
+
+    def eventFilter(self, obj, ev):
+        try:
+            if obj is self.parentWidget() and ev.type() in (
+                    QEvent.Resize, QEvent.Show, QEvent.LayoutRequest):
+                self.setGeometry(obj.rect())
+                self.raise_()
+        except Exception:
+            pass
+        return super().eventFilter(obj, ev)
+
+    def paintEvent(self, ev):
+        p = QPainter(self)
+        try:
+            p.setRenderHint(QPainter.Antialiasing, True)
+            p.setPen(QPen(self._color, 1))
+            p.setBrush(Qt.NoBrush)
+            r = self._radius
+            p.drawRoundedRect(
+                QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), r, r)
+        finally:
+            p.end()
 
 
 class ReferenceShellMixin:
@@ -474,6 +524,12 @@ class ReferenceShellMixin:
         h.addWidget(self._ref_cards_btn)
         lay.insertWidget(0, header)
         self._ref_canvas_header = header
+        # 最上层补一条 1px 圆角描边：GL 画布会把父级 QSS 的左右描边盖掉
+        try:
+            self._ref_canvas_border = _CardBorderOverlay(canvas, 12, "#E5E9F0")
+            self._ref_canvas_border.raise_()
+        except Exception:                                # noqa: BLE001
+            self._ref_canvas_border = None
 
     # ── 画布下方四张工具卡片（可选模块）──────────────────────────────
     #: 画布列只有 ~540px，四张卡片并排时每个按钮只有 ~52px；
@@ -806,11 +862,20 @@ class ReferenceShellMixin:
             # 让日志正文在页签里自动撑高（父类曾给它固定 144px 高）
             log_text.setMinimumHeight(0)
             log_text.setMaximumHeight(16777215)
+            # 改由拖动条统一控制高度（默认 144px），别让它撑满整块 dock
+            try:
+                self._apply_log_body_height(getattr(self, "_log_body_h", 144))
+            except Exception:                        # noqa: BLE001
+                pass
             # 参考稿的日志头只有页签 + 右侧过滤控件：父类那条「运行日志 / 清空」
-            # 标题条与页签重复，隐掉文字与清空（折叠按钮保留）
+            # 标题条与页签重复。折叠按钮已经挪到画布与日志之间的拖动条上
+            # （main_window._LogDockGrip），标题条整条隐掉，不再留一行空白。
             try:
                 self._log_title.hide()
                 self._log_clear_btn.hide()
+                head = getattr(self, "_log_dock_head", None)
+                if head is not None:
+                    head.hide()
             except Exception:                            # noqa: BLE001
                 pass
             # 小工具按钮统一固定宽度，别被工具栏的 stretch 拉成一长条
@@ -821,9 +886,10 @@ class ReferenceShellMixin:
                     btn.setMaximumWidth(96)
             except Exception:                            # noqa: BLE001
                 pass
-            # 日志区高度上限：给画布留空间，用户仍可「▾」收起
+            # 高度上限不再写死 248px：日志高度改由拖动条（_LogDockGrip）控制，
+            # 这里的硬上限会把用户拖出来的高度又切回去。
             try:
-                dock.setMaximumHeight(248)
+                dock.setMaximumHeight(16777215)
             except Exception:                            # noqa: BLE001
                 pass
             self._ref_log_console = console
@@ -1032,21 +1098,10 @@ class ReferenceShellMixin:
             except Exception:                            # noqa: BLE001
                 pass
 
-    def _toggle_log_dock(self, collapsed=None):
-        super()._toggle_log_dock(collapsed)
-        console = getattr(self, "_ref_log_console", None)
-        if console is not None:
-            try:
-                console.setVisible(not getattr(self, "_log_collapsed", False))
-            except Exception:                            # noqa: BLE001
-                pass
-        log_text = getattr(self, "log_text", None)
-        if log_text is not None and not getattr(self, "_log_collapsed", False):
-            try:
-                log_text.setMinimumHeight(0)
-                log_text.setMaximumHeight(16777215)
-            except Exception:                            # noqa: BLE001
-                pass
+    # 说明：这里原来重写了 ``_toggle_log_dock``，展开时把 log_text 的
+    # min/max 高度重置成「不限」——那会把用户拖动条调好的高度复原（实测
+    # 展开后从 144 跳回 179）。现在折叠/展开与正文高度都由基类统一处理
+    # （``_toggle_log_dock`` + ``_apply_log_body_height``），本类不再插手。
 
     def _on_canvas_status(self, msg):
         super()._on_canvas_status(msg)

@@ -1772,7 +1772,7 @@ class CubGLWidget(QOpenGLWidget):
         self._bond_thinning = BOND_THINNING_DEFAULT  # midpoint narrowing factor (1.0 = no waist)
 
         # 景深雾化（IboView Fade：远处蒙白雾）开关，默认开启保留原貌
-        self._fade_enabled = True
+        self._fade_enabled = False
         # Bond radius factor — dual-threshold for solid / dashed / no-bond
         self._bond_rf_tight = 1.0   # ≤ this → solid bond
         self._bond_rf_loose = 1.3   # ≤ this → dashed bond; > this → no bond
@@ -2787,7 +2787,7 @@ class CubGLWidget(QOpenGLWidget):
         self.set_ring_orientation(90, 71, 205, 0, locked=False)
         self.set_atom_labels(2)
         self.set_orb_outline(False)
-        self.set_fade_enabled(True)
+        self.set_fade_enabled(False)
         # 等值面不透明度回到默认（ESP 顶点色表面除外：不透明度归 ESP 面板管）
         if not self._surf_vcolor:
             self._sp['opacity'] = float(IBOVIEW_DEFAULTS.get('OrbitalOpacity', 1.0))

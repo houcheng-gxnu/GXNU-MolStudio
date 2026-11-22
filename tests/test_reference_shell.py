@@ -70,6 +70,33 @@ def test_reference_topbar_replaces_input_panel(win):
     assert win.btn_ppt3d.isHidden()
 
 
+def test_canvas_card_border_visible_on_both_sides(win):
+    """画布卡片的左右描边不能被 GL 画布盖掉（2026-11-21 反馈）。
+
+    卡片本身是 QWidget + QSS 圆角描边；子控件（GL 画布）会把自己的白底画满
+    整个子控件矩形，把父级左右两条描边整条盖住 —— 屏幕上看起来就像「画布
+    超出了卡片边界」。现在最上层补了一块只画 1px 描边的透明层，这里直接抓图
+    检查左右两列像素不再是纯白。
+    """
+    from PyQt5.QtCore import QPoint
+
+    card = win.grp_canvas
+    ov = getattr(win, "_ref_canvas_border", None)
+    assert ov is not None, "缺少画布卡片描边层"
+    assert ov.isVisible(), "描边层没显示（延迟初始化后必须 show）"
+    assert ov.parentWidget() is card
+    assert ov.testAttribute(Qt.WA_TransparentForMouseEvents), \
+        "描边层会挡住画布上的鼠标操作"
+    assert ov.geometry() == card.rect(), "描边层没跟上卡片尺寸"
+
+    img = win.grab().toImage()
+    mid = card.mapTo(win, QPoint(0, card.height() // 2))
+    for dx, side in ((0, "左"), (card.width() - 1, "右")):
+        col = img.pixelColor(mid.x() + dx, mid.y())
+        assert not (col.red() > 250 and col.green() > 250 and col.blue() > 250), \
+            f"卡片{side}描边被子控件盖住了（像素 {col.name()}）"
+
+
 def test_canvas_header_and_cards_toggle(win):
     assert win._ref_canvas_header is not None
     assert win._ref_canvas_header.parentWidget() is win.grp_canvas

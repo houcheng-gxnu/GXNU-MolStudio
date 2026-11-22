@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import re
 import time
+from pathlib import Path
 
 from PyQt5.QtCore import QSettings, QThread, QTimer, QUrl, Qt, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
@@ -31,6 +32,8 @@ TEXT = {
         "grp_setup": "计算设置",
         "structure": "结构文件",
         "browse": "浏览…",
+        "orca_exe": "ORCA 可执行文件",
+        "detect": "自动检测",
         "use_current": "使用主窗口结构",
         "method": "方法",
         "basis": "基组",
@@ -98,6 +101,7 @@ TEXT = {
         "log_placeholder": "运行日志会显示在这里…",
         "browse_struct": "选择结构文件",
         "browse_dir": "选择工作目录",
+        "browse_exe": "选择 orca.exe",
         "no_parent": "当前没有可载入结构的主窗口。",
         "load_fail": "结构载入失败",
         "save_fail": "保存失败",
@@ -113,6 +117,8 @@ TEXT = {
         "grp_setup": "Calculation settings",
         "structure": "Structure",
         "browse": "Browse…",
+        "orca_exe": "ORCA executable",
+        "detect": "Auto-detect",
         "use_current": "Use main-window structure",
         "method": "Method",
         "basis": "Basis set",
@@ -181,6 +187,7 @@ TEXT = {
         "log_placeholder": "ORCA output will appear here…",
         "browse_struct": "Choose structure file",
         "browse_dir": "Choose working directory",
+        "browse_exe": "Choose orca.exe",
         "no_parent": "No main window is available to load the structure.",
         "load_fail": "Could not load structure",
         "save_fail": "Could not save",
@@ -283,6 +290,10 @@ class OrcaLocalDialog(QDialog):
         self._prepared = None
         self._struct_path = ""
         self._active_task = "sp"
+        # 工作目录：每次运行在基目录下新建时间戳子目录（输入/输出同处一室）
+        self._workdir_base = ""
+        self._workdir_auto = True
+        self._auto_name = ""
         self._settings = QSettings("MolStudio", "OrcaLocal")
         self._orb_exe = orca_exe or ORCA.find_orca_exe()
         self._mw_exe = self._find_multiwfn()
@@ -291,8 +302,6 @@ class OrcaLocalDialog(QDialog):
         self.setMinimumSize(920, 700)
         self._build_ui()
         self._restore_settings()
-        if self._orb_exe:
-            self.lbl_orca.setText("ORCA: %s" % self._orb_exe)
         if initial_path and os.path.isfile(initial_path):
             self._load_structure(initial_path)
         self._refresh_preview()
@@ -330,10 +339,6 @@ class OrcaLocalDialog(QDialog):
         sub.setStyleSheet("color:#5B6A82;font-size:9pt;")
         root.addWidget(title)
         root.addWidget(sub)
-        self.lbl_orca = QLabel("ORCA: %s" % (self._orb_exe or "未找到"))
-        self.lbl_orca.setStyleSheet("color:#8A97AB;font-size:8.5pt;")
-        self.lbl_orca.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        root.addWidget(self.lbl_orca)
 
         # 设置区
         grp = QGroupBox(self._t("grp_setup"))
@@ -438,6 +443,20 @@ class OrcaLocalDialog(QDialog):
         form.addLayout(row_wd, 8, 1, 1, 2)
         form.addWidget(QLabel(self._t("job_name")), 8, 3)
         form.addWidget(self.edit_name, 8, 4)
+
+        # ORCA 可执行文件：留空自动检测，指定后一直用它
+        self.edit_orca = QLineEdit(self._orb_exe)
+        self.edit_orca.editingFinished.connect(self._save_settings)
+        self.btn_browse_orca = QPushButton(self._t("browse"))
+        self.btn_browse_orca.clicked.connect(self._browse_orca)
+        self.btn_detect_orca = QPushButton(self._t("detect"))
+        self.btn_detect_orca.clicked.connect(self._detect_orca)
+        row_orca = QHBoxLayout()
+        row_orca.addWidget(self.edit_orca, 1)
+        row_orca.addWidget(self.btn_browse_orca)
+        row_orca.addWidget(self.btn_detect_orca)
+        form.addWidget(QLabel(self._t("orca_exe")), 9, 0)
+        form.addLayout(row_orca, 9, 1, 1, 4)
         root.addWidget(grp)
 
         # 页签：输入 / 日志 / 结果
@@ -511,6 +530,7 @@ class OrcaLocalDialog(QDialog):
             w.valueChanged.connect(self._schedule_preview)
         for w in (self.edit_extra, self.edit_name, self.edit_workdir):
             w.textChanged.connect(self._schedule_preview)
+        self.edit_workdir.textEdited.connect(self._on_workdir_edited)
         self.cmb_solvent.currentIndexChanged.connect(self._toggle_solvent)
         self.cmb_task.currentIndexChanged.connect(self._toggle_task_ui)
         self._preview_timer = QTimer(self)
@@ -587,6 +607,10 @@ class OrcaLocalDialog(QDialog):
 
     # ── 设置/预填 ──────────────────────────────────────────────────
     def _default_workdir(self):
+        """默认「基目录」：载入文件时 = 文件同级 ``<文件名>_ORCA``。"""
+        if self._struct_path:
+            src = Path(self._struct_path)
+            return str(src.parent / (src.stem + "_ORCA"))
         base = os.path.expanduser("~")
         try:
             from PyQt5.QtCore import QStandardPaths
@@ -597,6 +621,12 @@ class OrcaLocalDialog(QDialog):
         except Exception:                                # noqa: BLE001
             pass
         return os.path.join(base, "MolStudio_ORCA")
+
+    def _resolve_run_dir(self):
+        """本次运行的独立目录：``<基目录>/<时间戳>``（同秒重跑加 ``_1``）。"""
+        text = self.edit_workdir.text().strip()
+        base = self._workdir_base or text or self._default_workdir()
+        return ORCA.resolve_run_dir(base)
 
     def _task_label(self, key):
         return TEXT.get(self.lang, TEXT["zh"])["task_labels"].get(
@@ -612,9 +642,15 @@ class OrcaLocalDialog(QDialog):
             self.spin_nprocs.setValue(s.value("nprocs", 4, type=int))
             self.spin_maxcore.setValue(s.value("maxcore", 2000, type=int))
             wd = s.value("workdir", "", type=str)
-            if wd:
+            auto = bool(s.value("workdir_auto", True, type=bool))
+            if wd and not auto:
                 self.edit_workdir.setText(wd)
                 self.edit_workdir.setCursorPosition(0)
+                self._workdir_base = wd
+            self._workdir_auto = auto
+            saved_orca = s.value("orca", "", type=str).strip()
+            if saved_orca and os.path.isfile(saved_orca):
+                self.edit_orca.setText(saved_orca)
             last = s.value("last_structure", "", type=str)
             if last and os.path.isfile(last):
                 self._load_structure(last)
@@ -628,7 +664,11 @@ class OrcaLocalDialog(QDialog):
             s.setValue("basis", self.cmb_basis.currentText().strip())
             s.setValue("nprocs", self.spin_nprocs.value())
             s.setValue("maxcore", self.spin_maxcore.value())
-            s.setValue("workdir", self.edit_workdir.text().strip())
+            # 存「基目录」而不是本次的时间戳目录
+            s.setValue("workdir", self._workdir_base
+                       or self.edit_workdir.text().strip())
+            s.setValue("workdir_auto", bool(self._workdir_auto))
+            s.setValue("orca", self.edit_orca.text().strip())
             if self._struct_path:
                 s.setValue("last_structure", self._struct_path)
             s.sync()
@@ -651,6 +691,34 @@ class OrcaLocalDialog(QDialog):
             self.edit_workdir.text().strip() or os.path.expanduser("~"))
         if path:
             self.edit_workdir.setText(path)
+            self._workdir_base = ""
+            self._workdir_auto = False
+
+    def _on_workdir_edited(self, *_args):
+        self._workdir_base = ""
+        self._workdir_auto = False
+
+    # ── ORCA 可执行文件 ─────────────────────────────────────────────
+    def _current_orca_exe(self):
+        """当前使用的 orca.exe：手填优先，留空则按环境/PATH/常见目录查找。"""
+        text = self.edit_orca.text().strip()
+        return text or ORCA.find_orca_exe()
+
+    def _browse_orca(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, self._t("browse_exe"),
+            os.path.dirname(self.edit_orca.text().strip() or ""),
+            "可执行文件 (*.exe);;所有文件 (*.*)")
+        if path:
+            self.edit_orca.setText(path)
+            self._save_settings()
+
+    def _detect_orca(self):
+        found = ORCA.find_orca_exe()
+        if found:
+            self.edit_orca.setText(found)
+            self.edit_orca.setCursorPosition(0)
+            self._save_settings()
 
     def _use_current_structure(self):
         path = ""
@@ -695,9 +763,23 @@ class OrcaLocalDialog(QDialog):
         self.edit_struct.setCursorPosition(0)
         if path:
             stem = os.path.splitext(os.path.basename(path))[0]
-            if not self.edit_name.text().strip() or \
-                    self.edit_name.text().strip() == "orca_job":
-                self.edit_name.setText(stem + "_orca")
+            current = self.edit_name.text().strip()
+            if current in ("", "orca_job") or current == self._auto_name:
+                self._auto_name = stem + "_orca"
+                self.edit_name.setText(self._auto_name)
+            charge, mult = ORCA.read_gjf_charge_mult(path)
+            if charge is not None and \
+                    self.spin_charge.minimum() <= charge <= \
+                    self.spin_charge.maximum():
+                self.spin_charge.setValue(int(charge))
+            if mult is not None and self.spin_mult.minimum() <= mult <= \
+                    self.spin_mult.maximum():
+                self.spin_mult.setValue(int(mult))
+        # 换了结构就把输出基目录复位（用户自己指定过目录时保留）
+        if self._workdir_auto:
+            self._workdir_base = ""
+            self.edit_workdir.setText(self._default_workdir())
+            self.edit_workdir.setCursorPosition(0)
         self._schedule_preview()
 
     # ── 输入预览 ────────────────────────────────────────────────────
@@ -729,7 +811,7 @@ class OrcaLocalDialog(QDialog):
             "workdir": (self.edit_workdir.text().strip()
                         or self._default_workdir()),
             "name": self.edit_name.text().strip() or "orca_job",
-            "orca_exe": self._orb_exe,
+            "orca_exe": self._current_orca_exe(),
             "multiwfn_exe": self._mw_exe,
         }
 
@@ -784,7 +866,7 @@ class OrcaLocalDialog(QDialog):
                 dispersion=str(self.cmb_disp.currentData() or ""),
                 extra_keywords=self.edit_extra.text().strip(),
                 td_nroots=self.spin_nroots.value(),
-                orca_exe=self._orb_exe)
+                orca_exe=self._current_orca_exe())
             self._prepared = prepared
             self._log("[MolStudio] 已保存输入：%s" % prepared.inp_path)
             self.status.setText(prepared.inp_path)
@@ -815,13 +897,19 @@ class OrcaLocalDialog(QDialog):
                                     self._t("need_method"))
             return
         cfg = self._config()
-        cfg["orca_exe"] = self._orb_exe or ORCA.find_orca_exe()
+        cfg["orca_exe"] = self._current_orca_exe()
         self._active_task = cfg["task"]
         if not cfg["orca_exe"]:
             QMessageBox.warning(self, self._t("title"),
                                 "找不到 orca.exe：请检查 ORCA 安装或环境变量")
             return
-        os.makedirs(cfg["workdir"] or self._default_workdir(), exist_ok=True)
+        # 一个作业一个文件夹：基目录下新建时间戳子目录，输入与输出都在里面
+        run_dir = self._resolve_run_dir()
+        self.edit_workdir.setText(run_dir)
+        self.edit_workdir.setCursorPosition(len(run_dir))
+        self._workdir_base = os.path.dirname(run_dir)
+        cfg = self._config()
+        os.makedirs(run_dir, exist_ok=True)
         self._save_settings()
         self._save_input()
         self.log_view.clear()
@@ -843,6 +931,10 @@ class OrcaLocalDialog(QDialog):
         self.btn_stop.setEnabled(running)
         self.btn_gen.setEnabled(not running)
         self.btn_save_inp.setEnabled(not running)
+        # 运行中不许改 orca.exe 路径（正在用的是启动时那一份）
+        self.edit_orca.setEnabled(not running)
+        self.btn_browse_orca.setEnabled(not running)
+        self.btn_detect_orca.setEnabled(not running)
         self.btn_molden.setEnabled(False if running else
                                    bool(self._result and self._result.gbw_path))
         self.btn_load_fchk.setEnabled(False if running else bool(
@@ -968,7 +1060,7 @@ class OrcaLocalDialog(QDialog):
             molden = parsed.get("molden_path", "")
             if not (molden and os.path.isfile(molden)):
                 molden = ORCA.convert_gbw(self._result.gbw_path,
-                                          self._orb_exe)
+                                          self._current_orca_exe())
                 parsed["molden_path"] = molden
                 self._log("[MolStudio] Molden：%s" % molden)
             self._res_labels["molden_path"].setText(molden)
@@ -996,9 +1088,15 @@ class OrcaLocalDialog(QDialog):
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def _open_workdir(self):
-        wd = self.edit_workdir.text().strip() or self._default_workdir()
-        if os.path.isdir(wd):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(wd))
+        for cand in ((self._result.prepared.workdir
+                      if self._result is not None else ""),
+                     (self._prepared.workdir
+                      if self._prepared is not None else ""),
+                     self.edit_workdir.text().strip()
+                     or self._default_workdir()):
+            if cand and os.path.isdir(cand):
+                QDesktopServices.openUrl(QUrl.fromLocalFile(cand))
+                return
 
     def _copy_command(self):
         cmd = ""
@@ -1007,7 +1105,7 @@ class OrcaLocalDialog(QDialog):
         elif self._prepared is not None:
             cmd = self._prepared.command_str
         else:
-            exe = self._orb_exe or ORCA.find_orca_exe() or "orca.exe"
+            exe = self._current_orca_exe() or "orca.exe"
             name = self.edit_name.text().strip() or "orca_job"
             cmd = ORCA.command_preview(
                 [exe, os.path.join(self.edit_workdir.text().strip() or ".",

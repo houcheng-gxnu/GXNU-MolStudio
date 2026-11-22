@@ -248,6 +248,7 @@ _CV_EN = {
     "选择…": "Pick…",
     "景深雾化": "Depth fade",
     "后处理抗锯齿": "Post AA",
+    "3.0× 精细": "3.0× Fine",
     "线性空间光照": "Linear light",
     "边缘暗化:": "Edge darken:",
     "阴影宽度:": "Shadow width:",
@@ -294,16 +295,19 @@ _CV_EN = {
     "距离": "Distance",
     "键角": "Angle",
     "二面角": "Dihedral",
+    "导出3D": "Export 3D",
     # 导出图片格式下拉（下拉条目本身是 PNG/JPG/TIFF/SVG，中英一致，无需翻译）
 }
 
-# 「导出图片」格式下拉项：(扩展名, 下拉里显示的短名)
-# 短名放下拉框里（选框窄、一眼看清选的是哪种），四种格式的差异走下拉框 tooltip。
+# 画布导出格式下拉项：(扩展名, 下拉里显示的短名)
+# 前四种是高分辨率图片；GLB 走 PowerPoint 3D 模型导出，可同时携带当前
+# 球棍几何与可见的正 / 负相位等值面。
 _EXPORT_MENU_ITEMS = (
     ("png", "PNG"),
     ("jpg", "JPG"),
     ("tif", "TIFF"),
     ("svg", "SVG"),
+    ("glb", "GLB"),
 )
 
 
@@ -393,7 +397,7 @@ _SOBART_STYLE = {**_STYLE_NEUTRAL,
     "phase_neg":       [0.0, 0.7, 0.9],
     "bg":              [1.0, 1.0, 1.0, 1.0],
     "crosshair":       False,
-    "fade":            True,
+    "fade":            False,
     "fog_strength":    0.6,
     "shader_regs":     {'atom': [0.85, 0.7, 0.77, -0.5],
                         'orb': [0.85, 0.6, 0.385, 1.0]},
@@ -440,7 +444,7 @@ _HOUKMOL_STYLE = {**_STYLE_NEUTRAL,
     "phase_neg": [0.0, 0.6666666666666666, 1.0],
     "bg": [1.0, 1.0, 1.0, 1.0],
     "crosshair": False,
-    "fade": True,
+    "fade": False,
     "carbon": None,
     "hydrogen": None,
 }
@@ -496,7 +500,7 @@ _IQMOL_STYLE = {**_STYLE_NEUTRAL,
     "phase_neg": [0.0, 0.3843137254901961, 1.0],
     "bg": [1.0, 1.0, 1.0, 1.0],
     "crosshair": False,
-    "fade": True,
+    "fade": False,
     "carbon": None,
     "hydrogen": None,
 }
@@ -537,7 +541,7 @@ _IBOVIEW_STYLE = {**_STYLE_NEUTRAL,
     "phase_neg": [0.4, 0.6235294117647059, 1.0],
     "bg": [1.0, 1.0, 1.0, 1.0],
     "crosshair": False,
-    "fade": True,
+    "fade": False,
     "carbon": None,
     "hydrogen": None,
     "hide_hydrogens": False,
@@ -590,7 +594,7 @@ _MOLSTUDIO_STYLE = {**_STYLE_NEUTRAL,
     "phase_neg": [0.5, 0.9, 0.1],
     "bg": [1.0, 1.0, 1.0, 1.0],
     "crosshair": False,
-    "fade": True,
+    "fade": False,
     "carbon": None,
     "hydrogen": None,
     "hide_hydrogens": False,
@@ -644,8 +648,8 @@ _VESTA_STYLE.update({
     "roughness": 0.55,                         # 0.45 → 0.55
     "coat_roughness": 0.15,                    # 0.10 → 0.15
     "coat_strength": 1.78,                     # 0.80 → 1.78（清漆加强）
-    # 景深雾化与 VESTA.json 一致默认开启；强度 0.6 也取该导出的值。
-    "fade": True,
+    # 景深雾化与其他内置样式一致，默认关闭；强度值仅保留供手动开启。
+    "fade": False,
     "fog_strength": 0.6,
     # 键收腰 0.70（BOND_THINNING_DEFAULT）→ 1.00：直圆柱不收腰，与 VESTA 的
     # 键一致（VESTA 的 stick 就是等径圆柱）
@@ -745,7 +749,7 @@ _CYLVVIEW_STYLE = {**_STYLE_NEUTRAL,
     "bond_thinning": 1.0,
     "bg": [1.0, 1.0, 1.0, 1.0],
     "crosshair": False,
-    "fade": True,
+    "fade": False,
     "carbon": None,
     "hydrogen": None,
     "hide_hydrogens": False,
@@ -794,7 +798,7 @@ _HOUKMOL3D_STYLE = {**_STYLE_NEUTRAL,
     "phase_neg": [0.5, 0.9, 0.1],
     "bg": [1.0, 1.0, 1.0, 1.0],
     "crosshair": False,
-    "fade": True,
+    "fade": False,
     "carbon": None,
     "hydrogen": None,
     "hide_hydrogens": False,
@@ -2231,6 +2235,7 @@ class CubCanvasPanel(QWidget):
 
     statusChanged = pyqtSignal(str)
     paramsChanged = pyqtSignal()   # 参数区某个折叠组展开/收起时发出（主窗口据此对齐底部横带）
+    export3dRequested = pyqtSignal()  # 导出列表选中 GLB 时由主窗口执行 PPT 3D 导出
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -2411,6 +2416,12 @@ class CubCanvasPanel(QWidget):
             for i, zh in enumerate(("距离", "键角", "二面角")):
                 if i < cb.count():
                     cb.setItemText(i, _cv(zh))
+        # 超采样倍率下拉的条目（1.0× / 1.5× / 2.0× / 3.0× 精细）
+        cb = getattr(self, "_post_scale_cb", None)
+        if cb is not None:
+            for i, zh in enumerate(("1.0×", "1.5×", "2.0×", "3.0× 精细")):
+                if i < cb.count():
+                    cb.setItemText(i, _cv(zh))
         # 换行卡片的高度取决于各行标签/按钮文字宽度，切语言后要重算
         self._style_card_h = -1
         QTimer.singleShot(0, self._sync_style_card_height)
@@ -2478,6 +2489,9 @@ class CubCanvasPanel(QWidget):
             self._look_cb.addItems([d for d, _ in look_items(i18n._CURRENT_LANG)])
             self._look_cb.setCurrentIndex(idx)
             self._look_cb.blockSignals(False)
+        if (getattr(self, "_export_cb", None) is not None
+                and getattr(self, "_export_btn", None) is not None):
+            self._on_export_format_changed(self._export_cb.currentIndex())
         # 折叠组标题（▸/▾ 状态保留）
         for btn, title in getattr(self, "_fold_titles", []):
             sym = "▾" if btn.isChecked() else "▸"
@@ -2626,6 +2640,22 @@ class CubCanvasPanel(QWidget):
             "（深度衰减 11.9）—— 即 VESTA 里那种很浅的半透明面）")
         self._style_vesta_btn.clicked.connect(self._apply_vesta_style)
         h.addWidget(self._style_vesta_btn)
+        self._style_ref_btn = QPushButton("Softbox")
+        self._style_ref_btn.setObjectName("SmallBtn")
+        self._style_ref_btn.setToolTip(
+            "一键应用柔光箱高光样式：\n"
+            "纯白背景 / 银色化学键 / 正红负蓝相位 / 长条柔光箱反光 +\n"
+            "独立补光点 / 3× 超采样 + 4×4 降采样高精度抗锯齿。")
+        self._style_ref_btn.clicked.connect(self._apply_reference_gloss_style)
+        h.addWidget(self._style_ref_btn)
+        self._style_lemon_btn = QPushButton("Lemon")
+        self._style_lemon_btn.setObjectName("SmallBtn")
+        self._style_lemon_btn.setToolTip(
+            "一键应用柠檬轨道样式：\n"
+            "白色期刊底 / 深灰碳与银灰键 / 半透明柠檬黄主相 +\n"
+            "浅绿副相 / 柔和轨道高光 / 3× 超采样抗锯齿。")
+        self._style_lemon_btn.clicked.connect(self._apply_lemon_orbital_style)
+        h.addWidget(self._style_lemon_btn)
         self._clear_analysis_btn = QPushButton()
         self._clear_analysis_btn.setText(self._cv_bind(self._clear_analysis_btn, "清空样式"))
         self._clear_analysis_btn.setObjectName("SmallBtn")
@@ -2715,16 +2745,20 @@ class CubCanvasPanel(QWidget):
             "  JPG  有损压缩，体积小（不支持透明，会合成到画布底色）\n"
             "  TIFF 无损，支持透明背景（存档 / 投稿）\n"
             "  SVG  矢量容器（内嵌满分辨率位图，排版软件可直接用）\n"
+            "  GLB  PowerPoint 3D 模型，可带分子轨道等值面；\n"
+            "       PowerPoint 365 中通过「插入 → 3D 模型」使用\n"
             "也可以在保存对话框里临时改格式。",
             "setToolTip")
         btn_ex = QPushButton(self._cv_bind(QPushButton(), "导出图片"))
+        self._export_btn = btn_ex
         btn_ex.setObjectName("SmallBtn")
         btn_ex.setCursor(Qt.PointingHandCursor)
         self._cv_bind(btn_ex, "导出高分辨率图片（格式见左侧下拉）", "setToolTip")
-        btn_ex.clicked.connect(
-            lambda: self._export_image(self._export_cb.currentData() or "png"))
+        btn_ex.clicked.connect(self._export_selected)
+        self._export_cb.currentIndexChanged.connect(self._on_export_format_changed)
         # 下拉与按钮打包成一个整体：换行时「选格式 → 点导出」不会被拆到两行
         h3.addWidget(_hgroup(self._export_cb, btn_ex, spacing=6))
+        self._on_export_format_changed(self._export_cb.currentIndex())
         # ── 测量（距离 / 键角 / 二面角）──
         # 类型下拉 + 「测量」开关打包成一个整体，换行时不被拆开。
         self._measure_kind_cb = LimitedPopupComboBox(max_popup_height=160)
@@ -4193,7 +4227,7 @@ class CubCanvasPanel(QWidget):
         # 景深雾化（IboView Fade：远处向背景色淡出）
         self._fade_chk = QCheckBox()
         self._fade_chk.setText(self._cv_bind(self._fade_chk, "景深雾化"))
-        self._fade_chk.setChecked(True)
+        self._fade_chk.setChecked(False)
         self._fade_chk.setToolTip("关闭后远处原子/轨道不再因景深变淡发白")
         self._fade_chk.toggled.connect(self._on_fade_toggle)
         # 复选框文字挪到行首标签列（原先是"复选框当标签"、左对齐在 x=21，
@@ -4236,7 +4270,7 @@ class CubCanvasPanel(QWidget):
         gi_p.addWidget(self._promote_chk(self._post_chk), 11, 0)
 
         self._post_scale_cb = QComboBox()
-        self._post_scale_cb.addItems(["1.0×", "1.5×", "2.0×"])
+        self._post_scale_cb.addItems(["1.0×", "1.5×", "2.0×", "3.0× 精细"])
         self._post_scale_cb.setCurrentIndex(1)
         self._post_scale_cb.setToolTip("超采样倍率（1.0× = 不做超采样）")
         self._post_scale_cb.currentIndexChanged.connect(self._on_post_scale)
@@ -4760,8 +4794,27 @@ class CubCanvasPanel(QWidget):
         if not st:
             return
         self.glw.apply_style_state(st)
+        # 记录"当前出图观感"而不占用 _style_name（后者是等值面风格名）。
+        # compact bar / style menu 用它点亮 Softbox 快捷样式。
+        self.glw._active_look_key = key
         self._sync_after_look()
         self._set_status(f"已应用出图观感：{LOOK_PRESETS[key]['display']}")
+
+    def _apply_look_key(self, key):
+        """通过出图观感下拉框应用某个命名预设（供快捷样式按钮复用）。"""
+        if self.glw is None:
+            return False
+        idx = next((i for i, (_name, k) in enumerate(LOOK_ITEMS)
+                    if k == key), -1)
+        if idx < 0:
+            return False
+        self._look_cb.blockSignals(True)
+        self._look_cb.setCurrentIndex(idx)
+        self._look_cb.blockSignals(False)
+        # 直接调用应用函数：即使下拉框本来就在这一项，点击样式按钮也应把
+        # 手动改乱的参数恢复成完整预设。
+        self._on_look(idx)
+        return True
 
     def _sync_after_look(self):
         """观感预设应用后把所有相关控件拉回画布当前值。
@@ -4781,7 +4834,7 @@ class CubCanvasPanel(QWidget):
             pass
         # 景深雾化：开关 + 强度
         if hasattr(self, "_fade_chk"):
-            on = bool(getattr(self.glw, "_fade_enabled", True))
+            on = bool(getattr(self.glw, "_fade_enabled", False))
             self._fade_chk.blockSignals(True)
             self._fade_chk.setChecked(on)
             self._fade_chk.blockSignals(False)
@@ -5106,6 +5159,26 @@ class CubCanvasPanel(QWidget):
         self._set_status("已应用样式 VESTA（原子配色 = VESTA elements.ini，"
                          "化学键两端分色，同 VESTA 默认画法；等值面 = 正青 / 负黄，"
                          "不透明度 0.2，WBOIT 合成）")
+
+    def _apply_reference_gloss_style(self):
+        """一键应用参考图柔光箱高光与高精度抗锯齿。"""
+        if self.glw is None:
+            return
+        self.glw.reset_molviewer_style()
+        if not self._apply_look_key("reference-gloss"):
+            return
+        self._set_status(
+            "已应用一键样式：柔光箱高光（3× SSAA + 4×4 抗锯齿）")
+
+    def _apply_lemon_orbital_style(self):
+        """一键应用白底期刊风柠檬黄 / 浅绿轨道配色。"""
+        if self.glw is None:
+            return
+        self.glw.reset_molviewer_style()
+        if not self._apply_look_key("lemon-orbital"):
+            return
+        self._set_status(
+            "已应用一键样式：柠檬轨道（黄/绿相位 + 3× SSAA）")
 
     # ── 分子显示辅助：隐藏氢 / 保留编号 / 原子标签 ──
 
@@ -5561,7 +5634,7 @@ class CubCanvasPanel(QWidget):
         # 景深雾化：开关 + 强度。切换样式或载入存档后同步勾选框与实际画面，
         # 避免界面状态和渲染状态不一致。
         if hasattr(self, "_fade_chk"):
-            on = bool(getattr(self.glw, "_fade_enabled", True))
+            on = bool(getattr(self.glw, "_fade_enabled", False))
             self._fade_chk.blockSignals(True)
             self._fade_chk.setChecked(on)
             self._fade_chk.blockSignals(False)
@@ -6103,7 +6176,7 @@ class CubCanvasPanel(QWidget):
 
     def _on_post_scale(self, i):
         if self.glw is not None:
-            self.glw.set_postprocess(scale=(1.0, 1.5, 2.0)[i])
+            self.glw.set_postprocess(scale=(1.0, 1.5, 2.0, 3.0)[i])
 
     def _on_post_edge(self, v):
         e = v / 100.0
@@ -6169,7 +6242,8 @@ class CubCanvasPanel(QWidget):
         self._post_chk.blockSignals(False)
         self._post_scale_cb.blockSignals(True)
         self._post_scale_cb.setCurrentIndex(
-            {1.0: 0, 1.5: 1, 2.0: 2}.get(round(float(st["scale"]), 2), 1))
+            {1.0: 0, 1.5: 1, 2.0: 2, 3.0: 3}.get(
+                round(float(st["scale"]), 2), 1))
         self._post_scale_cb.blockSignals(False)
         self._post_edge_sld.blockSignals(True)
         self._post_edge_sld.setValue(int(round(float(st["edge"]) * 100)))
@@ -6329,6 +6403,28 @@ class CubCanvasPanel(QWidget):
         # 这里只在成功且需要补充说明时追加一句。
         if ok and note:
             self._set_status(f"已导出 {os.path.basename(p)} — {note}")
+
+    def _on_export_format_changed(self, _index):
+        """Update the button label when GLB becomes the selected target."""
+        fmt = str(self._export_cb.currentData() or "png").lower()
+        if fmt == "glb":
+            self._export_btn.setText(_cv("导出3D"))
+            self._export_btn.setToolTip(
+                "导出 PowerPoint 3D 模型（.glb）：\n"
+                "包含当前球棍模型与可见的分子轨道 / 等值面；\n"
+                "纯轨道场景也可以直接导出。")
+        else:
+            self._export_btn.setText(_cv("导出图片"))
+            self._export_btn.setToolTip(
+                _cv("导出高分辨率图片（格式见左侧下拉）"))
+
+    def _export_selected(self):
+        """Dispatch image export or PowerPoint GLB export from one list."""
+        fmt = str(self._export_cb.currentData() or "png").lower()
+        if fmt == "glb":
+            self.export3dRequested.emit()
+            return
+        self._export_image(fmt)
 
     # ── 拖放 ───────────────────────────────────────────────────
     def dragEnterEvent(self, e):

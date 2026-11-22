@@ -420,6 +420,49 @@ REFS = {
                 "Reactivity Theory; Wiley-VCH: Weinheim, 2022; pp 631–647. "
                 "doi:10.1002/9783527829941.ch31",
     },
+    53: {
+        "tag": "Gaussian 16",
+        "tag_en": "Gaussian 16",
+        "text": "Frisch, M. J.; Trucks, G. W.; Schlegel, H. B.; Scuseria, G. E.; "
+                "Robb, M. A.; et al. Gaussian 16, Revision A.03; Gaussian, Inc.: "
+                "Wallingford, CT, 2016.",
+    },
+    54: {
+        "tag": "xTBridge（联用接口）",
+        "tag_en": "xTBridge (bridge interface)",
+        "text": "houcheng-gxnu. xTBridge: Gaussian + xTB external interface "
+                "(MIT License). https://github.com/houcheng-gxnu/xTBridge",
+    },
+    55: {
+        "tag": "AUTOF 稳态微动力学",
+        "tag_en": "AUTOF steady-state microkinetics",
+        "text": "Uhe, A.; Kozuch, S.; Shaik, S. Automatic Analysis of Computed "
+                "Catalytic Cycles. J. Comput. Chem. 2011, 32, 978-985.",
+    },
+    56: {
+        "tag": "LOBA 原文",
+        "tag_en": "LOBA paper",
+        "text": "Thom, A. J. W.; Sundstrom, E. J.; Head-Gordon, M. LOBA: a "
+                "localized orbital bonding analysis to calculate oxidation "
+                "states, with application to a model water oxidation catalyst. "
+                "Phys. Chem. Chem. Phys. 2009, 11, 11297–11304. "
+                "doi:10.1039/b915364k",
+    },
+    57: {
+        "tag": "LOBA 氧化态教程",
+        "tag_en": "LOBA oxidation-state tutorial",
+        "text": "Lu, T. 使用Multiwfn通过LOBA方法计算氧化态 "
+                "(Calculating oxidation states using the LOBA method in "
+                "Multiwfn); http://sobereva.com/362 (accessed 2026).",
+    },
+    58: {
+        "tag": "自旋密度与自旋布居教程",
+        "tag_en": "Spin density and spin population tutorial",
+        "text": "Lu, T. 谈谈自旋密度、自旋布居以及在Multiwfn中的绘制和计算 "
+                "(Spin density, spin population as well as their plotting and "
+                "calculation in Multiwfn); http://sobereva.com/353 "
+                "(accessed 2026).",
+    },
 }
 
 
@@ -474,6 +517,12 @@ TABS = {
             _r(6, "engine", "本开发周期实测所用版本，方法部分应注明以便复现",
                "The build tested in this cycle; state the version for "
                "reproducibility."),
+            _r(58, "method", "自旋密度 α−β 的定义、三维等值面与原子空间积分"
+                             "（原子自旋布居）的区别；本页采用 Hirshfeld* "
+                             "原子空间积分",
+               "Definition of α−β spin density, distinction between the 3D "
+               "isosurface and atomic-space spin population, and the Hirshfeld* "
+               "atomic integration used here."),
         ],
     },
     "tab_lmo": {
@@ -500,6 +549,15 @@ TABS = {
                              "单中心 / 双中心指认的解读",
                "Meaning and workflow of LMOs, comparison with NBO / AdNDP, and how to "
                "read the single-/two-center assignments."),
+            _r(56, "method", "LOBA 的定义：Hirshfeld 轨道成分达到阈值后把电子"
+                             "归属给原子，再由核电荷估算氧化态",
+               "Definition of LOBA: assign electrons after Hirshfeld orbital "
+               "contributions reach a threshold, then estimate oxidation states "
+               "from nuclear charges."),
+            _r(57, "method", "本页 8 → 100 调用顺序、50% 默认阈值、片段与 mLOBA "
+                             "选项的教程依据",
+               "Tutorial basis for the 8 → 100 sequence, 50% default, fragments "
+               "and the mLOBA option on this page."),
         ],
         "note_zh": "轨道定域化只对占轨道的酉变换，总能量、电子密度、ELF 等可观测量"
                    "不变；默认只定域化占据轨道。使用弥散函数（阴离子、强外场）时"
@@ -785,6 +843,21 @@ TABS = {
                "TOF = (kBT/h)·exp(−δE/RT)."),
         ],
     },
+    "tab_microkinetics": {
+        "zh": "微观动力学", "en": "Microkinetics",
+        "refs": [
+            _r(12, "method", "能量跨度模型与 TDI/TDTS 判据（δE 对照）",
+               "Energetic span model and TDI/TDTS criteria (δE comparison)."),
+            _r(55, "method", "AUTOF 精确稳态 TOF、XTOF、覆盖度、失活与时间演化",
+               "AUTOF exact steady-state TOF, XTOF, coverages, deactivation "
+               "and time evolution."),
+        ],
+        "note_zh": "公式独立实现，未复制 AUTOF Excel 版 VBA 源码。修改版发表结果请注明改动，"
+                   "并引用 Kozuch, WIREs Comput. Mol. Sci. 2011（AUTOF 程序说明）。",
+        "note_en": "Independent implementation of the published equations; no VBA code "
+                   "was copied. Modified versions must state the changes and cite "
+                   "Kozuch, WIREs Comput. Mol. Sci. 2011 (AUTOF program note).",
+    },
     "tab_ircsplit": {
         "zh": "IRC 拆分", "en": "IRC Split",
         "refs": [
@@ -863,6 +936,32 @@ TABS = {
                    "line, runs the job, and parses/plots the results. Command "
                    "construction and output parsing are informed by the "
                    "author's xTBridge project (MIT).",
+    },
+    "tab_gaussian": {
+        "zh": "高斯计算", "en": "Gaussian",
+        "refs": [
+            _r(53, "engine", "Gaussian 16 程序本身（本页调用外部 g16.exe；"
+                             "发表时请按所用版本引用）",
+               "The Gaussian 16 program itself (this tab calls an external "
+               "g16.exe; cite the installed version)."),
+            _r(36, "engine", "联用模式下由 xTB 提供每步能量 / 梯度 / Hessian",
+               "In bridge mode xTB supplies energy / gradient / Hessian at "
+               "every optimization step."),
+            _r(54, "engine", "高斯 External 联用接口（gau_xtb.py）的来源，MIT",
+               "Source of the Gaussian external bridge (gau_xtb.py), MIT."),
+        ],
+        "note_zh": "本页**不包含** Gaussian：g16 是商业程序，需用户自行安装并在"
+                   "页面里指定可执行文件。「高斯 × xTB 联用」通过 Gaussian 的 "
+                   "external= 接口让 xTB 提供能量与梯度，联用脚本移植自 xTBridge"
+                   "（MIT，[54]），其思路源自 Tian Lu 的 gau_xtb 方案。发表时请"
+                   "同时引用 Gaussian 版本与所用 xTB 方法原文。",
+        "note_en": "This tab does **not** bundle Gaussian: g16 is commercial "
+                   "software; install it yourself and point the panel to the "
+                   "executable. The Gaussian × xTB bridge uses Gaussian's "
+                   "external= interface so that xTB supplies energy and "
+                   "gradient; the bridge script is ported from xTBridge (MIT, "
+                   "[54]), which follows Tian Lu's original gau_xtb scheme. "
+                   "Cite the Gaussian version and the xTB method paper.",
     },
     "tab_ow_fukui": {
         "zh": "福井函数", "en": "Fukui",

@@ -74,8 +74,10 @@ def test_orbital_tab_controls(lib):
     assert lib.is_orbital_page()
     assert lib.btn_visualize.isEnabled()
     assert "等值面" in lib.btn_visualize.text()
-    # 轨道不是 XYZ / CIF 结构，.glb 导出按钮必须禁用
-    assert not lib.btn_export.isEnabled()
+    # 轨道等值面可以导出 .glb（只含正 / 负相位两层，不含原子与键）
+    assert lib.btn_export.isEnabled()
+    assert "轨道" in lib.btn_export.text() and "glb" in lib.btn_export.text().lower()
+    assert lib.btn_export.toolTip()
     assert not lib.btn_crystal_tab.isEnabled()
     assert lib.current_entry() is None
     view = lib.orbital_view
@@ -133,6 +135,140 @@ def test_visualize_forwards_spec_iso_quality(lib, monkeypatch):
     assert calls[-1][2] == "high"
     view.edit_search.clear()
     _pump(20)
+
+
+def test_export_forwards_spec_iso_quality():
+    """「导出轨道 3D」必须把轨道页当前选中的 spec / iso / 精度交给主窗口。"""
+    from molstudio.panels.library_panel import LibraryPanel
+
+    captured = []
+    panel = LibraryPanel(
+        lang="zh",
+        on_export_orbital=lambda spec, iso, quality, opt: captured.append(
+            (spec.id, iso, quality, opt)))
+    try:
+        panel.sub_tabs.setCurrentIndex(2)
+        _pump(30)
+        view = panel.orbital_view
+        view.edit_search.setText("3dxy")
+        _pump(20)
+        view.spin_iso.setValue(0.12)
+        view.cmb_quality.setCurrentIndex(view.cmb_quality.findData("high"))
+        panel._export_current()
+        assert len(captured) == 1
+        ident, iso, quality, options = captured[0]
+        assert ident == "3dxy"
+        assert iso == pytest.approx(0.12)
+        assert quality == "high"
+        assert options.include_surfaces is True
+    finally:
+        panel.deleteLater()
+
+
+def test_main_window_exports_surface_only_orbital_glb(win, monkeypatch, tmp_path):
+    """结构库按钮 → 主窗口回调 → .glb：只有正负相位两层，没有原子 / Molecule 材质。"""
+    from molstudio.core.molecule_export import validate_glb
+
+    out = tmp_path / "2pz_ppt3d.glb"
+    monkeypatch.setattr(
+        win, "_ppt3d_save_path", lambda stem, start_dir=None: str(out))
+    reports = []
+    monkeypatch.setattr(win, "_ppt3d_report",
+                        lambda *args, **kwargs: reports.append((args, kwargs)))
+
+    panel = win.library_panel
+    panel.sub_tabs.setCurrentIndex(2)
+    _pump(30)
+    view = panel.orbital_view
+    view.edit_search.setText("2pz")
+    _pump(20)
+    view.spin_iso.setValue(0.08)
+    view.cmb_quality.setCurrentIndex(view.cmb_quality.findData("low"))
+    try:
+        panel._export_current()          # 真的走面板 → 回调这条链路
+    finally:
+        view.edit_search.clear()
+        _pump(20)
+
+    gltf = validate_glb(out)
+    chemistry = gltf["extras"]["chemistry"]
+    assert chemistry["atoms"] == 0 and chemistry["bonds"] == 0
+    assert [layer["kind"] for layer in chemistry["surface_layers"]] == [
+        "orbital", "orbital"]
+    assert len(gltf["meshes"][0]["primitives"]) == 2
+    assert "Molecule" not in [m["name"] for m in gltf["materials"]]
+    assert reports, "导出后必须给用户结果反馈"
+    note = reports[-1][1]["note"]
+    assert "2p" in note and "iso=0.080" in note
+
+
+def test_orbital_visualization_clears_stale_molecule(win):
+    """画布上的旧分子必须让位给轨道：否则屏幕有球棍、导出的 .glb 只有等值面。"""
+    from molstudio.core.atomic_orbital import orbital_by_id
+    from molstudio.core.molecule_library import load_library, molecule_path
+
+    entry = load_library()[0]
+    win._library_visualize_molecule(str(molecule_path(entry)), entry)
+    _pump(200)
+    glw = win.cub_canvas.glw
+    assert glw._molecule, "分子没有送到画布，测试前提不成立"
+
+    win._library_visualize_orbital(orbital_by_id("2pz"), 0.08, "low")
+    _pump(300)
+    assert glw._molecule is None, "载入原子轨道后旧分子的球棍仍留在画布上"
+    assert win._get_canvas_structure() is None
+    assert glw._pos_surf is not None and glw._pos_surf.vertex_count > 0
+    assert glw._neg_surf is not None and glw._neg_surf.vertex_count > 0
+
+
+def test_toolbar_export_points_to_the_orbital_export(monkeypatch):
+    """画布上只有等值面（无原子）时，工具栏 PPT 3D 直接走等值面 GLB 导出，
+    而不是弹「请先载入分子」。"""
+    from types import SimpleNamespace
+
+    from PyQt5.QtWidgets import QMessageBox
+
+    from molstudio.ui.main_window import OrbitalVisApp
+
+    exported = []
+    fake = SimpleNamespace(
+        cub_canvas=SimpleNamespace(
+            glw=SimpleNamespace(_pos_surf=object(), _neg_surf=None)),
+        _get_canvas_structure=lambda: None,
+        _lang="zh",
+        _export_canvas_surfaces_ppt3d=lambda: exported.append(True))
+    messages = []
+    monkeypatch.setattr(QMessageBox, "information",
+                        lambda *args, **kwargs: messages.append(args))
+    OrbitalVisApp._export_current_ppt3d(fake)
+    assert exported == [True], "纯等值面画布应直接导出 GLB"
+    assert not messages, "不应再提示「请先载入分子」"
+
+
+def test_small_iso_cube_expands_and_surface_closes(win):
+    """iso 调到 0.005 时 4f 会伸出基准立方体：cube 必须外扩，画布表面要闭合。"""
+    import numpy as np
+
+    from molstudio.core.atomic_orbital import orbital_by_id
+
+    # 先生成在默认 iso，cube 仍按 iso 下限（0.005）预留外扩量
+    win._library_visualize_orbital(orbital_by_id("4fz3"), 0.06, "low")
+    _pump(400)
+    glw = win.cub_canvas.glw
+    half = float(-glw._cube.origin[0])
+    assert half > 27 * 1.5, "4f 在 iso=0.005 时 cube 没有外扩（半边长 %.1f）" % half
+    # 之后在画布上把 iso 继续调到下限，同一份 cube 仍应抽得出闭合表面
+    win.cub_canvas.set_isovalue(0.005)
+    _pump(300)
+    assert glw._isovalue == 0.005
+    for surface in (glw._pos_surf, glw._neg_surf):
+        assert surface is not None and surface.vertex_count > 0
+        tri = np.asarray(surface.indices).reshape(-1, 3)
+        edges = np.sort(np.concatenate(
+            [tri[:, [0, 1]], tri[:, [1, 2]], tri[:, [2, 0]]]), axis=1)
+        _, counts = np.unique(edges, axis=0, return_counts=True)
+        assert int((counts == 1).sum()) == 0, "画布等值面仍有开放边（被截断）"
+    assert "已按 iso 下限" in win.log_text.toPlainText()
 
 
 def test_main_window_writes_cube(win, lib, monkeypatch, tmp_path):
@@ -291,9 +427,11 @@ def test_language_refresh_keeps_orbital_page(lib):
     _pump(30)
     assert "Orbitals" in tabs.tabText(2)
     assert "isosurface" in lib.btn_visualize.text().lower()
+    assert "orbital" in lib.btn_export.text().lower()
     assert lib.orbital_view.cmb_group.itemText(5) == "Hybrid orbitals"
     assert lib.orbital_view.current_spec() is not None
     lib.set_lang("zh")
     _pump(30)
     assert "电子结构" in tabs.tabText(2)
     assert "等值面" in lib.btn_visualize.text()
+    assert "轨道" in lib.btn_export.text()

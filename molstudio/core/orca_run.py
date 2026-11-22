@@ -47,8 +47,12 @@ __all__ = [
     "prepare_job", "run_job", "run_local", "parse_output",
     "parse_frequencies", "parse_geometry", "parse_orbitals",
     "parse_charges", "convert_gbw", "molden_to_fchk", "command_preview",
-    "gbw_path_for", "read_structure_file",
+    "gbw_path_for", "read_structure_file", "read_gjf_charge_mult",
+    "resolve_run_dir", "RUN_STAMP_FORMAT",
 ]
+
+#: 每次运行目录名里的时间戳格式（与 xTB 页一致）
+RUN_STAMP_FORMAT = "%Y%m%d_%H%M%S"
 
 #: 任务类型 → ORCA 简单关键字 / Gaussian 关键字 / 中文名
 JOB_TYPES = {
@@ -241,8 +245,6 @@ def build_input(symbols, coords, charge=0, mult=1, method="B3LYP",
         maxcore = int(maxcore)
     except (TypeError, ValueError) as exc:
         raise OrcaError("电荷/多重度/核数/内存必须是整数") from exc
-    if charge < 0:
-        raise OrcaError("电荷必须是整数（负电荷直接填负值）")
     if mult < 1:
         raise OrcaError("多重度至少为 1")
     if nprocs < 1:
@@ -332,10 +334,58 @@ def read_structure_file(path):
                                        for row in coords]
 
 
+#: Gaussian 输入里「电荷 多重度」那一行
+_GJF_CM_RE = re.compile(r"^\s*([+-]?\d+)\s+([+-]?\d+)\s*$")
+
+
+def read_gjf_charge_mult(path):
+    """读取 Gaussian ``.gjf/.com`` 的电荷与多重度，返回 ``(charge, mult)``。
+
+    取路线段之后第一条「两个整数」的行（与
+    :func:`molstudio.core.surface_projection.load_atoms` 定位原子块用同一条
+    规则）。不是 gjf/com、或读不到时返回 ``(None, None)``，调用方保持原值。
+    """
+    path = str(path)
+    if Path(path).suffix.lower() not in (".gjf", ".com"):
+        return None, None
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None, None
+    for line in text.splitlines():
+        m = _GJF_CM_RE.match(line)
+        if not m:
+            continue
+        charge, mult = int(m.group(1)), int(m.group(2))
+        if mult < 1:
+            continue
+        return charge, mult
+    return None, None
+
+
+def resolve_run_dir(base, stamp=None) -> str:
+    """返回一次运行的专属目录 ``<base>/<时间戳>``（**不创建**）。
+
+    ORCA 一次计算会在工作目录里堆十几个文件（``.out`` / ``.gbw`` /
+    ``.property.txt`` / ``.bas*`` / ``.int.tmp`` …），不同分子共用目录会互相
+    覆盖，所以每次运行都给独立子目录（与 xTB 页一致）。同名（同一秒内重跑）
+    时追加 ``_1`` / ``_2`` 后缀。
+    """
+    base = str(Path(str(base)).expanduser())
+    stamp = str(stamp or time.strftime(RUN_STAMP_FORMAT))
+    run_dir = os.path.join(base, stamp)
+    n = 1
+    while os.path.exists(run_dir):
+        run_dir = os.path.join(base, "%s_%d" % (stamp, n))
+        n += 1
+    return run_dir
+
+
 def prepare_job(workdir, name, symbols, coords, **kwargs):
     """把输入写到 ``workdir/name.inp``，返回 :class:`OrcaPreparedJob`。
 
-    ``workdir`` 不存在会自动创建；``name`` 非法字符会被替换。
+    ``workdir`` 不存在会自动创建；``name`` 非法字符会被替换。界面通常传
+    :func:`resolve_run_dir` 得到的**本次运行目录**，一个作业一个文件夹。
     """
     workdir = str(Path(workdir).expanduser().resolve())
     os.makedirs(workdir, exist_ok=True)

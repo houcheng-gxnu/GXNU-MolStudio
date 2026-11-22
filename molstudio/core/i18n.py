@@ -127,16 +127,62 @@ TR = {
     "tab_orbit_hint": {"zh": "双击行在画布中渲染", "en": "Double-click row to render in canvas"},
     "lbl_orbit_hint": {"zh": "双击行可视化", "en": "Double-click row to visualize"},
     # ── 自旋密度 ──
-    "spin_density_btn": {"zh": "自旋密度", "en": "Spin Density"},
+    "spin_density_btn": {"zh": "自旋密度 / 原子布居", "en": "Spin Density / Populations"},
     "spin_density_btn_tip": {
-        "zh": "用 Multiwfn 生成 α−β 自旋密度 cube 并显示为等值面（需开壳层 fchk）。\n"
+        "zh": "用 Multiwfn 生成 α−β 自旋密度 cube 并显示为等值面，"
+              "同时把自旋密度在 Hirshfeld 原子空间中积分，列出每个原子的自旋布居。\n"
               "取面阈值默认 0.001；要改就去可视化 tab 拖「等值面大小」滑块（实时生效）",
-        "en": "Generate the α−β spin-density cube with Multiwfn and show it as an isosurface (open-shell fchk required).\n"
-              "Default isovalue 0.001; to change it, drag the \"Isosurface\" slider in the Visualization tab (live)"},
-    "spin_density_gen": {"zh": "生成自旋密度（需开壳层 fchk）…", "en": "Generating spin density (open-shell fchk required)..."},
-    "spin_density_done": {"zh": "自旋密度已显示：{name}", "en": "Spin density shown: {name}"},
+        "en": "Generate the α−β spin-density cube for the isosurface, then integrate "
+              "spin density in Hirshfeld atomic space and list each atom's spin population.\n"
+              "The default isovalue is 0.001; change it with the live Isosurface slider "
+              "in the Visualization tab."},
+    "spin_density_gen": {"zh": "生成自旋密度并计算 Hirshfeld 原子自旋布居…", "en": "Generating spin density and Hirshfeld atomic spin populations..."},
+    "spin_density_done": {"zh": "自旋密度已显示，原子自旋布居表已更新：{name}",
+                          "en": "Spin density shown and atomic spin populations updated: {name}"},
     "spin_density_failed": {"zh": "自旋密度生成失败（请确认 fchk 为开壳层且 Multiwfn 路径正确）", "en": "Spin density generation failed (check open-shell fchk and Multiwfn path)"},
+    "spin_density_stopped": {"zh": "自旋密度分析已停止", "en": "Spin-density analysis stopped"},
     "spin_density_need_fchk": {"zh": "请先选择 .fchk 文件（开壳层）", "en": "Select an open-shell .fchk file first"},
+    "spin_pop_title": {"zh": "Hirshfeld 原子自旋布居", "en": "Hirshfeld Atomic Spin Populations"},
+    "spin_pop_tab": {"zh": "自旋布居", "en": "Spin populations"},
+    "spin_pop_hint": {
+        "zh": "自旋布居 = 三维自旋密度 α−β 在原子空间中的积分（单位：电子数）。"
+              "正值表示该原子空间 α 电子占优，负值表示 β 电子占优。"
+              "<a href=\"http://sobereva.com/353\">自旋密度与自旋布居教程</a>",
+        "en": "Spin population is the 3D spin density α−β integrated over an atomic "
+              "space (electron units). Positive means α-rich; negative means β-rich. "
+              "<a href=\"http://sobereva.com/353\">Spin-density tutorial</a>",
+    },
+    "spin_pop_empty": {"zh": "运行上方「自旋密度 / 原子布居」后在此列出每个原子。",
+                       "en": "Run Spin Density / Populations to list every atom here."},
+    "spin_pop_computing": {"zh": "正在计算 Hirshfeld 原子自旋布居…",
+                           "en": "Computing Hirshfeld atomic spin populations..."},
+    "spin_pop_done": {"zh": "原子自旋布居计算完成（Hirshfeld*）",
+                      "en": "Atomic spin populations complete (Hirshfeld*)"},
+    "spin_pop_failed": {"zh": "原子自旋布居计算失败：{msg}",
+                        "en": "Atomic spin population calculation failed: {msg}"},
+    "spin_pop_summary": {
+        "zh": "{method} 原子空间积分 · 日志：{log}",
+        "en": "{method} atomic-space integration · Log: {log}",
+    },
+    "spin_pop_metric_sum": {"zh": "Σ(α−β)", "en": "Σ(α−β)"},
+    "spin_pop_metric_abs": {"zh": "Σ|α−β|", "en": "Σ|α−β|"},
+    "spin_pop_metric_expected": {"zh": "体系 α−β", "en": "System α−β"},
+    "spin_pop_metric_error": {"zh": "积分误差", "en": "Integration error"},
+    "spin_pop_integration_warning": {
+        "zh": "积分总和与体系 α−β 电子数相差 {error}；请检查日志或波函数。",
+        "en": "Integrated sum differs from α−β electron count by {error}; check the log "
+              "or wavefunction.",
+    },
+    "spin_pop_col_atom": {"zh": "原子", "en": "Atom"},
+    "spin_pop_col_element": {"zh": "元素", "en": "Element"},
+    "spin_pop_col_signed": {"zh": "α−β", "en": "α−β"},
+    "spin_pop_col_magnitude": {"zh": "|α−β|", "en": "|α−β|"},
+    "spin_pop_col_share": {"zh": "占比 (%)", "en": "Share (%)"},
+    "spin_pop_export": {"zh": "导出自旋布居 CSV", "en": "Export Spin-Population CSV"},
+    "spin_pop_export_tip": {"zh": "导出逐原子自旋布居、绝对值和占比",
+                            "en": "Export atomic spin populations, magnitudes and shares"},
+    "spin_pop_need_result": {"zh": "尚未生成原子自旋布居结果",
+                             "en": "No atomic spin-population result is available yet"},
     # ── 轨道 tab 网格精度（MO cube / 自旋密度 cube 生成共用）──
     "orbit_grid": {"zh": "网格精度:", "en": "Grid:"},
     "orbit_grid_tip": {
@@ -213,6 +259,7 @@ TR = {
     "tab_ow_fukui": {"zh": "福井函数", "en": "Fukui"},
     "tab_xtb": {"zh": "xTB 计算", "en": "xTB"},
     "tab_orca": {"zh": "ORCA 计算", "en": "ORCA"},
+    "tab_gaussian": {"zh": "高斯计算", "en": "Gaussian"},
     "tab_irc": {"zh": "IRC 分析", "en": "IRC"},
     "tab_di": {"zh": "DI 分析", "en": "DI"},
     "tab_asm_irc": {"zh": "ASM 扫描", "en": "ASM"},
@@ -220,6 +267,7 @@ TR = {
     "tab_crystal": {"zh": "晶体", "en": "Crystal"},
     "tab_library": {"zh": "结构库", "en": "Library"},
     "tab_esm": {"zh": "能量跨度", "en": "ESM"},
+    "tab_microkinetics": {"zh": "微观动力学", "en": "Microkinetics"},
     "tab_ircsplit": {"zh": "IRC 拆分", "en": "IRC Split"},
     "tab_viz": {"zh": "可视化", "en": "View"},
     "tab_log": {"zh": "日志", "en": "Log"},

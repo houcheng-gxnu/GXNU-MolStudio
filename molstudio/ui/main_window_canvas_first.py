@@ -59,6 +59,8 @@ ONE_CLICK_STYLES = (
     ("MolStudio", "_style_ms_btn"),
     ("CYLview", "_style_cv_btn"),
     ("VESTA", "_style_vesta_btn"),
+    ("Softbox", "_style_ref_btn"),
+    ("Lemon", "_style_lemon_btn"),
 )
 
 

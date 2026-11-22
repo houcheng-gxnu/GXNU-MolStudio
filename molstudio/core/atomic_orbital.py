@@ -74,9 +74,10 @@ from scipy.special import lpmv
 
 __all__ = [
     "OrbitalSpec", "GROUP_ORDER", "GROUP_LABELS", "QUALITY_LEVELS",
+    "MIN_ISOVALUE",
     "orbital_library", "orbital_by_id", "angular_key", "real_harmonic",
     "radial_hydrogenic", "radial_sto", "radial_sto_shell", "evaluate_orbital",
-    "generate_field", "write_orbital_cube", "build_orbital_cube",
+    "generate_field", "iso_surfaces", "write_orbital_cube", "build_orbital_cube",
 ]
 
 
@@ -113,6 +114,11 @@ GROUP_LABELS = {
 #: 偶数格会把 1s / 2s 的核处峰值漏掉（48³ 时 1s 峰值被测成 0.420 而非
 #: 解析值 0.564），杂化轨道在核附近的相位也会采样偏。
 QUALITY_LEVELS = {"low": 49, "medium": 65, "high": 81}
+
+#: 画布 / 面板允许的最小 iso（``CubCanvasPanel.set_isovalue`` 与电子结构库
+#: 的 spin 下限）。画布 cube 按这个最坏情况预留外扩量，用户之后在画布上
+#: 继续把 iso 调小也不会把瓣尖切掉。
+MIN_ISOVALUE = 0.005
 
 _BOHR_TO_ANGSTROM = 0.529177210903
 
@@ -489,8 +495,50 @@ def evaluate_orbital(spec: OrbitalSpec, x, y, z, Z: float = 1.0):
     return psi
 
 
-def generate_field(spec: OrbitalSpec, quality: str = "medium", Z: float = 1.0):
+def _fibonacci_directions(count: int) -> np.ndarray:
+    """单位球面上近似均匀的 ``count`` 个方向（确定性，无随机）。"""
+    idx = np.arange(count, dtype=np.float64) + 0.5
+    cos_theta = 1.0 - 2.0 * idx / count
+    sin_theta = np.sqrt(np.clip(1.0 - cos_theta * cos_theta, 0.0, 1.0))
+    phi = math.pi * (1.0 + 5.0 ** 0.5) * idx
+    return np.column_stack((sin_theta * np.cos(phi),
+                            sin_theta * np.sin(phi),
+                            cos_theta))
+
+
+def _outer_radius(spec: OrbitalSpec, iso: float, max_radius: float,
+                  *, Z: float = 1.0, directions: int = 384,
+                  steps: int = 320) -> float:
+    """沿球面方向找 ``|psi| >= iso`` 的最外层半径（Bohr）。
+
+    只做一维径向扫描（约 5~10 ms），比反复求整张三维网格便宜得多。返回
+    ``0`` 表示在 ``max_radius`` 内始终低于 iso。
+    """
+    if iso <= 0.0 or max_radius <= 0.0:
+        return 0.0
+    dirs = _fibonacci_directions(int(directions))
+    radii = np.linspace(1e-3, float(max_radius), int(steps))
+    points = radii[:, None, None] * dirs[None, :, :]
+    psi = evaluate_orbital(spec, points[..., 0], points[..., 1],
+                           points[..., 2], Z)
+    peak = float(np.max(np.abs(psi)))
+    if not (peak > 0.0) or not math.isfinite(peak):
+        return 0.0
+    hits = np.abs(psi / peak) >= float(iso)
+    if not hits.any():
+        return 0.0
+    return float(radii[np.any(hits, axis=1)].max())
+
+
+def generate_field(spec: OrbitalSpec, quality: str = "medium",
+                   Z: float = 1.0, iso: Optional[float] = None):
     """生成规则网格上的显示场。
+
+    ``iso`` 给出时，立方体会**先按该等值面自动外扩**（最多到基准
+    ``spec.extent`` 的 4 倍），并在返回前检查六个边界面：只要边界上仍
+    ``|psi| >= iso`` 就继续按 1.15 倍放大重来。这样画布 / VMD 在小 iso 下
+    看到的也是闭合等值面，而不是被立方体边界切掉瓣尖（f 轨道在 iso = 0.005
+    时约需 1.9 倍基准边长）。``iso=None`` 时保持原行为。
 
     返回 ``(field, origin, spacing, psi_max)``：
 
@@ -503,16 +551,104 @@ def generate_field(spec: OrbitalSpec, quality: str = "medium", Z: float = 1.0):
         raise ValueError("网格精度必须是 low / medium / high")
     n_grid = QUALITY_LEVELS[quality]
     ext = float(spec.extent)
-    axis = np.linspace(-ext, ext, n_grid, dtype=np.float64)
-    X, Y, Zc = np.meshgrid(axis, axis, axis, indexing="ij")
-    psi = evaluate_orbital(spec, X, Y, Zc, Z)
-    psi_max = float(np.max(np.abs(psi)))
-    if not (psi_max > 0) or not math.isfinite(psi_max):
-        raise ValueError("轨道 %s 的数值场异常" % spec.id)
-    field = psi / psi_max
+    level = None
+    if iso is not None:
+        try:
+            level = float(iso)
+        except (TypeError, ValueError):
+            level = None
+        if level is not None and (not math.isfinite(level) or level <= 0.0):
+            level = None
+    max_ext = ext * 4.0
+    if level is not None:
+        outer = _outer_radius(spec, level, max_ext, Z=Z)
+        if outer > 0.0:
+            # 10% 余量：球面方向是有限采样，立方体边界必须落在最外层等值面
+            # 之外；离散网格的边界检查还会再兜一次底。
+            ext = max(ext, min(max_ext, outer * 1.10))
+    field = psi_max = None
+    for _attempt in range(4):
+        axis = np.linspace(-ext, ext, n_grid, dtype=np.float64)
+        X, Y, Zc = np.meshgrid(axis, axis, axis, indexing="ij")
+        psi = evaluate_orbital(spec, X, Y, Zc, Z)
+        psi_max = float(np.max(np.abs(psi)))
+        if not (psi_max > 0) or not math.isfinite(psi_max):
+            raise ValueError("轨道 %s 的数值场异常" % spec.id)
+        field = psi / psi_max
+        if level is None:
+            break
+        edge = max(float(np.max(np.abs(field[0]))),
+                   float(np.max(np.abs(field[-1]))),
+                   float(np.max(np.abs(field[:, 0]))),
+                   float(np.max(np.abs(field[:, -1]))),
+                   float(np.max(np.abs(field[:, :, 0]))),
+                   float(np.max(np.abs(field[:, :, -1]))))
+        if edge < level * 0.98 or ext >= max_ext - 1e-9:
+            break
+        ext = min(max_ext, ext * 1.15)
     spacing = 2.0 * ext / (n_grid - 1)
     origin = np.array([-ext, -ext, -ext], dtype=np.float64)
     return field, origin, spacing, psi_max
+
+
+def iso_surfaces(spec: OrbitalSpec, n: Optional[int] = None,
+                 iso: Optional[float] = None):
+    """在网格上求值并抽等值面，返回 ``(正相位面, 负相位面)``（**Bohr**）。
+
+    ``n`` 为每轴网格点数（缺省按 ``spec.extent`` 自适应），``iso`` 缺省取
+    ``spec.iso_hint``。两条约束必须同时满足，否则抽出来的面会"瓣尖缺一块"：
+
+    **网格立方体要放大。** ``spec.extent`` 是按默认 iso 估的，iso 调小后波瓣
+    会伸出立方体，抽出来的面被边界切断、不闭合。画布上双面渲染会把断口盖住
+    看不出来，但缩略图的背面剔除会立刻露出白洞，导出的 .glb 在 PowerPoint
+    里也会看到破口（实测 3d_z² 顶瓣被切掉一个弧形缺口）。这里先按 1.35 倍开
+    立方体，若边界上 |ψ| 仍高于 iso（4f 的轴向长瓣就是这种），继续放大重试。
+
+    **网格点数按尺度自适应。** 小的 1s（extent 6）用 34³ 就够，3s / 4f 的壳只
+    有一两个体素厚，点数太少同样会抽出面片残缺。
+
+    返回的 :class:`~molstudio.core.marching_cubes.IsoSurface` 顶点与 cube /
+    画布使用同一套 Bohr 坐标；法线朝外、三角形为逆时针正面。
+    """
+    from molstudio.core.marching_cubes import CubeData, marching_cubes
+
+    ext = float(spec.extent)
+    level = float(spec.iso_hint if iso is None else iso)
+    if not math.isfinite(level) or level <= 0.0:
+        raise ValueError("等值面 iso 必须是正数")
+    if n is None:
+        n = int(min(54, max(38, round(ext * 1.8))))
+    n = max(int(n), 8)
+    half = ext * 1.35
+    psi = None
+    for _ in range(4):
+        grid = np.linspace(-half, half, n)
+        xx, yy, zz = np.meshgrid(grid, grid, grid, indexing="ij")
+        psi = evaluate_orbital(spec, xx, yy, zz)
+        peak = float(np.max(np.abs(psi))) or 1.0
+        psi = psi / peak        # 与写 cube 时同一套归一化
+        # 六个边界面上最大的 |ψ| 还高于 iso 说明面被切断，得继续放大
+        edge = max(float(np.max(np.abs(psi[0]))),
+                   float(np.max(np.abs(psi[-1]))),
+                   float(np.max(np.abs(psi[:, 0]))),
+                   float(np.max(np.abs(psi[:, -1]))),
+                   float(np.max(np.abs(psi[:, :, 0]))),
+                   float(np.max(np.abs(psi[:, :, -1]))))
+        if edge < level * 0.98:
+            break
+        half *= 1.35
+
+    cube = CubeData()
+    cube.nx = cube.ny = cube.nz = n
+    cube.origin = np.array([-half, -half, -half], dtype=np.float32)
+    step = 2.0 * half / max(n - 1, 1)
+    cube.dx = (step, 0.0, 0.0)
+    cube.dy = (0.0, step, 0.0)
+    cube.dz = (0.0, 0.0, step)
+    cube.data = psi
+
+    return (marching_cubes(cube, level, False),
+            marching_cubes(cube, -level, True))
 
 
 def write_orbital_cube(path, field, origin, spacing,
@@ -560,22 +696,32 @@ def write_orbital_cube(path, field, origin, spacing,
 
 
 def build_orbital_cube(path, spec: OrbitalSpec, quality: str = "medium",
-                       Z: float = 1.0, iso_hint: bool = False):
+                       Z: float = 1.0, iso_hint: bool = False,
+                       iso: Optional[float] = None):
     """一步到位：求值 → 归一化 → 写 cube。
 
-    返回 ``dict(path, psi_max, spacing, extent, quality, n_grid, iso_hint)``。
+    ``iso`` 不为空时，cube 立方体会按该等值面自动外扩（见
+    :func:`generate_field`），保证画布上抽出的等值面是闭合的；返回的
+    ``extent`` 是**实际**半边长，``base_extent`` 是 ``spec.extent``。
+
+    返回 ``dict(path, psi_max, spacing, extent, base_extent, quality,
+    n_grid, iso_hint)``。
     """
-    field, origin, spacing, psi_max = generate_field(spec, quality, Z)
+    field, origin, spacing, psi_max = generate_field(
+        spec, quality, Z, iso=iso)
     comment = "MolStudio %s | %s | Z=%g | q=%s" % (
         spec.id, spec.radial, Z, quality)
     write_orbital_cube(path, field, origin, spacing, comment=comment)
+    n_grid = QUALITY_LEVELS[quality]
     info = {
         "path": str(path),
         "psi_max": psi_max,
         "spacing": spacing,
-        "extent": float(spec.extent),
+        # spacing = 2*extent/(n-1)，反解出实际半边长
+        "extent": 0.5 * spacing * (n_grid - 1),
+        "base_extent": float(spec.extent),
         "quality": quality,
-        "n_grid": QUALITY_LEVELS[quality],
+        "n_grid": n_grid,
     }
     if iso_hint:
         info["iso_hint"] = float(spec.iso_hint)

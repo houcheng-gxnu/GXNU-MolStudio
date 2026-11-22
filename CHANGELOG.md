@@ -6,6 +6,292 @@ All notable changes to OrbitalViewer will be documented in this file.
 
 ## [Unreleased]
 
+### 画布卡片的左右描边被画布盖掉（看起来像「画布超出边界」）
+- `grp_canvas` 是 QWidget + QSS（白底 + 1px `#E5E9F0` 描边 + 12px 圆角），
+  但它里面的 GL 画布和工具条会把白底画满自己的子控件矩形，把父级**左右两条
+  描边整条盖住**。实测像素：卡片左边缘 `(254, 300)` 是纯白 `#FFFFFF`，
+  只有上边 y=70 处能看到 `#E5E9F0` —— 屏幕上就是「左右边界不见了、画布像
+  溢出到卡片外」。
+- 父级 `paintEvent` 永远先于子控件，描边只能放在最上层：新增
+  `_CardBorderOverlay`（透明、`WA_TransparentForMouseEvents`、只画 1px 圆角
+  描边），随卡片 resize 同步几何并 `raise_()`。窗口 `show()` 之后才建的子控件
+  必须显式 `show()` —— 第一版漏了这句，描边层一直是隐藏的。
+- 修完实测：左边缘 `(254, 300)` = `#E5E9F0`，右边缘 `(773, 300)` = `#E5E9F0`，
+  四角圆角连续，GL 画面（`win.grab()` 能抓到分子）与鼠标操作都不受影响。
+- 回归：`tests/test_reference_shell.py` 新增
+  `test_canvas_card_border_visible_on_both_sides`（抓图检查左右两列像素不为纯白、
+  描边层可见、不吃鼠标、跟随卡片尺寸）；`reference_shell` 9 passed，
+  其余 UI 套件 49 passed。
+
+### 运行日志：右上角箭头点了没反应 + 高度改为可拖动
+- **箭头为什么没用**（两个原因叠加）：
+  1. `_log_toggle_btn.clicked` 直接连了 `_toggle_log_dock`，而 Qt 会把按钮的
+     `checked=False` 当第一个位置参数传进去 —— 于是 `collapsed=False`，
+     永远是「展开」。改成 `lambda _checked=False: self._toggle_log_dock()`。
+  2. 日志正文被 `RunLogConsole` 摘进页签之后，`_toggle_log_dock` 只隐藏
+     `log_text`，页签容器仍然占着整块高度，收起看起来「什么都没发生」。
+     现在连 `_ref_log_console` 一起隐藏：dock 263px → 2px，画布当场拿回 261px。
+- **高度可拖**：新增 `_LogDockGrip`（画布与日志之间的 9px 拖动条）：上下拖动
+  实时改正文高度（向上=变高），双击恢复默认 144px；下限 56px、上限
+  `min(560, 窗口高 × 0.62)`，窗口再小也不会把画布挤没。拖动条中间是一根握把，
+  右端就是折叠箭头 —— 它终于有了明确归属（日志面板的上边缘）。
+- 折叠箭头换成 `_DockChevronButton`：自绘 1.5px 圆头 V 形（与画布工具条同一套
+  箭头语言），收起时箭头朝上，拖动条同时变成 24px 高的「运行日志」面板头，
+  仍然可以从这里拖回来。
+- `reference_shell`：不再重写 `_toggle_log_dock` 去重置 `log_text` 的 min/max
+  （实测会把拖好的高度打回 179px）；去掉 `dock.setMaximumHeight(248)` 的硬上限
+  （会把用户拖出来的高度切回去）；装入页签后标题条整条隐藏（标题、清空已隐藏，
+  折叠按钮已搬到拖动条）。
+- 回归：`tests/test_classic_nav_ui.py` 新增 `test_log_dock_arrow_and_drag`
+  （箭头真收起、画布真变高、上下拖动、双击复位）；相关 7 个测试文件 **83 passed**。
+
+### 画布底部工具条重做视觉：图标 + 自绘箭头 + 分组
+- 原来五个入口是一串等距灰字：按钮用 `ToolButtonTextOnly`，下拉指示是字体里的
+  `▾`（粗细、基线跟着字体走，和图标对不齐，小字号下发脏），胶囊是硬边框白底，
+  组与组之间没有分隔 —— 整体像"浮在画布下面的几行字"。
+- 现在新增 `_MenuButton`（`QToolButton` 子类）**整块自绘**：9px 圆角幽灵按钮、
+  hover 浅灰底、14px 线性图标（样式 / 显示 / 导出 = layers / eye / download）、
+  固定栅格 `左 9 → 图标 14 → 5 → 文字 → 7 → 箭头 7 → 右 8`，箭头是 1.5px 圆头
+  矢量 V 形（随 hover / disabled 变色）。不用默认排版的原因：QToolButton 会把
+  图标与文字贴在一起（0px，中文下像"👁显示"粘连），默认 menu-indicator 又是
+  另一种三角。
+- 胶囊改为 13px 全圆角、浅灰底 + 极淡描边，选中态淡蓝底 / 蓝字；高度 26px，
+  与 28px 的菜单按钮同一轴心。
+- 新增 `QFrame#CanvasBarSep` 分组竖线：「常用样式 | 样式·显示 | 导出」；
+  胶囊全部收起时左侧那条线自动隐藏，不会留一条悬空线。
+- 底边距 12 → 10、按钮与胶囊内边距收紧，同样宽度下胶囊数量不减
+  （实测 520px 宽：改前 2 个、改后仍 2 个）。
+- `main_window_studio._decorate_canvas_bar` 不再给自绘按钮补 `▾`、也不再强制
+  TextOnly（那会丢掉图标）；`_add_pill_separators` 检测到紧凑条已自带分组线
+  就跳过，避免出现双竖线。
+- 回归：`classic_nav / canvas_cards / studio / focus / reference_shell`
+  **51 passed**。
+
+### 画布底部「显示 ▾ / 导出 ▾」菜单项点了没反应：修好转发链路
+- **「显示 ▾」四项全部失效**（隐藏氢原子 / 显示原子编号 / 显示元素符号 /
+  透明背景），以及**「导出 ▾」里的测量开关**：菜单项只把原控件的 `checked`
+  改了，却用 `blockSignals(True)` 把原控件的 `toggled` 一起吞掉 —— 而原卡片的
+  业务槽全连在 `toggled` 上（`_on_hide_hydrogens` / `_on_atom_label_idx` /
+  `_on_atom_label_sym` / `_on_measure_mode`）。结果是勾变了、画布一点没变。
+  现在「菜单项 → 原控件」走新的 `_apply_check()`（放行 `toggled`），
+  「原控件 → 菜单项」仍用 `_set_checked_blocked()` 只镜像勾，双向同步不回环。
+- **导出菜单的三个分组标题（导出格式 / 测量 / 导出设置）此前完全看不见**：
+  `QMenu.addSection()` 也走 `::separator` 子控件，被本菜单 QSS 的
+  `height: 1px` 压成一条线。改用禁用项（`::item:disabled` 灰字），标题恢复显示。
+- 导出格式 / 测量类型点「已经选中的那一项」时勾会被翻掉（下拉没变、菜单看着
+  像一个都没选）：`_choose_combo()` 改完下拉后立刻按 `currentIndex` 重画勾，
+  菜单里始终只有一项勾着。
+- 「测量」开关与测量类型之间补一条分隔线，不再像第四个测量类型。
+- 三个菜单打开 `setToolTipsVisible(True)`：菜单项的说明一直是从原控件抄来的
+  tooltip，但 QMenu 默认不显示，用户只能看名字猜（例如「透明背景」只在导出时
+  生效、「保留 H 编号」要先勾隐藏氢原子）。
+- 逐项体检（真实鼠标点击 `QTest`，不是直接 `setChecked`）：`classic_nav` /
+  `studio` / `focus` 三套界面里，11 个一键样式、4 个显示开关、「保留 H 编号」
+  输入框（真实键入 + 回车）、5 个导出格式、3 个测量类型、测量开关、截图、
+  导出图片、清除、同步到 VMD、出图观感下拉、DPI 输入框、常用样式胶囊，
+  以及 `工具 ▾` 展开的四张卡片，全部确认生效；中英切换后菜单文字与点击同样正常。
+- 回归：`tests/test_classic_nav_ui.py` 新增
+  `test_canvas_bar_display_menu_items_really_apply` /
+  `test_canvas_bar_export_menu_items_really_apply`，逐项断言「原控件真收到
+  `toggled` / 画布状态真改变 / 保存流程真走到」，不再只断言「菜单项存在」。
+
+### NBO 页：新增「轨道来源」提示，修好 saveNBO 输入链路
+- NBO 表头上方新增一行**轨道来源**：`NBO plot` / `saveNBO fchk` / `普通 fchk`
+  / `无`（`nbo_viewer._render_source_label()`）。之前 `MO` 列的 `Alpha#9`
+  没有任何说明，用户无法判断它是 NBO 还是正则轨道；canonical 来源现在用
+  橙色明确标注"近似，不是严格 NBO"。
+- E(2) 表与 NBO 表的列宽改为「数字列按内容、供体/受体/MO 列拉伸」，
+  右侧窄面板里 `BD*(1)C5-Cl8` 不再被截成 `BD*(1)C5-…`；供体/受体单元格
+  补了完整标签 tooltip。
+- NBO 输入生成器：**输出方式下拉切换即重新生成模板**，不再需要额外点一次
+  「套用 NBO 模板」；对话框新增「提交方式」提示（g16 命令行 / GaussView，
+  saveNBO 之后要 formchk）。
+- saveNBO 模板的标题改为 `<stem> saveNBO`（原来固定写成 `<stem> NBO plot`）。
+- 高斯计算页在**载入 gjf** 或**从 NBO 生成器返回**时，把 route 里的 `pop=`
+  关键词接进「附加关键字」——该页会按自身方法/基组字段重建 route，不接住
+  就会静默丢掉 `pop=saveNBO`，跑完没有 NBO 数据；plot 模式则提示改用命令行。
+- 回归：`tests/test_nbo_*` 与 `test_gaussian_panel.py` 补了标题随模式、模式
+  联动、来源行、pop 接住/不重复/plot 提示等用例。
+
+### VMD 控制台：恢复原版 vcube 的 sob-art 原子光照
+- 对照 `E:\vcube2.0\styles\sob-art.stl` 核实并锁定原版原子参数：
+  CPK `0.600000 0.400000 30.000000 30.000000`，材质
+  `ambient 0.0 / diffuse 0.65 / specular 0.5 / shininess 0.53 /
+  mirror 0.15 / opacity 1.0 / outline 2.0 / outlinewidth 0.3 /
+  transmode 0.0`，并保留原版 0、1、3 号灯光开启、2 号关闭。
+- 修复单立方、多立方、纯分子及 IGMH 初始化 TCL 中
+  `_stl_atom` 在定义前就被绑定到原子 rep 的顺序错误。此前 VMD 首次打开
+  sob-art 会回落到默认原子材质，重新切一次样式后又正常。
+- 新增回归测试，检查原版数值以及所有初始化路径都先 `material add/change`
+  再 `mol modmaterial 0 top _stl_atom`。
+
+### VMD 控制台：新增 Softbox 棚拍样式
+- 把 MolStudio 画布的 Softbox Gloss 观感移植为独立 VMD 样式 `softbox`：
+  三盏定向棚拍灯、白底、轻量 AO、低 ambient / 高镜面材质、红色与蓝色
+  轨道相位、GaussView 完整元素配色、略大的原子球和细键。
+- VMD TCL 现在支持样式级 `light_positions`，用
+  `light N pos {x y z}` 复现画布的主光、补光和轮廓光方向；切回旧样式时
+  自动恢复 `pos default`，不会残留 Softbox 布光。
+- 针对 VMD GLSL 实时预览高光比 Tachyon 更集中、在正常缩放下不明显的问题，
+  Softbox 原子材质提高到 `specular 1.0`、降低 `shininess 0.78 → 0.50`，
+  同时降低 ambient / diffuse；预览和 Tachyon 出图都能明确看到主光高光。
+- 已用 VMD 1.9.3 + Tachyon 实际渲染苯分子与轨道等值面样例，确认材质、
+  三灯方向、透明度和背景均可正常输出。
+
+### 自旋密度页：新增 Hirshfeld 原子自旋布居表
+- 「轨道」页的「自旋密度」入口升级为「自旋密度 / 原子布居」：生成 α−β
+  自旋密度等值面的同时，调用 Multiwfn 主功能 15 → `Hirshfeld*` → 自旋密度
+  原子空间积分。
+- 新增逐原子结果表，显示元素、带符号自旋布居 α−β、绝对值和占总绝对值
+  比例；摘要给出总和、总和绝对值、体系 α−β 电子数与积分误差提示。
+- 自旋布居改为独立子页，表格占满可用高度，并提供四张指标卡、正负值配色、
+  紧凑列宽和导出按钮；计算开始后自动切入结果页。
+- 移除 cube 写出后固定等待 3 秒的旧逻辑，改为 3 次短间隔文件稳定性检查；
+  本机三重态样例的 cube 阶段由约 4.7 秒降至约 1.6 秒。
+- 结果支持 UTF-8 CSV 导出，并保存完整 `<stem>_spin_population.log`。
+  后台线程与原有 cube 生成共用停止/清理机制。
+- 测试覆盖固定输入序列、正负自旋混合解析、异常输入、真实 Multiwfn 联调及
+  主窗口表格/摘要/CSV 回归。
+
+### 轨道定域化页：新增 LOBA / mLOBA 氧化态分析
+- 定域化产出 `_LMO.fch` 后，可直接在同一页运行 Multiwfn 的轨道成分与
+  `8 → 100` LOBA 模块；默认 50% 贡献阈值，也可选择 mLOBA（每个轨道归属到
+  最大贡献原子）。
+- 支持 `1-5,7-11` 形式的片段定义，结果表显示逐原子氧化态，摘要同时给出
+  氧化态总和、体系净电荷、片段氧化态和差异提示；可导出 UTF-8 CSV 与完整
+  `_LOBA.log`。
+- Multiwfn 在独立 ASCII 临时目录中后台运行，保留中文/空格路径支持、停止、
+  超时和关窗清理；界面中英文文案、引文页与原 `sobereva.com/362` 教程链接同步。
+- 测试覆盖 LOBA 输入序列、旧版/新版数值解析、片段规范化、原子数与电荷读取、
+  界面表格/摘要/CSV/英文无中文回归，以及本机 Multiwfn 可选集成测试。
+
+### ORCA 页：可直接设置 orca.exe 路径
+- 右侧「计算设置」新增 **ORCA 可执行文件** 一行（输入框 + 浏览… + 自动检测），
+  与 xTB / 高斯页的可执行文件行一致；此前只能靠环境变量 / PATH / 常见目录
+  自动查找，装到别处就没法用。
+- 留空仍按 `ORCA_EXE` / `MOLSTUDIO_ORCA_EXE` / `ORCA_PATH`、PATH、常见目录
+  自动检测；填了就**一直用这个路径**，并写入设置（下次启动自动恢复；文件被删
+  则退回自动检测）。运行中输入框与两个按钮会禁用，避免中途换 exe。
+- 运行、`.gbw → molden` 转换、复制命令都改用当前填的路径；备用弹窗
+  （`python -m molstudio.orca_gui`）同步支持。
+- 测试：`tests/test_orca_panel.py` 增「路径可编辑 / 落盘 / 恢复 / 清空回落」
+  「自动检测按钮」「运行使用填写的路径」，`tests/test_orca_dialog.py` 增弹窗
+  版本；同时把两个测试文件的 QSettings 隔离换成显式 IniFormat（原来的
+  `setDefaultFormat` 对两参构造的 QSettings 无效，会读到本机注册表）。
+
+### 新增「高斯计算」页（与 ORCA / xTB 页同版式）+ 高斯 × xTB 联用
+- **高斯计算 tab**（左侧「常用」→ 🧮 高斯计算）：结构 → 计算设置（两列表单）→
+  按钮行 + 细进度条 → 状态 → 三页签（输入预览 / 运行日志 / 结果摘要），
+  版面与 ORCA / xTB 页完全一致。
+- 右侧参数：方法 / 基组 / 任务（SP、Opt、Freq、Opt+Freq、TS、TS+Freq、IRC、
+  TD-DFT）/ 色散 / 电荷 / 多重度 / 核数 / 内存 / 溶剂（CPCM、SMD）/ 附加关键字 /
+  工作目录 / 任务名 / g16 路径；载入 gjf 自动读电荷多重度、任务名跟随文件名。
+- 生成 `.gjf` → 本机跑 `g16.exe`，**实时跟随 `.log` 尾巴**刷新运行日志
+  （Gaussian 不往 stdout 写东西）；结果页给出能量、HOMO/LUMO/能隙、频率与虚频、
+  优化收敛、正常结束、步数、耗时与 `.log` / `.chk` / `.fchk` 路径。
+- 「转 FCHK」用同目录 `formchk.exe` 转出 `.fchk`，「载入 fchk」后现有轨道 / ESP /
+  IGMH / AIM / DOS 页面可直接分析高斯结果。一个作业一个时间戳文件夹
+  （`.gjf` / `.log` / `.chk` 都在一起），与 ORCA 页规则相同。
+- **高斯 × xTB 联用**（勾选「高斯 × xTB 联用」）：移植 xTBridge（MIT）的
+  Gaussian External 桥脚本到 `molstudio/tools/gau_xtb.py`，新增
+  `molstudio/core/xtb_bridge.py` 负责路由整理 / `external=` 注入 / 环境变量 /
+  客户端 bat。高斯只当优化器，每步能量与梯度（频率任务含 Hessian）由 xTB 提供。
+  - 自动**去掉路由里的方法关键字**（否则高斯会静默忽略 external 自己跑 SCF），
+    并给 Z>54 体系**自动补 `sdd`**（否则建基组那步就退出）；
+  - 跑完检查日志里有没有 `Running external command`，没生效会在日志里提示；
+  - 界面可预览「联用路由」和「xTB 每步命令」。
+- 新增 `tests/test_gaussian_run.py`（输入生成 / 日志解析）、
+  `tests/test_xtb_bridge.py`（路由整理 / external 注入 / 环境变量 / bat）、
+  `tests/test_gaussian_panel.py`（版面 / 预览 / 联用 / 运行流程），
+  文档 `docs/GAUSSIAN_LOCAL.md`，第三方声明补充 xTBridge（MIT）。
+
+### xTB 页：右栏版面对齐 ORCA 页（两个计算页同构）
+- **同样的分区顺序**：结构（来源文字 + 读画布 / 载入文件）→ 计算设置（标签 +
+  控件两列表单）→ 按钮行（生成输入 / 复制命令 …… 停止 / 运行 xTB）→
+  细进度条 → 状态行 → 页签区。
+- **同样的三页签**：**输入预览 / 运行日志 / 结果摘要**。输入预览展示将要执行的
+  命令行与 `input.xyz`（scan 任务附带 xcontrol）；运行日志就是上一版的实时输出
+  窗口，改成页签后与 ORCA 一致；结果摘要把能量 / gap / 电荷表 / 导出按钮 /
+  扫描曲线收进一个可滚动页，开始计算自动切到日志页、算完切到结果页。
+- 计算设置改为 ORCA 那样的两列表单（方法｜任务、电荷｜未成对电子、精度｜电子
+  温度、溶剂化｜溶剂、并行核数｜输出开关、额外参数），工作目录与 xTB 可执行
+  文件放在最下面两行。
+- 新增「生成输入」「复制命令」两个按钮（原来只有「预览命令」）。
+- 顺带修掉一个滚动静默 bug：QPlainTextEdit 在隐藏页签里追加内容后，滚条范围会
+  按「只剩 1 行」算，切回该页时最后一行卡在顶部、下面一片空白——现在切到
+  运行日志页会强制重排并保持跟随末尾。
+- 测试：`tests/test_xtb_panel.py` 增「版面与 ORCA 一致（页签 / 顺序 / 两列表单）」
+  「输入预览内容」「复制命令」「运行后切页签 + 进度 100」，共 35 项全过。
+
+### xTB 页：新增「运行输出」窗口（实时滚动，像 ORCA 页的运行日志）
+- 运行按钮下方新增深色等宽输出窗口，xTB 的 stdout / stderr **逐行实时刷新**
+  （此前只转发到主窗口日志，页内看不到计算过程）；跑完停在末尾，用户往上
+  翻看历史时不会被强行拽回底部。
+- 每次点「运行 xTB」自动清空上一次的输出，并把窗口滚动到可见位置；
+  只保留最近 3000 行（优化 / 扫描的长输出不会无限吃内存）。
+- 新增「清空输出」「复制输出」两个按钮；`xtb.out` 照旧写在运行目录里。
+- 测试：`tests/test_xtb_panel.py` 增「输出窗口追加/清空/复制」「开跑前清空旧输出」
+  两项，并在既有运行测试里校验页内窗口与主窗口日志同步。
+
+### ORCA 页：一个作业一个文件夹（输入与输出同处一室）
+- **每次运行在基目录下新建时间戳子目录**（`<基目录>/20261117_180505/`），
+  `.inp` 与 ORCA 的 `.out` / `.gbw` / `.property.txt` / `.bas*` 等输出都落在
+  里面；同一分子重跑、换分子都不会再互相覆盖（此前全部写进同一个全局目录，
+  同名文件直接覆盖上一次结果）。
+- **基目录跟随结构文件**：载入 `water.gjf` 后默认输出到文件同级的
+  `water_ORCA/`（画布结构才退回「文档/MolStudio_ORCA」）；用户自己选过目录
+  则一直用用户的（`workdir_auto` 记在设置里，老配置视为自动，不会被旧路径
+  锁死）。
+- **任务名跟随文件名**：载入 `water.gjf` → `water_orca`；换载
+  `methane.gjf` → `methane_orca`（此前只有名字为空 / 等于 `orca_job` 时才改，
+  换成第二个分子仍叫 `water_orca`，输入文件被静默覆盖）。用户手改过任务名后
+  不再自动改。
+- **读 gjf 的电荷 / 多重度**：`orca_run.read_gjf_charge_mult()` 解析 gjf、com
+  头部的 `电荷 多重度` 行，载入后自动填进右侧参数（主窗口打开 gjf 再切到
+  ORCA 页同样生效），不再默认 `0 1` 把阴离子当中性分子算。
+- 修掉 `build_input()` 拒绝负电荷的问题（此前 `charge=-1` 直接报错，阴离子
+  根本生成不了输入）；「打开目录」按钮优先打开**本次运行**的目录。
+- 备用弹窗 `orca_local_dialog` 同步以上行为。
+- 测试：`tests/test_orca_run.py` 增 `resolve_run_dir` / `read_gjf_charge_mult` /
+  负电荷用例，`tests/test_orca_panel.py` 增「换分子更新名字与目录」「运行时
+  建时间戳目录」，`tests/test_orca_dialog.py` 增 gjf 跟随用例。
+
+### 结构库「电子结构」：原子 / 杂化轨道等值面可导出 PowerPoint 3D（.glb）
+- 「电子结构库」页的「导出」按钮（文案改为「导出轨道 3D（.glb）」）不再禁用：
+  选中轨道后可直接写出只含**正 / 负相位两层等值面**的 `.glb`（默认蓝 = ψ > 0、
+  橙 = ψ < 0，画布上改过配色则跟随画布），插入 PowerPoint 365 后可拖动旋转。
+  等值面数值与网格精度取该页当前的 iso 与「网格精度」；导出设置中的
+  「包含画布等值面」会被强制打开，原子 / 键 / 晶胞相关项不适用。
+- 导出**不走画布**：轨道 cube 的 NATOMS = 0，画布等值面又是在 `spec.extent`
+  处被切开的 —— 断口靠双面渲染遮住，屏幕上正常，写进 PowerPoint 就是破洞。
+  新增 `atomic_orbital.iso_surfaces()`（原缩略图抽面逻辑上移为公共实现），
+  在放大到闭合的网格上重新抽面；`molecule_export.export_glb()` 现在允许
+  `symbols=[]` 的纯等值面模型，并在没有任何可见几何时于写文件前报错。
+- 初始视角与库内缩略图完全一致（杂化轨道沿用 `_straighten` 纠偏，避免
+  sp² 3/3、sp³ 4/4 在 PowerPoint 里一开始是一颗圆球）；两层等值面各用
+  双面 PBR + 相位顶点色，不导出原子、键或晶胞。
+- 导出**跟随画布当前观感**：色轮 / 相位方案 / 一键样式给出的正负相位色、
+  「翻转相位」后的正负交换、透明度、粗糙度，以及用户真的转过视角后的相机
+  朝向，都会写进 `.glb`（`_canvas_orbital_style()`）；画布尚未显示轨道时
+  才退回库内默认配色与材质。再也不会出现"画布改了色，导出还是红蓝"。
+- **画布等值面不再被立方体边界切掉**：`build_orbital_cube()` 现在接收 iso，
+  先沿球面方向扫描出最外层 `|ψ| >= iso` 的半径，把 cube 半边长扩到 1.1 倍
+  （最多 4 倍），再检查六个边界面，必要时继续按 1.15 倍放大重来。画布固定按
+  **iso 下限 0.005** 预留（`MIN_ISOVALUE`），所以先生成、之后在画布面板把
+  iso 继续往小拖也不会重新截断。f 轨道在 iso = 0.005 时约需 1.87 倍基准
+  边长、3d 约 1.67 倍、杂化约 1.53 倍，之前画布固定用 `spec.extent` 所以
+  瓣尖被切平。详情页的半边长改称「基准网格半边长」，日志会写出实际半边长
+  并标出「已按 iso 下限 0.005 外扩自 …」。
+- 顺带修正「屏幕与文件对不上」的两处老问题：从「电子结构库」载入轨道后，
+  画布上不再残留上一个分子的球棍（`set_molecule([])` 只清原子与键，不动
+  刚载入的 cube）；`_get_canvas_structure()` 在 GL 画布可用但场景里没有
+  原子时不再回退到隐藏的 MolCanvas 原子表，避免工具栏 PPT 3D / 位阻地图
+  把上一个分子当成当前结构。
+- 新增 `molecule_export.orbital_surface_layers()`；测试补充在
+  `tests/test_surface_glb_export.py`（纯等值面 GLB、闭合性、空场景报错、
+  改画布配色 / 透明度 / 翻转相位后 GLB 跟随）与
+  `tests/test_electronic_library_ui.py`（回调参数、主窗口落盘、按钮状态）。
+
 ### 左侧导航：xTB 计算移到「常用」组 ORCA 计算下方
 - 「常用」现在顺序为：可视化 → 轨道 → 结构库 → ORCA 计算 → xTB 计算；
   xTB 不再放在「光谱与能量」组。页面栈与快捷键不变，仅调整侧栏分组顺序。

@@ -127,6 +127,7 @@ NAV_ICONS = {
     "tab_asm_irc": "molecule",
     "tab_cub_stack": "eye",
     "tab_esm": "play",
+    "tab_microkinetics": "chart",
     "tab_ircsplit": "folder",
     "tab_spectrum": "wave",
     "tab_xtb": "bolt",

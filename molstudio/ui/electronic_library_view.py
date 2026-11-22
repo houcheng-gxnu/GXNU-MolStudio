@@ -27,7 +27,7 @@ from PyQt5.QtWidgets import (
 )
 
 from molstudio.core.atomic_orbital import (
-    GROUP_LABELS, GROUP_ORDER, evaluate_orbital, orbital_library,
+    GROUP_LABELS, GROUP_ORDER, MIN_ISOVALUE, orbital_library,
 )
 
 _TEXT = {
@@ -46,9 +46,11 @@ _TEXT = {
         "model_shell": "径向模型：同壳层 Slater 型（n = {n}，ζ = {zeta:g}）",
         "nodes": "节面：{value}",
         "note": "教学要点：{value}",
-        "grid": "网格半边长：{extent:g} a₀　峰值：{peak:.4g} a.u.",
+        "grid": "基准网格半边长：{extent:g} a₀　峰值：{peak:.4g} a.u.",
         "scale_note": "写入 cube 前场按峰值线性归一化到 ±1，形状与节点位置不变；"
-                      "画布 iso 下限为 0.005，不归一化时 4f 等轨道会被整块钳掉。",
+                      "画布 iso 下限为 0.005，不归一化时 4f 等轨道会被整块钳掉。"
+                      "iso 较小时立方体会按等值面自动外扩（f 轨道在 iso=0.005 时约"
+                      " 1.9 倍），保证瓣尖不被截断。",
         "terms": "组成：{value}",
         "source": "解析波函数（实球谐 + 类氢 / STO 径向），非实验数据",
     },
@@ -67,10 +69,13 @@ _TEXT = {
         "model_shell": "Radial model: same-shell Slater type (n = {n}, zeta = {zeta:g})",
         "nodes": "Nodes: {value}",
         "note": "Teaching note: {value}",
-        "grid": "Grid half-width: {extent:g} a0   peak: {peak:.4g} a.u.",
+        "grid": "Reference grid half-width: {extent:g} a0   peak: {peak:.4g} a.u.",
         "scale_note": "The field is linearly scaled to max|psi| = 1 before "
                       "writing the cube: shape and node positions are unchanged. "
-                      "The canvas clamps iso at 0.005, which would hide 4f etc.",
+                      "The canvas clamps iso at 0.005, which would hide 4f etc. "
+                      "For small isovalues the cube expands automatically until "
+                      "the isosurface closes (f orbitals need ~1.9x at iso = "
+                      "0.005), so lobe tips are never cut off.",
         "terms": "Composition: {value}",
         "source": "Analytic wavefunction (real spherical harmonics + hydrogenic/STO radial)",
     },
@@ -158,55 +163,28 @@ def _straighten(rot, axis, max_axial=0.80, target_axial=0.40):
 
 
 def _iso_surfaces(spec, n=None, iso=None):
-    """在网格上求值并抽等值面，返回 (正相位面, 负相位面)。
+    """等值面抽取的薄封装（实现已移到 :mod:`molstudio.core.atomic_orbital`）。
 
-    两件事必须做对，否则缩略图会出现"瓣尖缺一块、露出白底"：
-
-    **网格立方体要放大。** ``spec.extent`` 是按画布取景定的，波瓣在立方体边界
-    处往往还高于等值面，抽出来的面被边界切断、不闭合。画布用双面渲染把断口盖
-    住了看不出来，但缩略图要做背面剔除，断口立刻变成白洞（实测 3d_z² 顶瓣被
-    切掉一个弧形缺口）。这里先按 1.35 倍开立方体，若边界上 |ψ| 仍高于 iso
-    （4f 的轴向长瓣就是这种），继续放大重试。
-
-    **网格点数按尺度自适应。** 小的 1s（extent 6）用 34³ 就够，3s / 4f 的壳
-    只有一两个体素厚，点数太少同样会抽出面片残缺。
+    画布、缩略图、PPT 3D 导出必须用**同一份**抽面规则：放大立方体直到等值面
+    闭合，否则瓣尖会被边界切掉。核心函数返回 Bohr 坐标。
     """
-    from molstudio.core.atomic_orbital import evaluate_orbital
-    from molstudio.core.marching_cubes import CubeData, marching_cubes
+    from molstudio.core.atomic_orbital import iso_surfaces
+    return iso_surfaces(spec, n=n, iso=iso)
 
-    ext = float(spec.extent)
-    level = float(spec.iso_hint if iso is None else iso)
-    if n is None:
-        n = int(min(54, max(38, round(ext * 1.8))))
-    half = ext * 1.35
-    psi = None
-    for _ in range(4):
-        g = np.linspace(-half, half, n)
-        xx, yy, zz = np.meshgrid(g, g, g, indexing="ij")
-        psi = evaluate_orbital(spec, xx, yy, zz)
-        peak = float(np.max(np.abs(psi))) or 1.0
-        psi = psi / peak        # 与写 cube 时同一套归一化
-        # 六个边界面上最大的 |ψ| 还高于 iso 说明面被切断，得继续放大
-        edge = max(float(np.max(np.abs(psi[0]))), float(np.max(np.abs(psi[-1]))),
-                   float(np.max(np.abs(psi[:, 0]))),
-                   float(np.max(np.abs(psi[:, -1]))),
-                   float(np.max(np.abs(psi[:, :, 0]))),
-                   float(np.max(np.abs(psi[:, :, -1]))))
-        if edge < level * 0.98:
-            break
-        half *= 1.35
 
-    cube = CubeData()
-    cube.nx = cube.ny = cube.nz = n
-    cube.origin = np.array([-half, -half, -half], dtype=np.float32)
-    step = 2.0 * half / max(n - 1, 1)
-    cube.dx = (step, 0.0, 0.0)
-    cube.dy = (0.0, step, 0.0)
-    cube.dz = (0.0, 0.0, step)
-    cube.data = psi
+def default_view_matrix(spec=None):
+    """世界 → 视图旋转：与画布 / 缩略图同一套斜视角，导出 .glb 时沿用。
 
-    return (marching_cubes(cube, level, False),
-            marching_cubes(cube, -level, True))
+    ``main_window._orbital_view_quat()`` 用的是 ``R_y(25°)·R_x(-60°)``；
+    这里返回同一矩阵。杂化轨道的瓣轴若正对相机（sp² 3/3、sp³ 4/4 实测
+    ``|cos| ≈ 0.89 / 0.96``），再按 :func:`_straighten` 拧进屏幕平面，
+    否则导入 PowerPoint 的模型一开始看起来就是一颗圆球。
+    """
+    rot = _view_matrix()
+    axis = _lobe_axis(spec) if spec is not None else None
+    if axis is not None:
+        rot = _straighten(rot, axis)
+    return rot
 
 
 def _rgb01(rgb):
@@ -234,10 +212,7 @@ def orbital_thumbnail(spec, width=240, height=170, samples=None):
     """
     pos, neg = _iso_surfaces(spec, samples)
 
-    rot = _view_matrix()
-    axis = _lobe_axis(spec)
-    if axis is not None:
-        rot = _straighten(rot, axis)
+    rot = default_view_matrix(spec)
     parts = []
     allv = []
     for surf, rgb in ((pos, _POS_RGB), (neg, _NEG_RGB)):
@@ -422,7 +397,7 @@ class ElectronicLibraryView(QWidget):
         self.lbl_iso = QLabel()
         opts.addWidget(self.lbl_iso, 0, 0)
         self.spin_iso = QDoubleSpinBox()
-        self.spin_iso.setRange(0.005, 0.30)
+        self.spin_iso.setRange(MIN_ISOVALUE, 0.30)
         self.spin_iso.setSingleStep(0.005)
         self.spin_iso.setDecimals(3)
         self.spin_iso.setValue(0.08)

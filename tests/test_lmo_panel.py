@@ -111,6 +111,26 @@ def _open_both_result():
     }
 
 
+def _loba_result():
+    return {
+        "ok": True,
+        "settings": {"method": "loba", "threshold": 50.0,
+                     "fragment": "1-3"},
+        "seconds": 0.2,
+        "atoms": [
+            {"index": 1, "element": "Fe", "oxidation_state": 3.0},
+            {"index": 2, "element": "C", "oxidation_state": 2.0},
+            {"index": 3, "element": "N", "oxidation_state": -3.0},
+        ],
+        "sum": -3.0,
+        "net_charge": -3,
+        "sum_difference": 0.0,
+        "fragment_oxidation_state": -1.0,
+        "log_path": "",
+        "warnings": [],
+    }
+
+
 def _find_row(table, label):
     for row in range(table.rowCount()):
         item = table.item(row, 0)
@@ -189,8 +209,63 @@ def test_closed_shell_spin_and_csv(panel, tmp_path, monkeypatch):
     assert not captured["default"].endswith("_LMO_LMO.csv")
 
 
+def test_loba_table_summary_method_and_csv(panel, tmp_path, monkeypatch):
+    from molstudio.panels import lmo_panel as mod
+
+    lmo = tmp_path / "Ferrocene_LMO.fch"
+    lmo.write_text("dummy", encoding="utf-8")
+    result = _closed_result()
+    result["lmo_fch"] = str(lmo)
+    panel._apply_result(result)
+    assert panel.btn_loba_run.isEnabled()
+
+    loba = _loba_result()
+    loba["log_path"] = str(tmp_path / "Ferrocene_LMO_LOBA.log")
+    panel._apply_loba_result(loba)
+    assert panel.loba_table.rowCount() == 3
+    assert panel.loba_table.item(0, 0).text() == "1"
+    assert panel.loba_table.item(0, 1).text() == "Fe"
+    assert panel.loba_table.item(0, 2).text() == "+3"
+    assert "1-3" in panel.lbl_loba_summary.text()
+    assert "50.0%" in panel.lbl_loba_summary.text()
+
+    panel.cmb_loba_method.setCurrentIndex(
+        panel.cmb_loba_method.findData("mloba"))
+    assert not panel.spin_loba_threshold.isEnabled()
+    panel.cmb_loba_method.setCurrentIndex(
+        panel.cmb_loba_method.findData("loba"))
+    assert panel.spin_loba_threshold.isEnabled()
+
+    captured = {}
+
+    def _fake_save(_parent, _caption, _default, _filt):
+        path = str(tmp_path / "loba.csv")
+        captured["default"] = _default
+        return path, _filt
+
+    monkeypatch.setattr(mod.QFileDialog, "getSaveFileName", _fake_save)
+    panel._export_loba_csv()
+    lines = (tmp_path / "loba.csv").read_text(
+        encoding="utf-8-sig").splitlines()
+    assert lines[0] == "原子,元素,氧化态"
+    assert lines[1] == "1,Fe,3"
+    assert captured["default"].endswith("Ferrocene_LOBA.csv")
+
+
+def test_loba_accepts_already_loaded_localized_wavefunction(panel, tmp_path):
+    path = tmp_path / "External_LMO.fch"
+    path.write_text("dummy", encoding="utf-8")
+    panel.set_source_from_main(str(path))
+
+    assert panel._loba_input_path() == str(path)
+    assert panel.btn_loba_run.isEnabled()
+    assert "Ready" in panel.lbl_loba_status.text() or "就绪" in (
+        panel.lbl_loba_status.text())
+
+
 def test_english_ui_has_no_chinese(panel):
     panel._apply_result(_open_both_result())
+    panel._apply_loba_result(_loba_result())
     panel.set_lang("en")
 
     def texts(widget):

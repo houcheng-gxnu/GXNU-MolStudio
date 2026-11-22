@@ -9,7 +9,8 @@ nbo_parser.py — Gaussian NBO 日志解析（移植自 NBOViewer）
     （类型 BD/BD*/CR/LP/LV/RY*、占据数、能量、涉及的原子）；
   * ``Second Order Perturbation Theory Analysis of Fock Matrix in NBO Basis``
     段 —— 供体 → 受体的 E(2) 二阶微扰相互作用；
-  * 配合 ``.fchk`` 把 NBO 轨道能量匹配到最近的分子轨道（MO）编号。
+  * 优先使用 NBO plot ``.31/.37``，其次识别 ``pop=saveNBO`` 的显式重排表；
+    普通 fchk 仅提供明确标注的 nearest-canonical-MO 提示。
 
 纯文本解析，无 Qt 依赖。核心逻辑逐字移植自 NBOViewer 的 nbo_parser.py。
 """
@@ -19,10 +20,34 @@ import re
 
 from molstudio.render.molcanvas import ELEMENT_SYMBOLS
 
-# NBO 轨道能量 -> MO 能量的匹配容差（a.u.）
+# NBO 轨道能量 -> MO 能量的兼容匹配容差（a.u.）。普通 fchk 不存 NBO；
+# 这一路径只作为明确标注的 canonical-MO 近似预览保留。
 _MO_MATCH_TOL = 0.5
 _FCHK_MO_CACHE = {}
 _FCHK_MO_CACHE_MAX = 20
+
+NBO_PLOT_NAMES = {
+    32: "PNAO",
+    33: "NAO",
+    34: "PNHO",
+    35: "NHO",
+    36: "PNBO",
+    37: "NBO",
+    38: "PNLMO",
+    39: "NLMO",
+    40: "MO",
+}
+NBO_PLOT_BASIS_EXT = 31
+
+# NBO summary / E(2) rows share this leading descriptor. Besides the common
+# Lewis types this also accepts 3-centre and lone-pair non-Lewis types.
+_NBO_DESCRIPTOR_RE = re.compile(
+    r"\s*(\d+)\.\s+(BD|CR|LP|RY|LV|3C)(\*?)\s*\(\s*(\d+)\s*\)\s*"
+    r"([A-Z][a-z]?)\s+(\d+)"
+    r"(?:\s*-\s*([A-Z][a-z]?)\s+(\d+))?"
+    r"(?:\s*-\s*([A-Z][a-z]?)\s+(\d+))?"
+)
+_FLOAT_TOKEN = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[EeDd][-+]?\d+)?"
 
 NBO_TYPE_DESC = {
     "CR": "核芯轨道 (Core)",
@@ -38,13 +63,36 @@ NBO_TYPE_DESC = {
 
 NBO_TYPE_SHORT = {
     "CR": "核芯", "LP": "孤对", "LV": "空位", "LP*": "空位",
-    "BD": "成键", "BD*": "反键", "RY*": "Rydb",
+    "LV*": "空位", "BD": "成键", "BD*": "反键", "RY": "Rydb",
+    "RY*": "Rydb",
     "3C": "3c键", "3C*": "3c反键",
 }
 
 
 def atomic_num_to_symbol(num):
     return ELEMENT_SYMBOLS.get(num, f"X{num}")
+
+
+def _as_float(token):
+    return float(token.replace("D", "E").replace("d", "e"))
+
+
+def _descriptor_parts(match):
+    """Return (id, type, sub, atom_numbers, atom_symbols) for a matched row."""
+    atom_numbers = [int(match.group(6))]
+    atom_symbols = [match.group(5)]
+    for elem_group, num_group in ((7, 8), (9, 10)):
+        if match.group(elem_group) and match.group(num_group):
+            atom_symbols.append(match.group(elem_group))
+            atom_numbers.append(int(match.group(num_group)))
+    nbo_type = match.group(2) + (match.group(3) or "")
+    return (
+        int(match.group(1)),
+        nbo_type,
+        int(match.group(4)),
+        atom_numbers,
+        atom_symbols,
+    )
 
 
 def parse_nbo_summary(log_file):
@@ -58,6 +106,11 @@ def parse_nbo_summary(log_file):
     with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             if "Natural Bond Orbitals (Summary)" in line:
+                # A linked job can contain several NBO passes. Only the final
+                # pass describes the final wavefunction; retaining earlier rows
+                # silently mixes positions from different geometries.
+                nbo_dict = {}
+                current_unit = ""
                 in_nbo_section = True
                 continue
             if not in_nbo_section:
@@ -66,28 +119,15 @@ def parse_nbo_summary(log_file):
             if m_unit:
                 current_unit = m_unit.group(2).strip()
                 continue
-            m_nbo = re.match(
-                r"\s*(\d+)\.\s+(BD|CR|LP|RY|LV)(\*?)\s*\(\s*(\d+)\)\s*([A-Z][a-z]?)\s+(\d+)"
-                r"(?:\s*-\s*([A-Z][a-z]?)\s+(\d+))?",
-                line,
-            )
+            m_nbo = _NBO_DESCRIPTOR_RE.match(line)
             if m_nbo:
-                nbo_id = int(m_nbo.group(1))
-                nbo_type = m_nbo.group(2) + (m_nbo.group(3) or "")
-                nbo_sub = int(m_nbo.group(4))
-                atom1_elem = m_nbo.group(5)
-                atom1_num = int(m_nbo.group(6))
-                atom2_elem = m_nbo.group(7) if m_nbo.group(7) else None
-                atom2_num = int(m_nbo.group(8)) if m_nbo.group(8) else None
+                nbo_id, nbo_type, nbo_sub, atoms, atom_elems = _descriptor_parts(
+                    m_nbo)
                 rest = line[m_nbo.end():]
-                occ_match = re.search(r"([\d\.]+)\s+([\-\d\.]+)", rest)
-                occupancy = float(occ_match.group(1)) if occ_match else None
-                energy = float(occ_match.group(2)) if occ_match else None
-                atoms = [atom1_num]
-                atom_elems = [atom1_elem]
-                if atom2_num:
-                    atoms.append(atom2_num)
-                    atom_elems.append(atom2_elem)
+                occ_match = re.search(
+                    rf"({_FLOAT_TOKEN})\s+({_FLOAT_TOKEN})", rest)
+                occupancy = _as_float(occ_match.group(1)) if occ_match else None
+                energy = _as_float(occ_match.group(2)) if occ_match else None
                 nbo_dict[nbo_id] = {
                     "type": nbo_type,
                     "sub": nbo_sub,
@@ -114,16 +154,29 @@ def parse_e2_section(log_file):
     e2_list = []
     in_e2_section = False
     current_unit = 1
+    acceptor_unit = 1
     with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             if "Second Order Perturbation Theory Analysis" in line:
+                # Keep only the final perturbation table when a log contains
+                # several NBO passes.
+                e2_list = []
                 in_e2_section = True
+                current_unit = 1
+                acceptor_unit = 1
                 continue
             if not in_e2_section:
                 continue
-            m_unit = re.match(r"within unit\s+(\d+)", line)
+            m_unit = re.match(r"\s*within\s+unit\s+(\d+)", line, re.IGNORECASE)
+            if m_unit:
+                current_unit = acceptor_unit = int(m_unit.group(1))
+                continue
+            m_unit = re.match(
+                r"\s*from\s+unit\s+(\d+)\s+to\s+unit\s+(\d+)",
+                line, re.IGNORECASE)
             if m_unit:
                 current_unit = int(m_unit.group(1))
+                acceptor_unit = int(m_unit.group(2))
                 continue
             stripped = line.strip()
             if stripped and stripped[0].isupper() and len(stripped) > 15:
@@ -141,42 +194,28 @@ def parse_e2_section(log_file):
                 continue
             donor_part = line[:slash_idx].rstrip()
             acceptor_rest = line[slash_idx + 1:].lstrip()
-            m_donor = re.match(
-                r"\s*(\d+)\.\s+(BD|CR|LP|RY|LV)(\*?)\s*\(\s*(\d+)\)\s*([A-Z][a-z]?)\s+(\d+)"
-                r"(?:\s*-\s*([A-Z][a-z]?)\s+(\d+))?",
-                donor_part,
-            )
+            m_donor = _NBO_DESCRIPTOR_RE.match(donor_part)
             if not m_donor:
                 continue
-            donor_id = int(m_donor.group(1))
-            donor_type_raw = m_donor.group(2) + (m_donor.group(3) if m_donor.group(3) else "")
-            donor_sub = int(m_donor.group(4))
-            donor_atom1_elem = m_donor.group(5)
-            donor_atom1 = int(m_donor.group(6))
-            donor_atom2_elem = m_donor.group(7) if m_donor.group(7) else None
-            donor_atom2 = int(m_donor.group(8)) if m_donor.group(8) else None
+            (
+                donor_id, donor_type_raw, donor_sub,
+                donor_atoms, donor_atom_elems,
+            ) = _descriptor_parts(m_donor)
 
-            m_acceptor = re.match(
-                r"(\d+)\.\s+(BD|CR|LP|RY|LV)(\*?)\s*\(\s*(\d+)\)\s*([A-Z][a-z]?)\s+(\d+)"
-                r"(?:\s*-\s*([A-Z][a-z]?)\s+(\d+))?",
-                acceptor_rest,
-            )
+            m_acceptor = _NBO_DESCRIPTOR_RE.match(acceptor_rest)
             if not m_acceptor:
                 continue
-            acceptor_id = int(m_acceptor.group(1))
-            acceptor_type_raw = m_acceptor.group(2) + (m_acceptor.group(3) if m_acceptor.group(3) else "")
-            acceptor_sub = int(m_acceptor.group(4))
-            acceptor_atom1_elem = m_acceptor.group(5)
-            acceptor_atom1 = int(m_acceptor.group(6))
-            acceptor_atom2_elem = m_acceptor.group(7) if m_acceptor.group(7) else None
-            acceptor_atom2 = int(m_acceptor.group(8)) if m_acceptor.group(8) else None
+            (
+                acceptor_id, acceptor_type_raw, acceptor_sub,
+                acceptor_atoms, acceptor_atom_elems,
+            ) = _descriptor_parts(m_acceptor)
 
             rest = acceptor_rest[m_acceptor.end():]
-            vals = re.findall(r"([\d\.]+)", rest)
+            vals = re.findall(_FLOAT_TOKEN, rest)
             if len(vals) >= 3:
-                e2 = float(vals[0])
-                delta_e = float(vals[1])
-                fij = float(vals[2])
+                e2 = _as_float(vals[0])
+                delta_e = _as_float(vals[1])
+                fij = _as_float(vals[2])
             else:
                 e2 = delta_e = fij = None
 
@@ -184,22 +223,234 @@ def parse_e2_section(log_file):
                 "donor_id": donor_id,
                 "donor_type_raw": donor_type_raw,
                 "donor_sub": donor_sub,
-                "donor_atom1": donor_atom1,
-                "donor_atom1_elem": donor_atom1_elem,
-                "donor_atom2": donor_atom2,
-                "donor_atom2_elem": donor_atom2_elem,
+                "donor_atoms": donor_atoms,
+                "donor_atom_elems": donor_atom_elems,
+                "donor_atom1": donor_atoms[0],
+                "donor_atom1_elem": donor_atom_elems[0],
+                "donor_atom2": donor_atoms[1] if len(donor_atoms) > 1 else None,
+                "donor_atom2_elem": donor_atom_elems[1] if len(donor_atom_elems) > 1 else None,
                 "acceptor_id": acceptor_id,
                 "acceptor_type_raw": acceptor_type_raw,
                 "acceptor_sub": acceptor_sub,
-                "acceptor_atom1": acceptor_atom1,
-                "acceptor_atom1_elem": acceptor_atom1_elem,
-                "acceptor_atom2": acceptor_atom2,
-                "acceptor_atom2_elem": acceptor_atom2_elem,
+                "acceptor_atoms": acceptor_atoms,
+                "acceptor_atom_elems": acceptor_atom_elems,
+                "acceptor_atom1": acceptor_atoms[0],
+                "acceptor_atom1_elem": acceptor_atom_elems[0],
+                "acceptor_atom2": acceptor_atoms[1] if len(acceptor_atoms) > 1 else None,
+                "acceptor_atom2_elem": acceptor_atom_elems[1] if len(acceptor_atom_elems) > 1 else None,
                 "e2": e2, "delta_e": delta_e, "fij": fij,
-                "unit": current_unit,
+                "unit": acceptor_unit,
+                "donor_unit": current_unit,
+                "acceptor_unit": acceptor_unit,
                 "raw_line": line.rstrip(),
             })
     return e2_list
+
+
+def parse_nbo_storage_order(log_file):
+    """Parse Gaussian's ``Reordering of NBOs for storage`` permutation.
+
+    Gaussian applies this permutation before writing ``pop=saveNBO`` orbitals
+    into the checkpoint/fchk. Element 0 of the returned list corresponds to
+    fchk orbital 1.
+    """
+    with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.readlines()
+    for i, line in enumerate(lines):
+        if "Reordering of NBOs for storage" not in line:
+            continue
+        order = []
+        j = i
+        while j < len(lines):
+            row = lines[j]
+            if "Reordering of NBOs for storage" in row:
+                tail = row.split(":", 1)[1] if ":" in row else ""
+                order.extend(int(x) for x in re.findall(r"\b\d+\b", tail))
+                j += 1
+                continue
+            if not row.strip():
+                break
+            if re.fullmatch(r"\s*\d+(?:\s+\d+)*\s*", row):
+                order.extend(int(x) for x in re.findall(r"\b\d+\b", row))
+                j += 1
+                continue
+            break
+        if order:
+            return order
+    return []
+
+
+def _log_requests_save_nbo(log_file):
+    with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            if re.search(r"save\s*nbo\b", line, re.IGNORECASE):
+                return True
+    return False
+
+
+def _log_requests_save_nlmo(log_file):
+    with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            if re.search(r"save\s*nlmo\b", line, re.IGNORECASE):
+                return True
+    return False
+
+
+def _plot_paths_from_selection(plot_file):
+    """Return (basis .31 path, selected plot path, numeric plot type)."""
+    if not plot_file:
+        return None
+    path = os.path.abspath(plot_file)
+    try:
+        ext = int(os.path.splitext(path)[1].lstrip("."))
+    except ValueError:
+        return None
+    if ext not in NBO_PLOT_NAMES and ext != NBO_PLOT_BASIS_EXT:
+        return None
+    root = os.path.splitext(path)[0]
+    basis = root + "." + str(NBO_PLOT_BASIS_EXT)
+    selected = root + ".37"
+    return basis, selected, 37
+
+
+def find_nbo_plot_files(log_file, plot_file=None):
+    """Locate the paired NBO plot files used for direct NBO visualization."""
+    if plot_file:
+        pair = _plot_paths_from_selection(plot_file)
+        if pair:
+            basis, selected, plot_type = pair
+            if os.path.isfile(basis) and os.path.isfile(selected):
+                return {
+                    "basis": basis,
+                    "selected": selected,
+                    "plot_type": plot_type,
+                    "plot_name": NBO_PLOT_NAMES[plot_type],
+                }
+        return None
+    root = os.path.splitext(os.path.abspath(log_file))[0]
+    pair = _plot_paths_from_selection(root + ".37")
+    if pair:
+        basis, selected, plot_type = pair
+        if os.path.isfile(basis) and os.path.isfile(selected):
+            return {
+                "basis": basis,
+                "selected": selected,
+                "plot_type": plot_type,
+                "plot_name": NBO_PLOT_NAMES[plot_type],
+            }
+    return None
+
+
+def resolve_nbo_visual_source(log_file, fchk_file=None, plot_file=None):
+    """Resolve the scientifically correct source for NBO cube generation.
+
+    Priority follows the standard Gaussian/Multiwfn workflow:
+
+    1. NBO plot pair (``.31`` + ``.37``) stores the actual NBOs;
+    2. ``pop=saveNBO`` fchk uses the explicit storage permutation from the log;
+    3. a normal fchk only offers a nearest-canonical-MO approximation.
+
+    The last case is marked non-exact but remains renderable for backwards
+    compatibility with the original viewer workflow.
+    """
+    plot = find_nbo_plot_files(log_file, plot_file)
+    if plot:
+        return {
+            "kind": "plot",
+            "direct": True,
+            "basis": plot["basis"],
+            "selected": plot["selected"],
+            "plot_type": plot["plot_type"],
+            "plot_name": plot["plot_name"],
+            "label": (
+                f"{plot['plot_name']} plot "
+                f"({os.path.basename(plot['selected'])})"
+            ),
+        }
+
+    has_fchk = bool(fchk_file and os.path.exists(fchk_file))
+    order = parse_nbo_storage_order(log_file) if has_fchk else []
+    save_nbo_requested = has_fchk and _log_requests_save_nbo(log_file)
+    if save_nbo_requested and not order:
+        # Older Gaussian/NBO outputs may not print the permutation banner.
+        # saveNBO stores orbitals in increasing energy, so reproduce that
+        # order from the final NBO summary as a compatibility fallback.
+        summary = parse_nbo_summary(log_file)
+        order = sorted(
+            summary,
+            key=lambda nid: (
+                summary[nid].get("energy") is None,
+                summary[nid].get("energy") or 0.0,
+                nid,
+            ),
+        )
+    if order and not _log_requests_save_nlmo(log_file):
+        return {
+            "kind": "saveNBO",
+            "direct": True,
+            "fchk": fchk_file,
+            "storage_order": order,
+            "storage_map": {
+                nbo_id: i + 1 for i, nbo_id in enumerate(order)
+            },
+            "label": f"saveNBO fchk ({os.path.basename(fchk_file)})",
+        }
+    if has_fchk:
+        return {
+            "kind": "canonical",
+            "direct": False,
+            "fchk": fchk_file,
+            "label": "canonical MO approximation",
+        }
+    return {
+        "kind": "none",
+        "direct": False,
+        "label": "no NBO wavefunction source",
+    }
+
+
+def build_nbo_visual_ref(source, nbo_id, energy=None):
+    """Build a UI/cube reference using the original energy-matching workflow."""
+    kind = (source or {}).get("kind", "none")
+    if kind == "plot":
+        return {
+            "kind": "plot",
+            "direct": True,
+            "renderable": True,
+            "source": source["basis"],
+            "selected": source["selected"],
+            "plot_type": source["plot_type"],
+            "orbital": str(nbo_id),
+            "nbo_id": nbo_id,
+            "display": f"NBO {nbo_id} (.{source['plot_type']})",
+        }
+
+    # Preserve the original viewer contract: every NBO row with an energy is
+    # matched to the nearest alpha/beta orbital in the linked fchk. This also
+    # covers saveNBO fchks whose storage permutation is incomplete or absent.
+    fchk = source.get("fchk")
+    if fchk and energy is not None:
+        best, _ = _match_nbo_to_mo(
+            energy, fchk, allow_nearest=True)
+        if best:
+            mo_type, mo = best
+            orbital = (
+                str(mo["mo_num"])
+                if mo_type == "Alpha"
+                else f"-{mo['mo_num']}"
+            )
+            return {
+                "kind": "canonical",
+                "direct": True,
+                "renderable": True,
+                "source": fchk,
+                "orbital": orbital,
+                "mo_type": mo_type,
+                "mo_num": mo["mo_num"],
+                "nbo_id": nbo_id,
+                "display": f"{mo_type}#{mo['mo_num']}",
+            }
+    return None
 
 
 def _load_fchk_mo_energies(fchk_file):
@@ -310,11 +561,18 @@ def get_cross_atom_e2(e2_list, nbos_grouped, nbo_dict, min_e2):
     return [e2 for _, e2 in result]
 
 
-def _match_nbo_to_mo(nbo_energy, fchk_file):
+def _match_nbo_to_mo(nbo_energy, fchk_file, allow_nearest=False):
     alpha_res, beta_res = get_nearest_mo(fchk_file, nbo_energy)
     top_alpha = [r for r in alpha_res[:3] if r["diff"] < _MO_MATCH_TOL]
     top_beta = [r for r in beta_res[:3] if r["diff"] < _MO_MATCH_TOL]
     all_matches = [("Alpha", r) for r in top_alpha] + [("Beta", r) for r in top_beta]
+    if not all_matches and allow_nearest:
+        candidates = []
+        if alpha_res:
+            candidates.append(("Alpha", alpha_res[0]))
+        if beta_res:
+            candidates.append(("Beta", beta_res[0]))
+        all_matches = candidates
     all_matches.sort(key=lambda x: x[1]["diff"])
     best = all_matches[0] if all_matches else None
     return best, all_matches
@@ -333,7 +591,8 @@ def tag_shared(nbo_info):
     return f"{t}({s})"
 
 
-def run_analysis(log_file, atom1, atom2, min_e2, fchk_file=None, locale=None):
+def run_analysis(log_file, atom1, atom2, min_e2, fchk_file=None,
+                 locale=None, plot_file=None):
     """执行 NBO 分析，返回 (文本报告, data_dict)。
 
     data_dict 关键字段：
@@ -372,6 +631,8 @@ def run_analysis(log_file, atom1, atom2, min_e2, fchk_file=None, locale=None):
     has_fchk = bool(fchk_file and os.path.exists(fchk_file))
     if has_fchk:
         _load_fchk_mo_energies(fchk_file)
+    visual_source = resolve_nbo_visual_source(
+        log_file, fchk_file, plot_file)
 
     lines.append("\n" + "─" * 78)
     lines.append(
@@ -383,6 +644,7 @@ def run_analysis(log_file, atom1, atom2, min_e2, fchk_file=None, locale=None):
         "nbo_dict": nbo_dict,
         "e2_list": e2_list,
         "fchk_file": fchk_file if has_fchk else None,
+        "visual_source": visual_source,
         "single_atom_mode": single_atom_mode,
         "atom1": atom1,
         "atom2": atom2,
@@ -412,11 +674,13 @@ def run_analysis(log_file, atom1, atom2, min_e2, fchk_file=None, locale=None):
                 "group": "single",
                 "group_label": f"#{atom1}",
             }
-            if has_fchk and info["energy"] is not None:
-                best, _ = _match_nbo_to_mo(info["energy"], fchk_file)
-                if best:
-                    entry["mo_type"] = best[0]
-                    entry["mo_num"] = best[1]["mo_num"]
+            visual = build_nbo_visual_ref(
+                visual_source, nbo_id, info.get("energy"))
+            if visual:
+                entry["visual"] = visual
+                if visual.get("mo_num"):
+                    entry["mo_type"] = visual.get("mo_type")
+                    entry["mo_num"] = visual.get("mo_num")
             single_nbo_overview.append(entry)
         data_dict["nbo_overview"] = single_nbo_overview
         lines.append(f"\n{_t('analysis_complete_single', 'Done — ')} {len(nbos)} {_t('analysis_nbo_listed', 'NBO orbitals listed in the table below.')}")
@@ -461,11 +725,13 @@ def run_analysis(log_file, atom1, atom2, min_e2, fchk_file=None, locale=None):
                 "group": group_key,
                 "group_label": group_label,
             }
-            if has_fchk and info["energy"] is not None:
-                best, _ = _match_nbo_to_mo(info["energy"], fchk_file)
-                if best:
-                    entry["mo_type"] = best[0]
-                    entry["mo_num"] = best[1]["mo_num"]
+            visual = build_nbo_visual_ref(
+                visual_source, nbo_id, info.get("energy"))
+            if visual:
+                entry["visual"] = visual
+                if visual.get("mo_num"):
+                    entry["mo_type"] = visual.get("mo_type")
+                    entry["mo_num"] = visual.get("mo_num")
             nbo_overview.append(entry)
     data_dict["nbo_overview"] = nbo_overview
 
@@ -544,28 +810,22 @@ def run_analysis(log_file, atom1, atom2, min_e2, fchk_file=None, locale=None):
             "acc_is_shared": acc_is_shared,
         }
 
-        if has_fchk:
-            d_matches = (
-                _match_nbo_to_mo(d_info["energy"], fchk_file)
-                if (d_info and d_info.get("energy") is not None) else (None, [])
-            )
-            a_matches = (
-                _match_nbo_to_mo(a_info["energy"], fchk_file)
-                if (a_info and a_info.get("energy") is not None) else (None, [])
-            )
-            d_best = d_matches[0] if d_matches[0] else None
-            a_best = a_matches[0] if a_matches[0] else None
-            if d_best and a_best:
-                detail["mo1_type"] = d_best[0]
-                detail["mo1_num"] = d_best[1]["mo_num"]
-                detail["mo2_type"] = a_best[0]
-                detail["mo2_num"] = a_best[1]["mo_num"]
-            elif d_best:
-                detail["mo1_type"] = d_best[0]
-                detail["mo1_num"] = d_best[1]["mo_num"]
-            elif a_best:
-                detail["mo1_type"] = a_best[0]
-                detail["mo1_num"] = a_best[1]["mo_num"]
+        donor_visual = build_nbo_visual_ref(
+            visual_source, e2["donor_id"],
+            d_info.get("energy") if d_info else None)
+        acceptor_visual = build_nbo_visual_ref(
+            visual_source, e2["acceptor_id"],
+            a_info.get("energy") if a_info else None)
+        if donor_visual:
+            detail["visual_donor"] = donor_visual
+            if donor_visual.get("mo_num"):
+                detail["mo1_type"] = donor_visual.get("mo_type")
+                detail["mo1_num"] = donor_visual.get("mo_num")
+        if acceptor_visual:
+            detail["visual_acceptor"] = acceptor_visual
+            if acceptor_visual.get("mo_num"):
+                detail["mo2_type"] = acceptor_visual.get("mo_type")
+                detail["mo2_num"] = acceptor_visual.get("mo_num")
 
         cross_e2_details.append(detail)
 
@@ -576,7 +836,7 @@ def run_analysis(log_file, atom1, atom2, min_e2, fchk_file=None, locale=None):
     return "\n".join(lines), data_dict
 
 
-def build_full_overview(log_file, fchk_file=None):
+def build_full_overview(log_file, fchk_file=None, plot_file=None):
     """返回所有 NBO 轨道的概览列表（用于载入 log 后的整体预览）。
 
     每条 entry 结构与 run_analysis 的 nbo_overview 一致（含 mo_type/mo_num）。
@@ -585,6 +845,8 @@ def build_full_overview(log_file, fchk_file=None):
     has_fchk = bool(fchk_file and os.path.exists(fchk_file))
     if has_fchk:
         _load_fchk_mo_energies(fchk_file)
+    visual_source = resolve_nbo_visual_source(
+        log_file, fchk_file, plot_file)
     overview = []
     for nbo_id, info in sorted(nbo_dict.items()):
         entry = {
@@ -599,10 +861,12 @@ def build_full_overview(log_file, fchk_file=None):
             "group": "all",
             "group_label": "全部",
         }
-        if has_fchk and info["energy"] is not None:
-            best, _ = _match_nbo_to_mo(info["energy"], fchk_file)
-            if best:
-                entry["mo_type"] = best[0]
-                entry["mo_num"] = best[1]["mo_num"]
+        visual = build_nbo_visual_ref(
+            visual_source, nbo_id, info.get("energy"))
+        if visual:
+            entry["visual"] = visual
+            if visual.get("mo_num"):
+                entry["mo_type"] = visual.get("mo_type")
+                entry["mo_num"] = visual.get("mo_num")
         overview.append(entry)
     return overview

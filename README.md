@@ -81,7 +81,7 @@ What is integrated today: **reading** Gaussian / Multiwfn inputs and outputs (fc
 
 ### 🧬 Embedded OpenGL rendering engine (ovcanvas)
 - **Order-independent transparency compositing (depth peeling)** — correct in-plane transparency sorting across layers; automatic fallback to sorted blending when unavailable
-- **One-click styles** — sob-art / IBOview / HoukMol / HoukMol3d / **2D flat** / IQmol / MolStudio / CYLview / VESTA default looks, switchable in one click (2D flat = HoukMol palette with unshaded, flat spheres)
+- **One-click styles** — sob-art / IBOview / HoukMol / HoukMol3d / **2D flat** / IQmol / MolStudio / CYLview / VESTA default looks, switchable in one click (2D flat = HoukMol palette with unshaded, flat spheres). The VMD console also provides a `softbox` studio look with three directed soft lights, a white background, red/blue orbital phases and low-roughness specular materials.
 - **Atom colors × lights, two orthogonal axes** — atom palettes (CPK / SobArt / HoukMol / Vcube …) × lighting rigs (3-light / 1-light / 2-light / 4-light) in any combination
 - **Per-light glow** — light dialog for direction / count / glow with fine tuning, save & load
 - **Ring rings** — HoukMol-style equatorial great circles; azimuth / elevation adjustable, lockable
@@ -98,7 +98,12 @@ What is integrated today: **reading** Gaussian / Multiwfn inputs and outputs (fc
   Phase/ESP vertex colours, transparency, atom palette, bonds, hidden atoms,
   ball-and-stick scale and the current view are preserved, with dense
   vertex-colour meshes, double-sided PBR, thin black outlines and KDTree-baked
-  contact AO. ESP scenes also write a matching `_legend.png` colour bar.
+  contact AO. ESP scenes also write a matching `_legend.png` colour bar, and the
+  structure library's Orbitals tab exports atomic / hybrid orbital isosurfaces
+  on their own (positive/negative phase only — using that tab's current isovalue
+  and grid quality; phase colours, phase flip, opacity, roughness and the
+  current view follow the canvas). The canvas export list now also includes
+  **GLB**, including surface-only orbital scenes with no atoms.
 
 ### 🧪 IGMH / IRI weak-interaction analysis
 - **One-click analysis** — pick fragments, run IGMH or IRI indices through Multiwfn
@@ -118,6 +123,11 @@ What is integrated today: **reading** Gaussian / Multiwfn inputs and outputs (fc
   phosphorescence band position is meaningful while its intensity is explicitly
   normalised.
 - **Orbital browser** — orbital energies, occupations, HOMO/LUMO labels; double-click to generate a cube
+- **Spin density and atomic spin populations** — an open-shell wavefunction can
+  generate the α−β spin-density isosurface and, in the same action, integrate
+  spin density over Hirshfeld* atomic spaces. The table lists signed atomic
+  populations, |α−β|, percentage of the total absolute population, and checks
+  the integrated sum against the system spin-electron count; CSV export is supported.
 - **Orbital localization (LMO)** — drives Multiwfn main function 19 to localize the
   loaded `.fchk` by Pipek–Mezey (Mulliken / Löwdin / Becke) or Foster–Boys; a table lists
   each LMO with energy, occupation, single-/two-/multi-center assignment, Hirshfeld
@@ -125,6 +135,13 @@ What is integrated today: **reading** Gaussian / Multiwfn inputs and outputs (fc
   Optional LMO energies (from MOs or a supplied Fock matrix), LMO centres/dipoles and
   open-shell α/β are supported; produces `<stem>_LMO.fch`, `_LMOcen.txt`, `_LMOdip.txt`
   and a full log, and can reopen the LMO wavefunction in the MO table.
+- **LOBA / mLOBA oxidation states** — runs Multiwfn’s Hirshfeld orbital
+  composition and LOBA module directly on `<stem>_LMO.fch`. The default
+  contribution threshold is 50%; mLOBA assigns each orbital to its largest
+  contributor. Fragment definitions such as `1-5,7-11`, atomic and fragment
+  oxidation states, a net-charge consistency note, UTF-8 CSV export and the full
+  `<stem>_LOBA.log` are supported. See the
+  [tutorial](http://sobereva.com/362).
 - **Default UI (reference layout)** — top toolbar (open / snapshot / save image /
   measure / reset view / language / settings), grouped left sidebar, central 3D
   view, a dedicated right-hand “Properties” tab (next to Settings / Citations,

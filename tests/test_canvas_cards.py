@@ -149,6 +149,25 @@ def test_refresh_tolerates_missing_bar_internals(win):
         _pump(30)
 
 
+def test_canvas_export_list_contains_ppt_glb(win):
+    """画布导出下拉同时包含图片格式与 PowerPoint GLB。"""
+    cub = win.cub_canvas
+    formats = [cub._export_cb.itemData(i)
+               for i in range(cub._export_cb.count())]
+    assert "glb" in formats
+    assert {"png", "jpg", "tif", "svg"}.issubset(set(formats))
+
+    idx = cub._export_cb.findData("glb")
+    cub._export_cb.setCurrentIndex(idx)
+    _pump(30)
+    assert cub._export_btn.text() in ("导出3D", "Export 3D")
+    assert "PowerPoint 3D" in cub._export_btn.toolTip()
+
+    cub._export_cb.setCurrentIndex(cub._export_cb.findData("png"))
+    _pump(30)
+    assert cub._export_btn.text() in ("导出图片", "Export image")
+
+
 # ══════════════════════════════════════════════════════════════════════════ #
 #  2. 显示 / 语言切换 / refresh 重复调用
 # ══════════════════════════════════════════════════════════════════════════ #
@@ -206,7 +225,7 @@ def test_render_button_forwards_style_click(win):
     assert "sob" in style_name.replace("-", ""), f"样式没切过去：{style_name!r}"
     assert style_btn.isChecked()
     # 「渲染风格」卡片里同时只能有一个样式高亮（测量类型的高亮不算）
-    style_names = {"sob-art", "HoukMol3d", "2D 平涂", "IQmol"}
+    style_names = {"Softbox", "Lemon", "sob-art", "HoukMol3d", "2D 平涂"}
     active = [b.text() for b in _buttons(cards)
               if b.isChecked() and b.text() in style_names]
     assert active == ["sob-art"], f"样式高亮应只有一个：{active}"

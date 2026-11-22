@@ -8,6 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5.QtWidgets import QApplication
 
 from molstudio.render.ovcanvas._glwidget import CubGLWidget
+from molstudio.render.ovcanvas._looks import LOOK_PRESETS
 from molstudio.render.ovcanvas._panel import (
     _CYLVVIEW_STYLE,
     _HOUKMOL2D_STYLE,
@@ -21,7 +22,7 @@ from molstudio.render.ovcanvas._panel import (
 )
 
 
-def test_all_one_click_styles_enable_depth_fog():
+def test_all_one_click_styles_disable_depth_fog_by_default():
     styles = {
         "sob-art": _SOBART_STYLE,
         "IBOview": _IBOVIEW_STYLE,
@@ -33,17 +34,20 @@ def test_all_one_click_styles_enable_depth_fog():
         "CYLview": _CYLVVIEW_STYLE,
         "VESTA": _VESTA_STYLE,
     }
-    disabled = [name for name, state in styles.items() if not state.get("fade")]
-    assert not disabled, f"以下一键样式仍关闭景深雾化：{disabled}"
+    enabled = [name for name, state in styles.items() if state.get("fade")]
+    assert not enabled, f"以下一键样式仍开启景深雾化：{enabled}"
+    look_enabled = [name for name, item in LOOK_PRESETS.items()
+                    if item["state"].get("fade")]
+    assert not look_enabled, f"以下出图观感仍开启景深雾化：{look_enabled}"
 
 
-def test_style_reset_restores_depth_fog():
+def test_style_reset_keeps_depth_fog_disabled():
     app = QApplication.instance() or QApplication([])
     glw = CubGLWidget()
     try:
-        glw.set_fade_enabled(False)
+        glw.set_fade_enabled(True)
         glw.reset_molviewer_style()
-        assert glw._fade_enabled
+        assert not glw._fade_enabled
         app.processEvents()
     finally:
         glw.close()

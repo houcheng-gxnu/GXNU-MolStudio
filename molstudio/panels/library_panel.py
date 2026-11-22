@@ -41,7 +41,10 @@ _TEXT = {
         "tabs": ("分子库", "晶体库", "电子结构", "导出设置", "引文"),
         "settings_hint": "分子 / 晶体两个页签共用这一组参数。切到「晶体结构库」并选中晶体后，"
                          "晶胞（晶体专用）中的边框、线宽、颜色与扩晶胞才会写进 .glb。"
-                         "「电子结构库」生成的是解析波函数等值面，不走 .glb 结构导出。",
+                         "「电子结构库」导出的是解析波函数等值面本身（正 / 负相位两层）："
+                         "画布上正在显示轨道时，相位配色、透明度、粗糙度与初始视角跟随画布，"
+                         "否则用库内默认蓝 / 橙；「原生 PBR / 无光照」仍可在此设置。"
+                         "原子、键、晶胞相关项不适用，等值面与网格精度取「电子结构」页上的当前值。",
         "citation_hint": "当前选中结构",
         "active": "当前页签：{name}",
         "current": "当前选中：{name} · {source}",
@@ -85,6 +88,10 @@ _TEXT = {
         "all_levels": "全部层级",
         "visualize": "载入并可视化",
         "export": "导出 PowerPoint 3D",
+        "export_orbital": "导出轨道 3D（.glb）",
+        "export_orbital_tip": "把当前原子 / 杂化轨道的正负相位等值面导出为 .glb；"
+                              "只含等值面，不含原子与键。配色、透明度与当前视角"
+                              "跟随画布，可在 PowerPoint 365 中旋转。",
         "crystal_tab": "打开晶体 tab 调整",
         "no_preview": "暂无预览图",
         "source": "来源：{source}",
@@ -102,8 +109,13 @@ _TEXT = {
         "tabs": ("Molecules", "Crystals", "Orbitals", "Export", "Citation"),
         "settings_hint": "Molecules and Crystals share these options. The unit-cell "
                          "frame, width, colour and supercell are written to the .glb "
-                         "only when a crystal is selected. The Orbitals tab renders "
-                         "analytic wavefunctions on the canvas, not a .glb export.",
+                         "only when a crystal is selected. The Orbitals tab exports "
+                         "the analytic wavefunction isosurfaces themselves (positive "
+                         "and negative phase, no atoms or bonds); when an orbital is "
+                         "on the canvas, phase colours, opacity, roughness and the "
+                         "initial view follow the canvas, otherwise the library "
+                         "defaults are used. \"Native PBR / Unlit\" still applies here. "
+                         "The isovalue and grid quality come from the Orbitals tab.",
         "citation_hint": "Selected structure",
         "active": "Current tab: {name}",
         "current": "Selected: {name} · {source}",
@@ -154,6 +166,12 @@ _TEXT = {
         "all_levels": "All levels",
         "visualize": "Load and visualize",
         "export": "Export PowerPoint 3D",
+        "export_orbital": "Export orbital 3D (.glb)",
+        "export_orbital_tip": "Export the positive/negative phase isosurfaces of the "
+                              "selected atomic or hybrid orbital as .glb (surfaces "
+                              "only, no atoms or bonds). Colours, opacity and the "
+                              "current view follow the canvas; rotatable in "
+                              "PowerPoint 365.",
         "crystal_tab": "Open crystal tab",
         "no_preview": "No preview",
         "source": "Source: {source}",
@@ -404,7 +422,7 @@ class LibraryPanel(QWidget):
     def __init__(self, parent=None, lang="zh", on_visualize_molecule=None,
                  on_export_molecule=None, on_visualize_crystal=None,
                  on_export_crystal=None, on_open_crystal_tab=None,
-                 on_visualize_orbital=None):
+                 on_visualize_orbital=None, on_export_orbital=None):
         super().__init__(parent)
         self.lang = "zh" if str(lang).lower().startswith("zh") else "en"
         self._on_visualize_molecule = on_visualize_molecule
@@ -413,6 +431,7 @@ class LibraryPanel(QWidget):
         self._on_export_crystal = on_export_crystal
         self._on_open_crystal_tab = on_open_crystal_tab
         self._on_visualize_orbital = on_visualize_orbital
+        self._on_export_orbital = on_export_orbital
         self._build_ui()
         self.set_language(self.lang)
 
@@ -566,6 +585,7 @@ class LibraryPanel(QWidget):
         self.crystal_view._refresh_list()
         self.orbital_view.set_language(self.lang)
         self._sync_visualize_button()
+        self._sync_export_button()
         self._refresh_active_label()
         self._refresh_current_source()
 
@@ -576,14 +596,24 @@ class LibraryPanel(QWidget):
                 else self._t("visualize"))
         self.btn_visualize.setText(text)
 
+    def _sync_export_button(self):
+        """轨道页导出的是「等值面本身」，按钮文案与提示要说明这一点。"""
+        orbital = self.sub_tabs.currentIndex() == TAB_ORBITALS
+        self.btn_export.setText(
+            self._t("export_orbital") if orbital else self._t("export"))
+        self.btn_export.setToolTip(
+            self._t("export_orbital_tip") if orbital else "")
+
     def _on_tab_changed(self, index):
         browser = index in (TAB_MOLECULES, TAB_CRYSTALS, TAB_ORBITALS)
         self.btn_visualize.setEnabled(browser)
-        # 轨道是解析波函数等值面，不是 XYZ / CIF 结构；.glb 导出链路要求
-        # 结构实体，轨道页先禁用（后续可单独接 cube → glb）。
-        self.btn_export.setEnabled(index in (TAB_MOLECULES, TAB_CRYSTALS))
+        # 轨道页导出的是解析波函数等值面本身（正 / 负相位两层，不含原子、
+        # 键或晶胞）：主窗口用 core.atomic_orbital 现场抽一份闭合网格写 .glb。
+        self.btn_export.setEnabled(
+            index in (TAB_MOLECULES, TAB_CRYSTALS, TAB_ORBITALS))
         self.btn_crystal_tab.setEnabled(index == TAB_CRYSTALS)
         self._sync_visualize_button()
+        self._sync_export_button()
         self._refresh_active_label()
         self._refresh_current_source()
 
@@ -625,7 +655,7 @@ class LibraryPanel(QWidget):
             self._t("current", name=name, source=source))
 
     def current_entry(self):
-        """导出用的结构实体；轨道页没有可导出的结构，返回 None。"""
+        """导出用的结构实体；轨道页没有结构实体（走 ``on_export_orbital``）。"""
         if self.is_orbital_page():
             return None
         return (self.crystal_view.current_entry() if self.is_crystal_page()
@@ -673,6 +703,13 @@ class LibraryPanel(QWidget):
             self._visualize_molecule_current()
 
     def _export_current(self):
+        if self.is_orbital_page():
+            spec = self.orbital_view.current_spec()
+            if spec is not None and callable(self._on_export_orbital):
+                self._on_export_orbital(spec, self.orbital_view.iso(),
+                                        self.orbital_view.quality(),
+                                        self.options())
+            return
         entry = self.current_entry()
         if entry is None:
             return

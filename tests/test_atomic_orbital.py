@@ -219,3 +219,40 @@ def test_cube_roundtrip_and_isosurface(tmp_path, ident):
         pass  # s 轨道的正瓣为主，负瓣可有可无
     else:
         assert neg.vertex_count > 0, "非 s 轨道必须有反相瓣"
+
+
+@pytest.mark.parametrize("ident", ["1s", "2pz", "3dz2", "4fz3", "sp3_1"])
+def test_small_isovalue_cube_expands_until_surface_closes(tmp_path, ident):
+    """iso 很小时立方体必须外扩，否则画布上 f / d 的瓣尖会被边界切掉。
+
+    画布 cube 之前固定用 ``spec.extent``，而 4f 在 iso=0.005 时最外层等值面
+    半径约 1.87 倍 —— 画布上看到的就是被切平的瓣尖。现在 ``build_orbital_cube``
+    接受 iso，先把立方体扩到边界 |ψ| < iso 再写盘。
+    """
+    spec = orbital_by_id(ident)
+    iso = 0.005
+    path = str(tmp_path / (ident + "_small.cub"))
+    info = build_orbital_cube(path, spec, "low", iso=iso)
+    cube = read_cube(path)
+
+    field = np.abs(cube.data)
+    edge = max(field[0].max(), field[-1].max(),
+               field[:, 0].max(), field[:, -1].max(),
+               field[:, :, 0].max(), field[:, :, -1].max())
+    assert edge < iso, "%s 在 iso=%.3f 时边界仍有 %.4g" % (ident, iso, edge)
+    assert info["extent"] >= info["base_extent"]
+    assert info["extent"] == pytest.approx(0.5 * info["spacing"]
+                                           * (info["n_grid"] - 1))
+    if ident.startswith(("4f", "3d", "sp")):
+        # 这些轨道在 0.005 时伸得比基准立方体远，必须真的外扩
+        assert info["extent"] > info["base_extent"] * 1.2
+    if ident == "1s":
+        assert info["extent"] == pytest.approx(info["base_extent"])
+
+    # 立方体外扩后等值面必须闭合：每条边只能被两个三角形共用
+    pos = marching_cubes(cube, iso, False)
+    tri = np.asarray(pos.indices).reshape(-1, 3)
+    edges = np.sort(np.concatenate(
+        [tri[:, [0, 1]], tri[:, [1, 2]], tri[:, [2, 0]]]), axis=1)
+    _, counts = np.unique(edges, axis=0, return_counts=True)
+    assert int((counts == 1).sum()) == 0

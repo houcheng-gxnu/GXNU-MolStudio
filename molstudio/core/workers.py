@@ -9,6 +9,7 @@ import time
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from molstudio.core.i18n import tr
+from molstudio.core.spin_density import run_atomic_spin_population
 
 
 class CubeWorker(QThread):
@@ -177,10 +178,10 @@ class RenderWorker(QThread):
 
 
 class SpinDensityWorker(QThread):
-    """后台生成自旋密度 cube（Multiwfn，提示驱动）。"""
+    """后台生成自旋密度 cube，并计算 Hirshfeld 原子自旋布居。"""
     log_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int)   # 0-100
-    finished_signal = pyqtSignal(str)   # cube 路径
+    finished_signal = pyqtSignal(dict)
     error_signal = pyqtSignal(str)
 
     def __init__(self, fchk_path, multiwfn_exe, work_dir=None,
@@ -191,9 +192,17 @@ class SpinDensityWorker(QThread):
         self.work_dir = work_dir
         self.grid_quality = grid_quality
         self._running = True
+        self._population_proc = {}
 
     def stop(self):
         self._running = False
+        proc = self._population_proc.get("proc")
+        if proc is not None:
+            try:
+                if proc.poll() is None:
+                    proc.terminate()
+            except Exception:
+                pass
 
     def run(self):
         import molstudio.core.fchk_orbital as backend
@@ -203,11 +212,40 @@ class SpinDensityWorker(QThread):
                 self.fchk_path, multiwfn_exe=self.multiwfn_exe,
                 work_dir=self.work_dir, grid_quality=self.grid_quality,
                 log_func=lambda ln: self.log_signal.emit(ln) if self._running else None,
-                progress_cb=lambda pct, ln: self.progress_signal.emit(int(pct))
+                progress_cb=lambda pct, ln: self.progress_signal.emit(
+                    int(round(max(0.0, min(72.0, float(pct) * 0.72)))))
                 if self._running else None,
                 cancel_check=lambda: not self._running)
-            if cube and os.path.exists(cube):
-                self.finished_signal.emit(cube)
+            if not self._running:
+                self.error_signal.emit(tr("spin_density_stopped"))
+                return
+            self.progress_signal.emit(75)
+            try:
+                population = run_atomic_spin_population(
+                    self.fchk_path, self.multiwfn_exe,
+                    out_dir=self.work_dir,
+                    on_log=lambda ln: self.log_signal.emit(ln)
+                    if self._running else None,
+                    on_stage=lambda pct, _text: self.progress_signal.emit(
+                        75 + int(round(max(0, min(100, pct)) * 0.25))),
+                    cancel_check=lambda: not self._running,
+                    proc_holder=self._population_proc)
+            except Exception as exc:  # noqa: BLE001 - cube 仍可单独显示
+                population = {
+                    "ok": False, "error": str(exc), "atoms": [],
+                    "warnings": [],
+                }
+            finally:
+                self._population_proc.pop("proc", None)
+
+            result = {
+                "ok": bool(cube) or bool((population or {}).get("ok")),
+                "cube": cube or "",
+                "population": population if isinstance(population, dict) else {},
+            }
+            if result["ok"]:
+                self.progress_signal.emit(100)
+                self.finished_signal.emit(result)
             else:
                 self.error_signal.emit(tr("spin_density_failed"))
         except Exception as e:

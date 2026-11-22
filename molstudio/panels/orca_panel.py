@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from PyQt5.QtCore import QSettings, QStandardPaths, QTimer, QUrl, Qt
 from PyQt5.QtWidgets import (
@@ -94,7 +95,15 @@ TEXT = {
         "status_load_fchk": "已载入 fchk：{path}",
         "browse_struct": "选择结构文件",
         "browse_dir": "选择工作目录",
+        "orca_exe": "ORCA 可执行文件",
+        "browse_exe": "选择 orca.exe",
+        "detect": "自动检测",
+        "tip_orca_exe": "留空则每次按环境变量 / PATH / 常见目录自动查找；"
+                        "指定后就一直用这个 orca.exe",
         "msmpi_hint": "本机 ORCA 为 msmpi 版：核数必须 ≥ 2",
+        "tip_workdir": "基目录：每次运行都会在它下面新建时间戳子目录，"
+                       ".inp 与 .out / .gbw 等输出都放在里面",
+        "tip_open_dir": "在文件管理器中打开本次计算的目录",
         "load_fchk_done": "已把 fchk 载入主窗口",
         "run_hint": "运行前请确认右侧参数",
     },
@@ -178,7 +187,16 @@ TEXT = {
         "status_load_fchk": "fchk loaded: {path}",
         "browse_struct": "Choose structure file",
         "browse_dir": "Choose working directory",
+        "orca_exe": "ORCA executable",
+        "browse_exe": "Choose orca.exe",
+        "detect": "Auto-detect",
+        "tip_orca_exe": "Leave empty to auto-detect via environment variables / "
+                        "PATH / common folders every time; set it to always use "
+                        "this orca.exe",
         "msmpi_hint": "This ORCA build is msmpi: cores must be ≥ 2",
+        "tip_workdir": "Base folder: every run creates a fresh timestamped "
+                       "subfolder holding the .inp and all .out / .gbw outputs",
+        "tip_open_dir": "Open this calculation's folder in the file manager",
         "load_fchk_done": "fchk loaded into the main window",
         "run_hint": "Check the settings before running",
     },
@@ -193,11 +211,15 @@ class OrcaPanel(QWidget):
     """ORCA 计算页：左侧共享画布，本页=右侧参数设置区。"""
 
     def __init__(self, get_structure=None, on_open_structure=None,
-                 log_func=None, parent=None, lang="zh", orca_exe=""):
+                 log_func=None, parent=None, lang="zh", orca_exe="",
+                 get_structure_path=None):
         super().__init__(parent)
         self.lang = "en" if str(lang).lower().startswith("en") else "zh"
         self._get_structure = (get_structure
                                if callable(get_structure) else (lambda: None))
+        self._get_structure_path = (get_structure_path
+                                    if callable(get_structure_path)
+                                    else (lambda: ""))
         self._on_open_structure = (on_open_structure
                                    if callable(on_open_structure) else None)
         self._log_func = log_func
@@ -210,6 +232,14 @@ class OrcaPanel(QWidget):
         self._prepared = None
         self._active_task = "sp"
         self._status = ("status_ready", {})
+        # 工作目录：界面上的框里显示「本次运行目录」，每次运行在基目录下新建
+        # 时间戳子目录，避免同目录覆盖上一次的 .inp / .out / .gbw。
+        self._workdir_base = ""
+        self._workdir_user_edited = False
+        self._workdir_auto = True        # 目录仍是自动推出的（未被用户指定）
+        self._last_run_dir = ""
+        self._auto_name = ""             # 自动生成的任务名（用户改名后清空）
+        self._meta_path = ""             # 已应用过电荷/多重度的源文件
         self._settings = QSettings("MolStudio", "OrcaPanel")
         self._orb_exe = orca_exe or ORCA.find_orca_exe()
         self._mw_exe = self._find_multiwfn()
@@ -241,6 +271,15 @@ class OrcaPanel(QWidget):
             return ""
 
     def _default_workdir(self):
+        """默认「基目录」——每次运行会在它下面新建时间戳子目录。
+
+        载入过结构文件时按 xTB 页的习惯放在文件同级的 ``<文件名>_ORCA``；
+        只有画布结构时退回「文档/MolStudio_ORCA」（路径含中文时退到用户
+        主目录，避免英文界面里出现中文路径）。
+        """
+        if self._source_kind == "file" and self._source_path:
+            src = Path(self._source_path)
+            return str(src.parent / (src.stem + "_ORCA"))
         home = os.path.expanduser("~")
         docs = QStandardPaths.writableLocation(
             QStandardPaths.DocumentsLocation)
@@ -249,6 +288,44 @@ class OrcaPanel(QWidget):
         if any("\u4e00" <= ch <= "\u9fff" for ch in base):
             base = home
         return os.path.join(base, "MolStudio_ORCA")
+
+    def _resolve_run_dir(self):
+        """本次运行的独立目录：``<基目录>/<时间戳>``（同秒重跑加 ``_1``）。"""
+        text = self.edit_workdir.text().strip()
+        if self._workdir_user_edited and text:
+            base = text
+        elif self._workdir_base:
+            base = self._workdir_base
+        elif text:
+            base = text
+        else:
+            base = self._default_workdir()
+        return ORCA.resolve_run_dir(base)
+
+    def _on_structure_switched(self):
+        """结构换了：用户没自己指定过目录时，基目录跟到新结构旁边。"""
+        self._last_run_dir = ""
+        if self._workdir_auto and not self._workdir_user_edited:
+            self._workdir_base = ""
+            self.edit_workdir.setText(self._default_workdir())
+            self.edit_workdir.setCursorPosition(0)
+        elif self._workdir_user_edited:
+            self._workdir_base = self.edit_workdir.text().strip()
+        self._workdir_user_edited = False
+
+    def _apply_gjf_meta(self, path):
+        """把 gjf/com 头部写的电荷与多重度填进右侧参数（读不到就保持原值）。"""
+        try:
+            charge, mult = ORCA.read_gjf_charge_mult(path)
+        except Exception:                                # noqa: BLE001
+            return
+        if charge is not None:
+            if self.spin_charge.minimum() <= charge <= \
+                    self.spin_charge.maximum():
+                self.spin_charge.setValue(int(charge))
+        if mult is not None:
+            if self.spin_mult.minimum() <= mult <= self.spin_mult.maximum():
+                self.spin_mult.setValue(int(mult))
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -368,11 +445,24 @@ class OrcaPanel(QWidget):
         label("job_name", 8, 0)
         form.addWidget(self.edit_name, 8, 1, 1, 3)
 
-        self.lbl_orca = QLabel("")
-        self.lbl_orca.setStyleSheet("color:#8A97AB;font-size:8.5pt;")
-        self.lbl_orca.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.lbl_orca.setWordWrap(True)
-        form.addWidget(self.lbl_orca, 9, 0, 1, 4)
+        # ORCA 可执行文件：留空自动检测，指定后一直用它
+        self.edit_orca = QLineEdit(self._orb_exe)
+        self.edit_orca.setMinimumWidth(120)
+        self.edit_orca.setToolTip(self._t("tip_orca_exe"))
+        self.edit_orca.editingFinished.connect(self._save_settings)
+        self.btn_browse_orca = QPushButton("")
+        self.btn_browse_orca.clicked.connect(self._browse_orca)
+        self.btn_detect_orca = QPushButton("")
+        self.btn_detect_orca.clicked.connect(self._detect_orca)
+        orca_btns = QWidget()
+        ob = QHBoxLayout(orca_btns)
+        ob.setContentsMargins(0, 0, 0, 0)
+        ob.setSpacing(5)
+        ob.addWidget(self.btn_browse_orca)
+        ob.addWidget(self.btn_detect_orca)
+        label("orca_exe", 9, 0)
+        form.addWidget(self.edit_orca, 9, 1, 1, 2)
+        form.addWidget(orca_btns, 9, 3)
         root.addWidget(self.grp_calc)
 
         # 按钮
@@ -440,6 +530,8 @@ class OrcaPanel(QWidget):
             w.valueChanged.connect(self._schedule_preview)
         for w in (self.edit_extra, self.edit_name, self.edit_workdir):
             w.textChanged.connect(self._schedule_preview)
+        self.edit_name.textEdited.connect(self._on_name_edited)
+        self.edit_workdir.textEdited.connect(self._on_workdir_edited)
         self.cmb_solvent.currentIndexChanged.connect(self._toggle_solvent)
         self.cmb_task.currentIndexChanged.connect(self._toggle_task_ui)
         self._preview_timer = QTimer(self)
@@ -551,7 +643,12 @@ class OrcaPanel(QWidget):
         self.cmb_solvent.setItemText(0, self._t("solvent_none"))
         self.edit_extra.setPlaceholderText(self._t("extra_ph"))
         self.spin_nprocs.setToolTip(self._t("msmpi_hint"))
-        self.lbl_orca.setText("ORCA: %s" % (self._orb_exe or "—"))
+        self.edit_workdir.setToolTip(self._t("tip_workdir"))
+        self.btn_open_dir.setToolTip(self._t("tip_open_dir"))
+        self.edit_orca.setToolTip(self._t("tip_orca_exe"))
+        self.btn_browse_orca.setText(self._t("browse"))
+        self.btn_browse_orca.setToolTip(self._t("browse_exe"))
+        self.btn_detect_orca.setText(self._t("detect"))
         self._apply_sources()
         self._render_status()
         if self._result is not None:
@@ -608,8 +705,55 @@ class OrcaPanel(QWidget):
         self._source_kind = "canvas"
         self._source_path = ""
         self._apply_sources()
+        self._sync_source_meta()
+        self._on_structure_switched()
+        self._apply_sources()
         self._set_status("status_loaded", n=len(symbols))
         self._refresh_preview()
+        return True
+
+    def _sync_source_meta(self):
+        """主窗口刚打开的文件：认领来源 + 读电荷/多重度（同一文件只做一次）。
+
+        画布结构如果与主窗口最近打开的文件完全一致，就把它当作「文件来源」，
+        任务名和输出基目录都跟着这个文件走；用户改过坐标则仍算画布结构。
+        """
+        path = ""
+        try:
+            path = str(self._get_structure_path() or "")
+        except Exception:                                # noqa: BLE001
+            path = ""
+        if not path or path == self._meta_path or not os.path.isfile(path):
+            return
+        self._meta_path = path
+        self._adopt_source_file(path)
+        self._apply_gjf_meta(path)
+
+    def _adopt_source_file(self, path):
+        """画布坐标与文件一致时，把来源认成该文件（名字 / 基目录跟着走）。"""
+        try:
+            symbols, coords = ORCA.read_structure_file(path)
+        except Exception:                                # noqa: BLE001
+            return False
+        if [str(s) for s in symbols] != list(self._symbols):
+            return False
+        if len(coords) != len(self._coords):
+            return False
+        try:
+            same = all(abs(a - b) < 1e-3
+                       for c1, c2 in zip(coords, self._coords)
+                       for a, b in zip(c1, c2))
+        except (TypeError, ValueError):
+            return False
+        if not same:
+            return False
+        self._source_kind = "file"
+        self._source_path = path
+        stem = os.path.splitext(os.path.basename(path))[0]
+        current = self.edit_name.text().strip()
+        if current in ("", "orca_job") or current == self._auto_name:
+            self._auto_name = stem + "_orca"
+            self.edit_name.setText(self._auto_name)
         return True
 
     def _browse_structure(self):
@@ -622,7 +766,11 @@ class OrcaPanel(QWidget):
             self.load_structure_path(path)
 
     def load_structure_path(self, path):
-        """载入 gjf/xyz/fchk/log/out，并通知主窗口把结构画到画布上。"""
+        """载入 gjf/xyz/fchk/log/out，并通知主窗口把结构画到画布上。
+
+        载入后：任务名跟随文件名（``<文件名>_orca``）、输出基目录跟到文件同级
+        的 ``<文件名>_ORCA``、gjf 里写的电荷/多重度填进右侧参数。
+        """
         if self._on_open_structure is not None:
             try:
                 self._on_open_structure(path)
@@ -639,8 +787,13 @@ class OrcaPanel(QWidget):
         self._source_kind = "file"
         self._source_path = path
         stem = os.path.splitext(os.path.basename(path))[0]
-        if self.edit_name.text().strip() in ("", "orca_job"):
-            self.edit_name.setText(stem + "_orca")
+        current = self.edit_name.text().strip()
+        if current in ("", "orca_job") or current == self._auto_name:
+            self._auto_name = stem + "_orca"
+            self.edit_name.setText(self._auto_name)
+        self._meta_path = path
+        self._apply_gjf_meta(path)
+        self._on_structure_switched()
         self._apply_sources()
         self._set_status("status_loaded", n=len(symbols))
         self._refresh_preview()
@@ -673,9 +826,32 @@ class OrcaPanel(QWidget):
             "workdir": (self.edit_workdir.text().strip()
                         or self._default_workdir()),
             "name": (self.edit_name.text().strip() or "orca_job"),
-            "orca_exe": self._orb_exe,
+            "orca_exe": self._current_orca_exe(),
             "multiwfn_exe": self._mw_exe,
         }
+
+    def _current_orca_exe(self):
+        """当前使用的 orca.exe：手填优先，留空则按环境/PATH/常见目录查找。"""
+        text = self.edit_orca.text().strip()
+        return text or ORCA.find_orca_exe()
+
+    def _browse_orca(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, self._t("browse_exe"),
+            os.path.dirname(self.edit_orca.text().strip() or ""),
+            "可执行文件 (*.exe);;所有文件 (*.*)")
+        if path:
+            self.edit_orca.setText(path)
+            self._save_settings()
+
+    def _detect_orca(self):
+        found = ORCA.find_orca_exe()
+        if found:
+            self.edit_orca.setText(found)
+            self.edit_orca.setCursorPosition(0)
+            self._save_settings()
+        else:
+            self._set_status("status_no_orca")
 
     def _refresh_preview(self, *_args):
         cfg = self._config()
@@ -746,7 +922,17 @@ class OrcaPanel(QWidget):
         if not cfg["orca_exe"]:
             self._set_status("status_no_orca")
             return
-        os.makedirs(cfg["workdir"], exist_ok=True)
+        # 一个作业一个文件夹：在基目录下新建时间戳子目录，.inp 与 .out/.gbw
+        # 等都落在里面，不同分子、同一分子重跑都不会互相覆盖。
+        run_dir = self._resolve_run_dir()
+        self.edit_workdir.setText(run_dir)
+        # 路径通常是「基目录/时间戳」，光标放末尾才看得见本次的时间戳
+        self.edit_workdir.setCursorPosition(len(run_dir))
+        self._workdir_base = os.path.dirname(run_dir)
+        self._workdir_user_edited = False
+        self._last_run_dir = run_dir
+        cfg = self._config()
+        os.makedirs(run_dir, exist_ok=True)
         self._save_settings()
         self._save_input()
         self.log_view.clear()
@@ -772,6 +958,10 @@ class OrcaPanel(QWidget):
         self.btn_stop.setEnabled(running)
         self.btn_gen.setEnabled(not running)
         self.btn_save.setEnabled(not running)
+        # 运行中不许改 orca.exe 路径（正在用的是启动时那一份）
+        self.edit_orca.setEnabled(not running)
+        self.btn_browse_orca.setEnabled(not running)
+        self.btn_detect_orca.setEnabled(not running)
         self.btn_molden.setEnabled(False if running else bool(
             self._result and self._result.gbw_path))
         self.btn_load_fchk.setEnabled(False if running else bool(
@@ -859,7 +1049,7 @@ class OrcaPanel(QWidget):
             molden = p.get("molden_path", "")
             if not (molden and os.path.isfile(molden)):
                 molden = ORCA.convert_gbw(self._result.gbw_path,
-                                          self._orb_exe)
+                                          self._current_orca_exe())
                 p["molden_path"] = molden
             fchk = p.get("fchk_path", "")
             if not (fchk and os.path.isfile(fchk)):
@@ -899,9 +1089,16 @@ class OrcaPanel(QWidget):
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def _open_workdir(self):
-        wd = self.edit_workdir.text().strip() or self._default_workdir()
-        if os.path.isdir(wd):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(wd))
+        for cand in (self._last_run_dir,
+                     (self._result.prepared.workdir
+                      if self._result is not None else ""),
+                     (self._prepared.workdir
+                      if self._prepared is not None else ""),
+                     self.edit_workdir.text().strip()
+                     or self._default_workdir()):
+            if cand and os.path.isdir(cand):
+                QDesktopServices.openUrl(QUrl.fromLocalFile(cand))
+                return
 
     def _copy_command(self):
         cmd = ""
@@ -911,7 +1108,7 @@ class OrcaPanel(QWidget):
             cmd = self._prepared.command_str
         else:
             cmd = ORCA.command_preview(
-                [self._orb_exe or "orca.exe",
+                [self._current_orca_exe() or "orca.exe",
                  os.path.join(self.edit_workdir.text().strip() or ".",
                               (self.edit_name.text().strip() or "orca_job")
                               + ".inp")])
@@ -924,9 +1121,20 @@ class OrcaPanel(QWidget):
             self.edit_workdir.text().strip() or os.path.expanduser("~"))
         if path:
             self.edit_workdir.setText(path)
+            self._workdir_base = ""
+            self._workdir_user_edited = True
+            self._workdir_auto = False
 
     def _toggle_solvent(self):
         self.cmb_solvent_model.setEnabled(bool(self.cmb_solvent.currentData()))
+
+    def _on_name_edited(self, *_args):
+        # 用户自己改过任务名后，不再随载入的文件名自动改
+        self._auto_name = ""
+
+    def _on_workdir_edited(self, *_args):
+        self._workdir_user_edited = True
+        self._workdir_auto = False
 
     def _toggle_task_ui(self):
         show = str(self.cmb_task.currentData() or "sp") == "td"
@@ -945,11 +1153,21 @@ class OrcaPanel(QWidget):
             self.spin_nprocs.setValue(s.value("nprocs", 4, type=int))
             self.spin_maxcore.setValue(s.value("maxcore", 2000, type=int))
             wd = s.value("workdir", "", type=str)
-            if wd and not any("\u4e00" <= ch <= "\u9fff" for ch in wd):
+            auto = bool(s.value("workdir_auto", True, type=bool))
+            # 老版本只存了目录：当作「自动」，让基目录继续跟随结构文件，
+            # 否则升级后所有分子都会堆在原来的全局目录里。
+            if wd and not auto \
+                    and not any("\u4e00" <= ch <= "\u9fff" for ch in wd):
                 self.edit_workdir.setText(wd)
                 self.edit_workdir.setCursorPosition(0)
-            else:
-                self.edit_workdir.setCursorPosition(0)
+                self._workdir_base = wd
+            self._workdir_auto = auto
+            self.edit_workdir.setCursorPosition(0)
+            # 用户指定过的 orca.exe（文件已不存在就退回自动检测）
+            saved_orca = s.value("orca", "", type=str).strip()
+            if saved_orca and os.path.isfile(saved_orca):
+                self.edit_orca.setText(saved_orca)
+                self.edit_orca.setCursorPosition(0)
         except Exception:                                # noqa: BLE001
             pass
 
@@ -961,8 +1179,13 @@ class OrcaPanel(QWidget):
                                     self.cmb_basis.currentText().strip())
             self._settings.setValue("nprocs", self.spin_nprocs.value())
             self._settings.setValue("maxcore", self.spin_maxcore.value())
-            self._settings.setValue("workdir",
-                                    self.edit_workdir.text().strip())
+            # 存「基目录」而不是本次的时间戳目录，下次运行仍在其下新建子目录
+            self._settings.setValue(
+                "workdir",
+                self._workdir_base or self.edit_workdir.text().strip())
+            self._settings.setValue("workdir_auto",
+                                    bool(self._workdir_auto))
+            self._settings.setValue("orca", self.edit_orca.text().strip())
             self._settings.sync()
         except Exception:                                # noqa: BLE001
             pass

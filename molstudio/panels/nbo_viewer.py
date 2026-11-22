@@ -3,9 +3,10 @@
 nbo_viewer.py — NBO 分析面板（整合自 NBOViewer）
 =================================================
 
-读取 Gaussian ``pop=nbo`` 日志里的 NBO 轨道与 E(2) 二阶微扰相互作用，配合
-``.fchk`` 把 NBO 轨道能量匹配到分子轨道（MO）编号，并可直接在左侧 OpenGL
-画布中生成/显示对应 MO 的等值面。
+读取 Gaussian ``pop=nbo`` 日志里的 NBO 轨道与 E(2) 二阶微扰相互作用。
+可视化优先使用 NBO plot ``.31/.37`` 的真实 NBO 系数；对于
+``pop=saveNBO`` 的 fchk，则严格按日志里的 storage permutation 选轨道。
+普通 fchk 只显示明确标注的 canonical-MO 近似提示，不冒充 NBO。
 
 NboPanel 是作为主窗口右侧 QTabWidget 的一个页签使用的面板：
 
@@ -18,17 +19,24 @@ NboPanel 是作为主窗口右侧 QTabWidget 的一个页签使用的面板：
 """
 
 import os
+import shutil
+import subprocess
+import sys
+import tempfile
 import traceback
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QFileDialog, QMessageBox, QFrame, QGroupBox, QInputDialog,
+    QFrame, QGroupBox, QInputDialog, QComboBox,
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 
-from molstudio.panels.nbo_parser import run_analysis, build_full_overview
+from molstudio.panels.nbo_parser import (
+    run_analysis, build_full_overview, resolve_nbo_visual_source,
+)
 from molstudio.core.fchk_orbital import gen_cube
+from molstudio.panels.nbo_input_dialog import NboInputDialog
 from molstudio.ui.file_dialogs import open_file
 
 
@@ -55,6 +63,61 @@ def nbo_mo_cube_path(fchk, mo_num, mo_type):
     return os.path.join(nbo_arch_dir(fchk), f"{stem}_MO{orbital}.cub")
 
 
+def nbo_plot_cube_path(plot31, nbo_id):
+    """Cube archive path for an actual ``.37`` NBO plot orbital."""
+    stem = os.path.splitext(os.path.basename(plot31))[0]
+    return os.path.join(
+        nbo_arch_dir(plot31), f"{stem}_NBO{nbo_id}.cub")
+
+
+def gen_nbo_plot_cube(plot31, nbo_id, grid_quality=2, multiwfn_exe=None,
+                      plot_type=37):
+    """Generate a cube directly from the NBO ``.31`` + ``.37`` plot pair.
+
+    Unlike a normal fchk, the plot pair stores the real NBO coefficients, so
+    the selected orbital number is identical to the NBO number in the log.
+    """
+    plot31 = os.path.abspath(plot31)
+    root = os.path.splitext(plot31)[0]
+    selected_plot = root + "." + str(plot_type)
+    target = nbo_plot_cube_path(plot31, nbo_id)
+    if os.path.exists(target):
+        return target
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+
+    # Run Multiwfn in the system temp folder with ASCII input names. The final
+    # cube is moved into the archive, so Chinese/space-containing project paths
+    # do not become command-line inputs for older Multiwfn builds.
+    temp_dir = tempfile.mkdtemp(prefix="_multiwfn_nbo_")
+    local_basis = os.path.join(temp_dir, "nbo.31")
+    local_selected = os.path.join(temp_dir, "nbo." + str(plot_type))
+    try:
+        shutil.copy2(plot31, local_basis)
+        shutil.copy2(selected_plot, local_selected)
+        inputs = (
+            "\nnbo.31\n" + str(plot_type) + "\n5\n4\n"
+            + str(int(nbo_id)) + "\n" + str(int(grid_quality))
+            + "\n2\n0\nq\n"
+        )
+        result = subprocess.run(
+            [multiwfn_exe], cwd=temp_dir, input=inputs, timeout=600,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            encoding="utf-8", errors="replace",
+            creationflags=(
+                subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+                if sys.platform == "win32" else 0),
+        )
+        cube_src = os.path.join(temp_dir, "MOvalue.cub")
+        if result.returncode != 0 or not os.path.isfile(cube_src):
+            return None
+        shutil.move(cube_src, target)
+        return target
+    except (OSError, subprocess.SubprocessError):
+        return None
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 # ═══════════════════════════════════════════════════════════════
 # 后台线程
 # ═══════════════════════════════════════════════════════════════
@@ -66,23 +129,28 @@ class NboAnalysisWorker(QThread):
     """
     finished = pyqtSignal(object, object)
 
-    def __init__(self, log_file, atom1, atom2, min_e2, fchk_file):
+    def __init__(self, log_file, atom1, atom2, min_e2, fchk_file,
+                 plot_file=None):
         super().__init__()
         self.log_file = log_file
         self.atom1 = atom1
         self.atom2 = atom2
         self.min_e2 = min_e2
         self.fchk_file = fchk_file
+        self.plot_file = plot_file
 
     def run(self):
         try:
             if self.atom1 is None:
-                overview = build_full_overview(self.log_file, self.fchk_file)
+                overview = build_full_overview(
+                    self.log_file, self.fchk_file, self.plot_file)
                 data = {
                     "nbo_overview": overview,
                     "cross_e2_details": [],
                     "single_atom_mode": False,
                     "full_mode": True,
+                    "visual_source": resolve_nbo_visual_source(
+                        self.log_file, self.fchk_file, self.plot_file),
                     "atom1": None,
                     "atom2": None,
                 }
@@ -90,7 +158,7 @@ class NboAnalysisWorker(QThread):
                 return
             text, data = run_analysis(
                 self.log_file, self.atom1, self.atom2, self.min_e2,
-                self.fchk_file)
+                self.fchk_file, plot_file=self.plot_file)
             self.finished.emit(data, text)
         except Exception:
             traceback.print_exc()
@@ -98,40 +166,55 @@ class NboAnalysisWorker(QThread):
 
 
 class NboCubeWorker(QThread):
-    """后台生成单个 MO 的 cube（调 Multiwfn）；归档目录已有则直接复用。"""
-    finished = pyqtSignal(object, int, str)  # (cube_path, mo_num, mo_type)
+    """Generate one direct-source NBO/MO cube, reusing the archive."""
+    finished = pyqtSignal(object, object)  # (cube_path, visual_ref)
     error = pyqtSignal(str)
 
-    def __init__(self, fchk, orbital, mo_num, mo_type, multiwfn_exe, work_dir=None):
+    def __init__(self, visual, multiwfn_exe, grid_quality=2,
+                 work_dir=None):
         super().__init__()
-        self.fchk = fchk
-        self.orbital = orbital
-        self.mo_num = mo_num
-        self.mo_type = mo_type
+        self.visual = dict(visual)
         self.multiwfn_exe = multiwfn_exe
+        self.grid_quality = int(grid_quality)
         self.work_dir = work_dir
 
     def run(self):
         try:
             cube = None
-            if self.fchk and os.path.exists(self.fchk):
-                # 归档目录（<stem>_NBO）已有该 MO cube → 直接复用，不重跑 Multiwfn
-                target = nbo_mo_cube_path(self.fchk, self.mo_num, self.mo_type)
+            kind = self.visual.get("kind")
+            source = self.visual.get("source", "")
+            orbital = self.visual.get("orbital")
+            if kind == "plot":
+                target = nbo_plot_cube_path(source, self.visual["nbo_id"])
                 if os.path.exists(target):
                     cube = target
                 else:
-                    cube = gen_cube(self.fchk, orbital=self.orbital,
-                                    grid_quality=2,
-                                    multiwfn_exe=self.multiwfn_exe,
-                                    work_dir=os.path.dirname(target))
+                    cube = gen_nbo_plot_cube(
+                        source, self.visual["nbo_id"],
+                        grid_quality=self.grid_quality,
+                        multiwfn_exe=self.multiwfn_exe,
+                        plot_type=self.visual.get("plot_type", 37))
+            elif kind in ("fchk", "canonical") and source and os.path.exists(source):
+                mo_num = int(orbital)
+                target = nbo_mo_cube_path(
+                    source, abs(mo_num), "Alpha" if mo_num >= 0 else "Beta")
+                if os.path.exists(target):
+                    cube = target
+                else:
+                    cube = gen_cube(
+                        source, orbital=orbital,
+                        grid_quality=self.grid_quality,
+                        multiwfn_exe=self.multiwfn_exe,
+                        work_dir=os.path.dirname(target))
             else:
-                cube = gen_cube(self.fchk, orbital=self.orbital, grid_quality=2,
-                                multiwfn_exe=self.multiwfn_exe,
-                                work_dir=self.work_dir)
+                self.error.emit("No direct NBO wavefunction source")
+                return
             if cube:
-                self.finished.emit(cube, self.mo_num, self.mo_type)
+                self.finished.emit(cube, self.visual)
             else:
-                self.error.emit(f"MO #{self.mo_num} cube generation failed")
+                self.error.emit(
+                    f"NBO orbital #{self.visual.get('nbo_id', orbital)} "
+                    "cube generation failed")
         except Exception as e:
             self.error.emit(str(e))
 
@@ -144,10 +227,16 @@ _NBO_TR = {
     "zh": {
         "open_log": "打开 NBO log…",
         "open_fchk": "打开 fchk…",
+        "open_plot": "NBO plot…",
+        "make_input": "NBO 输入…",
         "lbl_log": "NBO log:",
         "placeholder_log": "选择 Gaussian .log/.out 文件…",
         "analyze": "分析",
         "e2_threshold": "E(2) 阈值:",
+        "grid_quality": "格点:",
+        "tip_open_plot": "推荐直接选择 .37，程序会自动配对 .31",
+        "tip_make_input": "载入 gjf 后编辑并生成 Gaussian NBO 输入",
+        "tip_grid": "Multiwfn 空间格点质量：1 稀疏，5 精细",
         "reset_view": "重置视角",
         "clear": "清空",
         "multiwfn": "Multiwfn:",
@@ -156,7 +245,15 @@ _NBO_TR = {
         "e2_table": "跨原子 E(2) 相互作用",
         "status_ready": "就绪 — 打开 NBO log，点「分析」看全部 NBO；或左画布选 1/2 个原子查指定原子",
         "no_log": "请先打开 Gaussian NBO 日志文件 (.log/.out)",
-        "no_fchk": "未关联 fchk，将无法匹配 MO / 可视化轨道",
+        "no_fchk": "未关联 fchk，无法载入分子结构",
+        "no_plot_hint": "要绘制真实 NBO，请选择同名的 .31 + .37 NBO plot 文件",
+        "source": "轨道来源: {source}",
+        "source_canonical": (
+            "普通 fchk 只存 canonical MO；双击仍可查看 nearest-MO 近似，"
+            "但严格 NBO 需使用 .31/.37 或 saveNBO fchk。"),
+        "source_none": (
+            "未找到 NBO plot 或 saveNBO fchk。当前日志/文件只能用于 NBO/E(2) "
+            "数值分析。"),
         "no_exe": "Multiwfn.exe 不存在，请先在主界面 ⚙️ 路径设置中配置",
         "analyzing": "正在分析…",
         "done_full": "全部 {n} 个 NBO 轨道（选 1/2 个原子可筛选）",
@@ -164,37 +261,58 @@ _NBO_TR = {
         "done_dual": "原子 #{a} 与 #{b}: {n} 个 NBO + {m} 个跨原子 E(2)",
         "no_nbo": "该选择下没有 NBO 轨道",
         "sel_one_or_two": "请选择 1 个原子查 NBO，或 2 个原子查跨原子 E(2)",
-        "double_click": "双击表格行可视化对应 MO",
+        "double_click": "双击表格行可视化对应轨道",
         "gen_mo": "生成 {mo_type} MO #{mo_num} cube…",
         "reuse_mo": "复用已归档 {mo_type} MO #{mo_num} cube",
+        "gen_nbo": "生成 {label} cube…",
+        "reuse_nbo": "复用已归档 {label} cube",
         "loaded_mo": "{mo_type} MO #{mo_num} 已加载到画布",
+        "loaded_visual": "{label} 已加载到画布",
         "dual_loaded": "{n} 个轨道已叠加到画布",
-        "no_mo": "该行没有匹配到 MO（能量容差 0.5 a.u.）",
+        "no_mo": "该行没有可靠的可视化来源",
+        "no_direct": "canonical MO 近似视图；不等同于严格 NBO",
         "flip_phase": "翻转相位",
         "flip_choose": "选择要翻转的轨道:",
         "flip_all": "翻转全部",
         "flip_none": "画布上还没有轨道，先双击表格行可视化",
         "flip_done_one": "画布轨道 {label} 相位已翻转",
         "flip_done_all": "画布 {n} 个轨道相位已翻转",
+        "src_label_plot": "轨道来源：NBO plot（{name}）· .37 里是真实 NBO 系数",
+        "src_label_save": (
+            "轨道来源：saveNBO fchk（{name}）· fchk 里存的就是 NBO，"
+            "MO 号 = NBO 存储位置"),
+        "src_label_canonical": (
+            "轨道来源：普通 fchk（{name}）· 只存 canonical MO，"
+            "双击是近似视图，不是严格 NBO"),
+        "src_label_none": "轨道来源：未找到 NBO 波函数 · 只能看占据与 E(2) 数值",
+        "src_label_empty": "轨道来源：尚未载入 NBO 日志",
         "col_nbo_id": "NBO",
         "col_type": "类型",
         "col_atoms": "原子",
         "col_occ": "占据",
         "col_energy": "能量",
         "col_mo": "MO",
+        "col_source": "MO",
         "col_idx": "#",
         "col_e2": "E(2)",
         "col_stars": "强度",
         "col_donor": "供体",
         "col_acceptor": "受体",
+        "tip_source_cell": "双击可视化（{display}）",
     },
     "en": {
         "open_log": "Open NBO log…",
         "open_fchk": "Open fchk…",
+        "open_plot": "NBO plot…",
+        "make_input": "NBO input…",
         "lbl_log": "NBO log:",
         "placeholder_log": "Choose a Gaussian .log/.out file…",
         "analyze": "Analyze",
         "e2_threshold": "E(2) threshold:",
+        "grid_quality": "Grid:",
+        "tip_open_plot": "Choose .37; the matching .31 is paired automatically",
+        "tip_make_input": "Load a GJF, edit it, and build a Gaussian NBO input",
+        "tip_grid": "Multiwfn spatial-grid quality: 1 sparse, 5 fine",
         "reset_view": "Reset View",
         "clear": "Clear",
         "multiwfn": "Multiwfn:",
@@ -203,7 +321,15 @@ _NBO_TR = {
         "e2_table": "CROSS-ATOM E(2) INTERACTIONS",
         "status_ready": "Ready — open NBO log, click Analyze for all NBOs, or pick 1/2 atoms to filter",
         "no_log": "Please open a Gaussian NBO log first (.log/.out)",
-        "no_fchk": "No fchk linked; MO matching / visualization disabled",
+        "no_fchk": "No fchk linked; molecule geometry cannot be loaded",
+        "no_plot_hint": "For true NBOs, select the matching .31 + .37 NBO plot files",
+        "source": "Orbital source: {source}",
+        "source_canonical": (
+            "A normal fchk stores canonical MOs. Double-click still shows a "
+            "nearest-MO approximation; strict NBOs require .31/.37 or saveNBO."),
+        "source_none": (
+            "No NBO plot or saveNBO fchk was found. This log can still be "
+            "used for NBO occupations and E(2) analysis."),
         "no_exe": "Multiwfn.exe not found, configure it in ⚙️ Path Settings first",
         "analyzing": "Analyzing…",
         "done_full": "All {n} NBO orbitals (pick 1/2 atoms to filter)",
@@ -211,29 +337,44 @@ _NBO_TR = {
         "done_dual": "Atom #{a} & #{b}: {n} NBOs + {m} cross-atom E(2)",
         "no_nbo": "No NBO orbitals for this selection",
         "sel_one_or_two": "Pick 1 atom for NBOs, or 2 atoms for cross-atom E(2)",
-        "double_click": "Double-click a row to visualize its MO",
+        "double_click": "Double-click a row to visualize its orbital",
         "gen_mo": "Generating {mo_type} MO #{mo_num} cube…",
         "reuse_mo": "Reuse archived {mo_type} MO #{mo_num} cube",
+        "gen_nbo": "Generating {label} cube…",
+        "reuse_nbo": "Reuse archived {label} cube",
         "loaded_mo": "{mo_type} MO #{mo_num} loaded to canvas",
+        "loaded_visual": "{label} loaded to canvas",
         "dual_loaded": "{n} orbitals overlaid on canvas",
-        "no_mo": "No MO matched for this row (0.5 a.u. tolerance)",
+        "no_mo": "No reliable visualization source for this row",
+        "no_direct": "Canonical-MO approximation, not a strict NBO",
         "col_nbo_id": "NBO",
         "col_type": "Type",
         "col_atoms": "Atoms",
         "col_occ": "Occ.",
         "col_energy": "Energy",
         "col_mo": "MO",
+        "col_source": "MO",
         "col_idx": "#",
         "col_e2": "E(2)",
         "col_stars": "Str",
         "col_donor": "Donor",
         "col_acceptor": "Acceptor",
+        "tip_source_cell": "Double-click to visualize ({display})",
         "flip_phase": "Flip Phase",
         "flip_choose": "Select orbital to flip:",
         "flip_all": "Flip All",
         "flip_none": "No orbitals on canvas — double-click a row to visualize first",
         "flip_done_one": "Canvas orbital {label} phase flipped",
         "flip_done_all": "Flipped {n} canvas orbitals",
+        "src_label_plot": "Source: NBO plot ({name}) · .37 holds the real NBO coefficients",
+        "src_label_save": (
+            "Source: saveNBO fchk ({name}) · the fchk stores NBOs, so the MO "
+            "index is the NBO storage position"),
+        "src_label_canonical": (
+            "Source: plain fchk ({name}) · canonical MOs only; double-click "
+            "shows an approximation, not a strict NBO"),
+        "src_label_none": "Source: no NBO wavefunction found · numeric NBO/E(2) only",
+        "src_label_empty": "Source: no NBO log loaded yet",
     },
 }
 
@@ -256,10 +397,12 @@ class NboPanel(QWidget):
         self._log_func = log_func if callable(log_func) else (lambda msg: None)
         self.log_file = None
         self.fchk_file = None    # 面板内手动/自动关联的 fchk（优先于主窗口 _current_fchk）
+        self.plot_file = None    # 手动/自动关联的 NBO .37（或 .31）
         self._analysis_worker = None
         self._cube_worker = None
         self._nbo_data = None      # 最近一次 data_dict
         self._e2_details = []      # cross_e2_details
+        self._visual_source = {}   # 最近一次 resolve_nbo_visual_source 结果
         self._pending_selection = None
         self._dual_queue = []      # 双轨道可视化：待生成 cube 的 [(mo_type, mo_num), ...]
         self._dual_cubes = []      # 已生成的 cube 路径
@@ -286,11 +429,17 @@ class NboPanel(QWidget):
     def _apply_lang(self):
         self.btn_open_log.setText(self._t("open_log"))
         self.btn_open_fchk.setText(self._t("open_fchk"))
+        self.btn_open_plot.setText(self._t("open_plot"))
+        self.btn_make_input.setText(self._t("make_input"))
         self.lbl_log.setText(self._t("lbl_log"))
         self.edit_log.setPlaceholderText(self._t("placeholder_log"))
         self.btn_browse_log.setText(self._t("browse"))
         self.btn_analyze.setText(self._t("analyze"))
         self.lbl_e2.setText(self._t("e2_threshold"))
+        self.lbl_grid.setText(self._t("grid_quality"))
+        self.btn_open_plot.setToolTip(self._t("tip_open_plot"))
+        self.btn_make_input.setToolTip(self._t("tip_make_input"))
+        self.combo_grid.setToolTip(self._t("tip_grid"))
         self.btn_reset.setText(self._t("reset_view"))
         self.btn_clear.setText(self._t("clear"))
         self.btn_flip.setText(self._t("flip_phase"))
@@ -298,14 +447,57 @@ class NboPanel(QWidget):
         self.grp_e2.setTitle(self._t("e2_table"))
         self.table_nbo.setHorizontalHeaderLabels([
             self._t("col_nbo_id"), self._t("col_type"), self._t("col_atoms"),
-            self._t("col_occ"), self._t("col_energy"), self._t("col_mo")])
+            self._t("col_occ"), self._t("col_energy"),
+            self._t("col_source")])
         self.table_e2.setHorizontalHeaderLabels([
             self._t("col_idx"), self._t("col_e2"), self._t("col_stars"),
-            self._t("col_donor"), self._t("col_acceptor"), self._t("col_mo")])
+            self._t("col_donor"), self._t("col_acceptor"),
+            self._t("col_source")])
+        self._render_source_label()
 
     def set_lang(self, lang):
         self.lang = "zh" if lang == "zh" else "en"
         self._apply_lang()
+
+    # ── 轨道来源提示 ──
+    _SRC_STYLES = {
+        "plot": "color:#1D4ED8;background:#EEF4FF;border:1px solid #C7D7F5;",
+        "saveNBO": "color:#1D4ED8;background:#EEF4FF;border:1px solid #C7D7F5;",
+        "canonical": "color:#8A5A00;background:#FFF7E6;border:1px solid #F3D9A4;",
+        "none": "color:#B91C1C;background:#FEF2F2;border:1px solid #F5C9C9;",
+    }
+
+    def _render_source_label(self, source=None):
+        """显示当前分析用的轨道来源（plot / saveNBO / canonical / none）。
+
+        没有这行时，用户看到 ``Alpha#9`` 无法判断它是 NBO 还是正则轨道；
+        canonical 与 none 两种必须明确标出来，避免把近似当成严格 NBO。
+        """
+        if source is not None:
+            self._visual_source = dict(source)
+        source = self._visual_source or {}
+        kind = str(source.get("kind") or "")
+        name = ""
+        if kind == "plot":
+            name = os.path.basename(
+                source.get("selected") or source.get("basis") or "")
+            text = self._t("src_label_plot", name=name)
+        elif kind == "saveNBO":
+            name = os.path.basename(source.get("fchk") or "")
+            text = self._t("src_label_save", name=name)
+        elif kind == "canonical":
+            name = os.path.basename(source.get("fchk") or "")
+            text = self._t("src_label_canonical", name=name)
+        elif kind == "none":
+            text = self._t("src_label_none")
+        else:
+            text = self._t("src_label_empty")
+        style = self._SRC_STYLES.get(
+            kind, "color:#64748B;background:#F8FAFC;border:1px solid #E2E8F0;")
+        if hasattr(self, "lbl_source"):
+            self.lbl_source.setText(text)
+            self.lbl_source.setStyleSheet(
+                style + "border-radius:4px;padding:4px 8px;font-size:9pt;")
 
     # ── UI ──
     def _build_ui(self):
@@ -343,6 +535,14 @@ class NboPanel(QWidget):
         self.edit_min_e2.setMaximumWidth(52)
         bv.addWidget(self.edit_min_e2)
 
+        self.lbl_grid = QLabel()
+        bv.addWidget(self.lbl_grid)
+        self.combo_grid = QComboBox()
+        self.combo_grid.addItems(["1", "2", "3", "4", "5"])
+        self.combo_grid.setCurrentIndex(1)
+        self.combo_grid.setMaximumWidth(52)
+        bv.addWidget(self.combo_grid)
+
         self.btn_reset = QPushButton()
         self.btn_reset.clicked.connect(self._reset_view)
         bv.addWidget(self.btn_reset)
@@ -372,7 +572,19 @@ class NboPanel(QWidget):
         self.btn_browse_log = QPushButton()
         self.btn_browse_log.clicked.connect(self._browse_log)
         lh.addWidget(self.btn_browse_log)
+        self.btn_open_plot = QPushButton()
+        self.btn_open_plot.clicked.connect(self._browse_plot)
+        lh.addWidget(self.btn_open_plot)
+        self.btn_make_input = QPushButton()
+        self.btn_make_input.clicked.connect(self._open_nbo_input_generator)
+        lh.addWidget(self.btn_make_input)
         v.addWidget(log_row)
+
+        # 轨道来源提示：让「Alpha#9」这类编号的含义一眼可见
+        self.lbl_source = QLabel()
+        self.lbl_source.setWordWrap(True)
+        self.lbl_source.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        v.addWidget(self.lbl_source)
 
         # NBO 表
         self.grp_nbo = QGroupBox()
@@ -426,14 +638,24 @@ class NboPanel(QWidget):
         self.edit_log.setText(p)
         self.log_file = p
         self._log("NBO log: " + os.path.basename(p))
-        # 自动检测同目录下的同名 .fchk（用于 MO 匹配 + 可视化）
-        if not self.fchk_file:
-            stem = os.path.splitext(p)[0]
-            candidate = stem + ".fchk"
-            if os.path.exists(candidate):
-                self.fchk_file = candidate
-                self._log("自动关联 fchk: " + os.path.basename(candidate))
-                self._load_molecule_to_canvas(candidate)
+        # A plot file belongs to the previously opened stem. Never carry it
+        # across logs or two different molecules can silently share cubes.
+        root = os.path.splitext(p)[0]
+        sibling_37 = root + ".37"
+        sibling_31 = root + ".31"
+        self.plot_file = sibling_37 if (
+            os.path.exists(sibling_37) and os.path.exists(sibling_31)
+        ) else None
+        if self.plot_file:
+            self._log("自动关联 NBO plot: " + os.path.basename(self.plot_file))
+        # 自动检测同目录下的同名 .fchk；新 log 不能沿用上一分子的面板内
+        # fchk，否则轨道来源和画布结构会悄悄串到另一份计算上。
+        self.fchk_file = None
+        candidate = root + ".fchk"
+        if os.path.exists(candidate):
+            self.fchk_file = candidate
+            self._log("自动关联 fchk: " + os.path.basename(candidate))
+            self._load_molecule_to_canvas(candidate)
         # 载入后立即做全量概览，让表格有内容
         self._on_analyze_clicked()
 
@@ -446,6 +668,41 @@ class NboPanel(QWidget):
             self._log("fchk: " + os.path.basename(p))
             self._load_molecule_to_canvas(p)
             self._on_analyze_clicked()
+
+    def _browse_plot(self):
+        p, _ = open_file(
+            self, "选择 NBO plot (.37 或 .31)", "",
+            "NBO plot (*.37 *.31 *.32 *.33 *.34 *.35 *.36 *.38 *.39 *.40);;"
+            "所有文件 (*)")
+        if not p:
+            return
+        try:
+            ext = int(os.path.splitext(p)[1].lstrip("."))
+        except ValueError:
+            ext = 0
+        if ext not in (31,) and not (32 <= ext <= 40):
+            self._set_status(self._t("no_plot_hint"))
+            return
+        self.plot_file = p
+        self._log("NBO plot: " + os.path.basename(p))
+        fchk = self._resolve_fchk()
+        if not fchk:
+            root = os.path.splitext(p)[0]
+            candidate = root + ".fchk"
+            if os.path.exists(candidate):
+                self.fchk_file = candidate
+                fchk = candidate
+        if fchk:
+            self._load_molecule_to_canvas(fchk)
+        self._on_analyze_clicked()
+
+    def _open_nbo_input_generator(self):
+        """Open the editable generator; a current log is only an optional seed."""
+        dlg = NboInputDialog(
+            initial_source=self.log_file or "",
+            initial_fchk=self._resolve_fchk(),
+            lang=self.lang, parent=self)
+        dlg.exec_()
 
     def _load_molecule_to_canvas(self, fchk):
         """把 fchk 的分子结构加载到左侧画布（供选原子 + 定位）。"""
@@ -468,6 +725,12 @@ class NboPanel(QWidget):
             return f
         f2 = (self._get_fchk() or "").strip()
         return f2 if f2 and os.path.exists(f2) else ""
+
+    def _grid_quality(self):
+        try:
+            return int(self.combo_grid.currentText())
+        except (TypeError, ValueError):
+            return 2
 
     # ── 画布选择 → 分析 ──
     def _on_canvas_atom_picked(self, idx_1based):
@@ -501,7 +764,7 @@ class NboPanel(QWidget):
             min_e2 = 0.5
         self._set_status(self._t("analyzing"))
         self._analysis_worker = NboAnalysisWorker(
-            self.log_file, atom1, atom2, min_e2, fchk)
+            self.log_file, atom1, atom2, min_e2, fchk, self.plot_file)
         self._analysis_worker.finished.connect(self._on_analysis_done)
         self._analysis_worker.start()
 
@@ -510,6 +773,7 @@ class NboPanel(QWidget):
             self._set_status(self._t("no_nbo"))
             return
         self._nbo_data = data
+        self._render_source_label(data.get("visual_source"))
         self._render_nbo_table(data)
         self._render_e2_table(data)
 
@@ -527,26 +791,42 @@ class NboPanel(QWidget):
         self._log(self._t("double_click"))
 
     # ── 渲染表格 ──
+    def _fit_columns(self, table, content_cols, stretch_cols):
+        """按内容收窄数字列，把剩余宽度让给文字列（供体/受体/MO）。
+
+        右栏面板本来就窄，默认 100 px 的列宽会把 ``BD*(1)C5-Cl8`` 截成
+        ``BD*(1)C5-…``；数字列用 ResizeToContents 省下的宽度正好补给它。
+        """
+        header = table.horizontalHeader()
+        for c in content_cols:
+            header.setSectionResizeMode(c, QHeaderView.ResizeToContents)
+        for c in stretch_cols:
+            header.setSectionResizeMode(c, QHeaderView.Stretch)
+
     def _render_nbo_table(self, data):
         overview = data.get("nbo_overview", [])
         self.table_nbo.setRowCount(0)
         self.table_nbo.setRowCount(len(overview))
         for i, e in enumerate(overview):
-            mo = f"{e.get('mo_type','')}#{e.get('mo_num')}" if e.get("mo_num") else "—"
+            visual = e.get("visual")
+            source_text = visual.get("display", "—") if visual else "—"
             cells = [
                 str(e["nbo_id"]),
                 e.get("type_label", e["type"]),
                 e.get("atoms_str", ""),
                 f"{e['occupancy']:.5f}" if e.get("occupancy") is not None else "—",
                 f"{e['energy']:.5f}" if e.get("energy") is not None else "—",
-                mo,
+                source_text,
             ]
             for j, txt in enumerate(cells):
                 item = QTableWidgetItem(txt)
                 item.setTextAlignment(Qt.AlignCenter)
-                if j == 5 and e.get("mo_num"):
-                    item.setData(Qt.UserRole, (e.get("mo_type"), e.get("mo_num")))
+                if j == 5 and visual:
+                    item.setData(Qt.UserRole, visual)
+                    item.setToolTip(self._t(
+                        "tip_source_cell", display=source_text))
                 self.table_nbo.setItem(i, j, item)
+        self._fit_columns(self.table_nbo, [0, 1, 2, 3, 4], [5])
 
     def _render_e2_table(self, data):
         details = data.get("cross_e2_details", [])
@@ -554,56 +834,64 @@ class NboPanel(QWidget):
         self.table_e2.setRowCount(0)
         self.table_e2.setRowCount(len(details))
         for i, d in enumerate(details):
-            mo = []
-            if d.get("mo1_num"):
-                mo.append(f"{d.get('mo1_type','')}#{d.get('mo1_num')}")
-            if d.get("mo2_num"):
-                mo.append(f"{d.get('mo2_type','')}#{d.get('mo2_num')}")
-            mo_str = " + ".join(mo) if mo else "—"
+            visuals = [
+                v for v in (d.get("visual_donor"),
+                            d.get("visual_acceptor")) if v
+            ]
+            source_text = " + ".join(
+                v.get("display", "—") for v in visuals) if visuals else "—"
             cells = [
                 str(d["idx"]),
                 f"{d['e2']:.2f}",
                 d.get("stars", ""),
                 d.get("donor_label", ""),
                 d.get("acceptor_label", ""),
-                mo_str,
+                source_text,
+            ]
+            tips = [
+                "", "", "",
+                d.get("donor_str", ""), d.get("acceptor_str", ""),
+                self._t("tip_source_cell", display=source_text),
             ]
             for j, txt in enumerate(cells):
                 item = QTableWidgetItem(txt)
                 if j in (1, 2, 5):
                     item.setTextAlignment(Qt.AlignCenter)
-                if j == 5 and d.get("mo1_num"):
-                    mo_entries = []
-                    if d.get("mo1_num"):
-                        mo_entries.append((d.get("mo1_type"), d.get("mo1_num")))
-                    if d.get("mo2_num"):
-                        mo_entries.append((d.get("mo2_type"), d.get("mo2_num")))
-                    item.setData(Qt.UserRole, mo_entries)
+                if j == 5 and visuals:
+                    item.setData(Qt.UserRole, visuals)
+                if tips[j]:
+                    # 面板窄，「供体 / 受体」列常被截断；悬停可看完整标签
+                    item.setToolTip(tips[j])
                 self.table_e2.setItem(i, j, item)
+        self._fit_columns(self.table_e2, [0, 1, 2, 5], [3, 4])
 
     # ── 双击可视化 MO ──
     def _on_nbo_double_click(self, row, _col):
         item = self.table_nbo.item(row, 5)
         if item is None:
             return
-        data = item.data(Qt.UserRole)
-        if not data:
+        visual = item.data(Qt.UserRole)
+        if not visual:
             self._set_status(self._t("no_mo"))
             return
-        mo_type, mo_num = data
-        self._visualize_mo(mo_type, mo_num)
+        if not visual.get("renderable", visual.get("direct")):
+            self._set_status(self._t("no_mo"))
+            return
+        self._visualize_visual(visual)
 
     def _on_e2_double_click(self, row, _col):
         item = self.table_e2.item(row, 5)
         if item is None:
             return
-        data = item.data(Qt.UserRole)
-        if not data:
+        visuals = item.data(Qt.UserRole)
+        if not visuals:
+            self._set_status(self._t("no_mo"))
+            return
+        if any(not v.get("renderable", v.get("direct")) for v in visuals):
             self._set_status(self._t("no_mo"))
             return
         # E(2) 双轨道：donor + acceptor 同时可视化
-        entries = list(data)
-        self._visualize_dual(entries)
+        self._visualize_dual(list(visuals))
 
     def _apply_style(self):
         """（已停用）曾用于把「主窗口的 VMD 风格下拉」套到画布上。
@@ -619,38 +907,47 @@ class NboPanel(QWidget):
         """
         return
 
-    def _visualize_mo(self, mo_type, mo_num):
-        fchk = self._resolve_fchk()
-        if not fchk or not os.path.exists(fchk):
-            self._set_status(self._t("no_fchk"))
+    def _visualize_visual(self, visual):
+        source = visual.get("source")
+        if not source or not os.path.exists(source):
+            self._set_status(self._t("source_none"))
             return
         mw = (self._get_mw() or "").strip()
         if not mw or not os.path.exists(mw):
             self._set_status(self._t("no_exe"))
             return
-        orbital = nbo_orbital_str(mo_num, mo_type)
-        if os.path.exists(nbo_mo_cube_path(fchk, mo_num, mo_type)):
-            self._log(self._t("reuse_mo", mo_type=mo_type, mo_num=mo_num))
+        if visual.get("kind") == "plot":
+            target = nbo_plot_cube_path(source, visual["nbo_id"])
+            label = visual.get("display", "NBO")
+            if os.path.exists(target):
+                self._log(self._t("reuse_nbo", label=label))
+            else:
+                self._log(self._t("gen_nbo", label=label))
         else:
-            self._log(self._t("gen_mo", mo_type=mo_type, mo_num=mo_num))
+            mo_num = abs(int(visual["orbital"]))
+            mo_type = visual.get("mo_type", "Alpha")
+            if os.path.exists(nbo_mo_cube_path(source, mo_num, mo_type)):
+                self._log(self._t("reuse_mo", mo_type=mo_type, mo_num=mo_num))
+            else:
+                self._log(self._t("gen_mo", mo_type=mo_type, mo_num=mo_num))
         self._cube_worker = NboCubeWorker(
-            fchk, orbital, mo_num, mo_type, mw)
+            visual, mw, grid_quality=self._grid_quality())
         self._cube_worker.finished.connect(self._on_cube_done)
         self._cube_worker.error.connect(lambda e: self._set_status(str(e)))
         self._cube_worker.start()
 
-    def _on_cube_done(self, cube_path, mo_num, mo_type):
+    def _on_cube_done(self, cube_path, visual):
+        label = visual.get("display", "NBO")
         if self.glw is not None:
             # 不再套主窗口的 VMD 风格（会把画布相位色重置成 sob-art）：
             # 直接按画布**当前**配色渲染，见 _apply_style 的说明。
             self.glw.load(cube_path, 0.05)
-            label = f"#{mo_num} ({mo_type})"
             self._canvas_orbitals = [(label, cube_path)]
             # 登记 VMD 同步场景（画布当前 MO）
             self.glw.set_vmd_scene(
                 [{"type": "orbital", "vol": cube_path, "iso": 0.05,
                   "label": label}])
-        self._log(self._t("loaded_mo", mo_type=mo_type, mo_num=mo_num))
+        self._log(self._t("loaded_visual", label=label))
 
     # ── E(2) 双轨道叠加 ──
     def _visualize_dual(self, entries):
@@ -660,13 +957,16 @@ class NboPanel(QWidget):
         受体用同一对色交换相位 —— 既保持该样式自己的配色，又能区分两个轨道。
         不再套主窗口的 VMD 风格（那会把配色打回 sob-art，见 _apply_style 说明）。
         """
-        fchk = self._resolve_fchk()
-        if not fchk or not os.path.exists(fchk):
-            self._set_status(self._t("no_fchk"))
-            return
         if not entries:
             return
-        entries = entries[:2]
+        entries = [
+            v for v in entries[:2]
+            if v.get("renderable", v.get("direct"))
+            and os.path.exists(v.get("source", ""))
+        ]
+        if not entries:
+            self._set_status(self._t("source_none"))
+            return
         # 同上：不覆盖画布当前配色/材质。E(2) 双轨道的配色在**真正载入 cube 的
         # 那一刻**（_load_dual_cubes）从画布当前相位色取，避免"生成 cube 期间
         # 用户又换了样式"导致配色对不上。
@@ -677,36 +977,49 @@ class NboPanel(QWidget):
         self._dual_cubes = []
         self._set_status(self._t("analyzing"))
         self._log("E(2) 双轨道叠加: " + ", ".join(
-            f"{t}#{n}" for t, n in entries))
+            str(v.get("display", "NBO")) for v in entries))
         self._gen_next_dual_cube()
 
     def _gen_next_dual_cube(self):
         if not self._dual_queue:
             self._load_dual_cubes()
             return
-        mo_type, mo_num = self._dual_queue.pop(0)
-        fchk = self._resolve_fchk()
+        visual = self._dual_queue.pop(0)
+        source = visual.get("source")
         mw = (self._get_mw() or "").strip()
-        if not fchk or not os.path.exists(fchk):
-            self._set_status(self._t("no_fchk"))
+        if not source or not os.path.exists(source):
+            self._set_status(self._t("source_none"))
             self._dual_queue.clear()
             return
         if not mw or not os.path.exists(mw):
             self._set_status(self._t("no_exe"))
             self._dual_queue.clear()
             return
-        orbital = nbo_orbital_str(mo_num, mo_type)
-        if os.path.exists(nbo_mo_cube_path(fchk, mo_num, mo_type)):
-            self._log(self._t("reuse_mo", mo_type=mo_type, mo_num=mo_num))
+        if visual.get("kind") == "plot":
+            target = nbo_plot_cube_path(source, visual["nbo_id"])
+            label = visual.get("display", "NBO")
         else:
-            self._log(self._t("gen_mo", mo_type=mo_type, mo_num=mo_num))
+            mo_num = abs(int(visual["orbital"]))
+            mo_type = visual.get("mo_type", "Alpha")
+            target = nbo_mo_cube_path(source, mo_num, mo_type)
+            label = visual.get("display", mo_type)
+        if os.path.exists(target):
+            if visual.get("kind") == "plot":
+                self._log(self._t("reuse_nbo", label=label))
+            else:
+                self._log(self._t("reuse_mo", mo_type=mo_type, mo_num=mo_num))
+        else:
+            if visual.get("kind") == "plot":
+                self._log(self._t("gen_nbo", label=label))
+            else:
+                self._log(self._t("gen_mo", mo_type=mo_type, mo_num=mo_num))
         self._cube_worker = NboCubeWorker(
-            fchk, orbital, mo_num, mo_type, mw)
+            visual, mw, grid_quality=self._grid_quality())
         self._cube_worker.finished.connect(self._on_dual_cube_done)
         self._cube_worker.error.connect(lambda e: self._set_status(str(e)))
         self._cube_worker.start()
 
-    def _on_dual_cube_done(self, cube_path, mo_num, mo_type):
+    def _on_dual_cube_done(self, cube_path, visual):
         self._dual_cubes.append(cube_path)
         self._gen_next_dual_cube()
 
@@ -725,12 +1038,12 @@ class NboPanel(QWidget):
             self.glw.load_orbitals(self._dual_cubes, 0.05, pairs)
             # 登记 VMD 同步场景（E(2) 双轨道叠加；label 供「翻转相位」选择轨道）
             self._canvas_orbitals = [
-                (f"#{n} ({t})", c)
-                for c, (t, n) in zip(self._dual_cubes, self._dual_entries)]
+                (v.get("display", "NBO"), c)
+                for c, v in zip(self._dual_cubes, self._dual_entries)]
             self.glw.set_vmd_scene(
                 [{"type": "orbital", "vol": c, "iso": 0.05,
-                  "label": f"#{n} ({t})"}
-                 for c, (t, n) in zip(self._dual_cubes, self._dual_entries)])
+                  "label": v.get("display", "NBO")}
+                 for c, v in zip(self._dual_cubes, self._dual_entries)])
         self._log(self._t("dual_loaded", n=len(self._dual_cubes)))
 
     # ── 画布翻转相位（支持按轨道选择） ──
@@ -783,7 +1096,11 @@ class NboPanel(QWidget):
     def reset_view_state(self):
         """新分子载入时清空 NBO 状态（由主窗口调用）。"""
         self.log_file = None
+        self.fchk_file = None
+        self.plot_file = None
         self._nbo_data = None
+        self._visual_source = {}
+        self._render_source_label({})
         self._e2_details = []
         self._clear_selection()
         if hasattr(self, "edit_log"):

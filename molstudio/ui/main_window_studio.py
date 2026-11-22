@@ -90,14 +90,15 @@ except Exception as _e:      # noqa: BLE001 —— 工具条模块缺失时只�
 # 不在表里的 key（插件缺面板时也不会发生）会落到「其他」组，保证 27 页全部可达。
 GROUP_DEFS = (
     ("common", "常用", "Favorites",
-     ("tab_viz", "tab_setup", "tab_library", "tab_orca", "tab_xtb")),
+     ("tab_viz", "tab_setup", "tab_library", "tab_orca", "tab_xtb",
+      "tab_gaussian")),
     ("electronic", "电子结构", "Electronic",
      ("tab_nbo", "tab_charge_bond", "tab_lmo", "tab_ow_fukui")),
     ("surface", "表面与相互作用", "Surface & Interaction",
      ("tab_esp", "tab_igmh", "tab_aim", "tab_etsnocv",
       "tab_edd", "tab_steric", "tab_surfproj", "tab_aicd")),
     ("spectra", "光谱与能量", "Spectra & Energy",
-     ("tab_spectrum", "tab_dos", "tab_esm", "tab_di")),
+     ("tab_spectrum", "tab_dos", "tab_esm", "tab_microkinetics", "tab_di")),
     ("reaction", "反应路径", "Reaction Paths",
      ("tab_irc", "tab_ircsplit", "tab_asm_irc")),
     ("tools", "结构与工具", "Structure & Tools",
@@ -1163,6 +1164,12 @@ class MolStudioStudioWindow(MolStudioCleanWindow):
             for b in bar.findChildren(QToolButton):
                 if b.objectName() != "CanvasBarBtn" or b.menu() is None:
                     continue
+                if getattr(b, "_paints_own_chevron", False):
+                    # 新工具条按钮自带「图标 + 文字 + 自绘箭头」：
+                    # 不再补 ▾（会变成两个箭头），也不能强制 TextOnly（会丢图标）。
+                    b.setMinimumWidth(b.sizeHint().width())
+                    b.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+                    continue
                 t = b.text()
                 if t and not t.endswith("▾"):
                     b.setText(t + " ▾")
@@ -1180,6 +1187,11 @@ class MolStudioStudioWindow(MolStudioCleanWindow):
             return
         bar = getattr(self, "_studio_canvas_bar", None)
         if bar is None:
+            return
+        if getattr(bar, "_group_seps_done", False):
+            # 紧凑条自己已经插了「胶囊 | 样式·显示 | 导出」的分组竖线，
+            # 再补一轮会在每组之间出现两条。
+            self._pill_seps_done = True
             return
         lay = bar.layout()
         if lay is None:

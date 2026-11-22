@@ -2,6 +2,7 @@
 """ORCA 本机模块单元测试（不依赖本机 ORCA 可执行文件）。"""
 
 import os
+import re
 
 import pytest
 
@@ -113,6 +114,12 @@ def test_build_input_td():
     assert "%tddft" in text and "NRoots 15" in text
 
 
+def test_build_input_allows_negative_charge():
+    text = O.build_input(["O", "H"], [[0, 0, 0], [1, 0, 0]],
+                         charge=-1, mult=2, task="sp")
+    assert "* xyz -1 2" in text
+
+
 def test_build_input_validation():
     with pytest.raises(O.OrcaError):
         O.build_input([], [], task="sp")
@@ -135,6 +142,35 @@ def test_prepare_job_writes_input(tmp_path):
     text = open(prepared.inp_path, encoding="utf-8").read()
     assert text == prepared.input_text
     assert prepared.command_str
+
+
+def test_resolve_run_dir_is_timestamped_and_never_reused(tmp_path):
+    base = str(tmp_path / "MolStudio_ORCA")
+    first = O.resolve_run_dir(base)
+    assert os.path.dirname(first) == base
+    assert re.fullmatch(r"\d{8}_\d{6}", os.path.basename(first))
+    assert not os.path.exists(first)          # 只算路径，不建目录
+    # 固定时间戳：第一次返回 base/<stamp>，目录已存在时追加 _1（不覆盖旧结果）
+    stamp = "20260102_030405"
+    a = O.resolve_run_dir(base, stamp=stamp)
+    assert a == os.path.join(base, stamp)
+    os.makedirs(a)
+    b = O.resolve_run_dir(base, stamp=stamp)
+    assert b == os.path.join(base, stamp + "_1")
+    assert not os.path.exists(b)
+
+
+def test_read_gjf_charge_mult(tmp_path):
+    gjf = tmp_path / "anion.gjf"
+    gjf.write_text("#p b3lyp/def2svp\n\nanion\n\n-1 2\nO 0 0 0\n\n",
+                   encoding="utf-8")
+    assert O.read_gjf_charge_mult(str(gjf)) == (-1, 2)
+    plain = tmp_path / "w.xyz"
+    plain.write_text("1\nw\nH 0 0 0\n", encoding="utf-8")
+    assert O.read_gjf_charge_mult(str(plain)) == (None, None)
+    empty = tmp_path / "e.gjf"
+    empty.write_text("\n\n", encoding="utf-8")
+    assert O.read_gjf_charge_mult(str(empty)) == (None, None)
 
 
 def test_parse_energy_geometry_orbitals_charges():
